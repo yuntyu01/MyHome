@@ -101,3 +101,14 @@
 - **분석 일별 추이에서 이번 기간의 미래 날짜는 비움** — 0으로 그리면 "지출 없음"처럼 보여서.
 - **다크 모드: 시스템 설정을 따르고, 상단 버튼으로 바꾸면 브라우저에 기억(localStorage)** — 저장소를 못 쓰면 시스템 설정.
 - **보안 헤더**: CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin`, 화면은 `Cache-Control: no-store`.
+
+## Phase 6
+
+- **위젯은 캐시만 읽어서 그리고, 갱신은 별도(`WidgetRefresher`)** — Glance의 `provideGlance`에서 네트워크를 쓰면 느리고 실패 시 빈 위젯이 된다. 마지막 요약을 SharedPreferences에 JSON으로 저장(앱 백업 제외 대상).
+- **갱신 시점: 이벤트 전송 성공 직후(`AfterUpload`) + WorkManager 30분 주기 + 앱 홈 진입 + 앱에서 분류한 직후** — "결제 직후 즉시 갱신"(R2). 시스템 `updatePeriodMillis`는 0(배터리).
+- **위젯 크기 3단계(SizeMode.Responsive)**: 작게(총 남은 돈 + 분류 2개, 금액은 "12만"처럼 줄임), 중간(분류 3 + 최근 결제 3), 크게(분류 5 + 최근 결제 4) — `core/WidgetModel.kt`. 기준 크기는 `WidgetLayout.forSize`.
+- **위젯 "상위 분류" = 예산이 있는 분류 중 사용률 높은 순** — 가장 신경 써야 할 분류가 먼저 보이게. 지출이 많은 순으로 바꾸려면 `WidgetModel.topCategories`.
+- **위젯 "최근 결제" = 나간 돈 + 확인 필요 건** — 확정된 입금(급여 등)은 "결제"가 아니라서 뺀다.
+- **위젯 탭 동작은 명시적 Intent + 항목별 data URI** — 여러 클릭 영역의 PendingIntent가 섞이지 않게. 확인 필요 결제는 해당 거래 분류 대화상자를 바로 연다.
+- **앱 화면은 요약·확인 필요·최근 거래 위주, 세부 수정은 PC 웹** — CLAUDE.md "앱 화면: 이번 달 요약, 확인 필요 처리, 최근 거래". 기존 상태 화면은 "수집 상태"로 옮겼다.
+- **ViewModel·DI 없이 화면에서 직접 API 호출(Dispatchers.IO) + 저장소 객체** — 개인용 소규모 앱이라 구조를 단순하게 유지.

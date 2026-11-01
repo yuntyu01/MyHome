@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">MyHome 가계부</string>
     <string name="capture_service_label">MyHome 결제 알림 수집</string>
+    <string name="widget_label">가계부 남은 돈</string>
+    <string name="widget_description">이번 달 분류별 남은 돈과 최근 결제</string>
 </resources>

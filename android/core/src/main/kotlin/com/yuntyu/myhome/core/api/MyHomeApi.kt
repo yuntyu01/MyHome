@@ -24,6 +24,22 @@ class MyHomeApi(
     fun postEvent(payload: EventPayload): ApiResult<EventResponse> =
         call("POST", "/v1/events", MyHomeJson.encodeToString(EventPayload.serializer(), payload), EventResponse.serializer())
 
+    /** 이번 기간 요약(위젯·홈). recent는 최근 거래 개수. */
+    fun summary(recent: Int = 4): ApiResult<Summary> = call("GET", "/v1/summary?recent=$recent", null, Summary.serializer())
+
+    /** 확인 필요 거래 목록 */
+    fun reviewQueue(): ApiResult<TransactionList> = call("GET", "/v1/review", null, TransactionList.serializer())
+
+    /** 이번 기간 거래 목록 */
+    fun transactions(limit: Int = 50): ApiResult<TransactionList> =
+        call("GET", "/v1/transactions?limit=$limit", null, TransactionList.serializer())
+
+    fun categories(): ApiResult<CategoryList> = call("GET", "/v1/categories", null, CategoryList.serializer())
+
+    /** 거래 분류 변경. rememberRule이면 "이 가맹점은 항상" 규칙을 저장한다. */
+    fun editTransaction(id: Long, edit: TransactionEdit): ApiResult<EditResponse> =
+        call("PATCH", "/v1/transactions/$id", MyHomeJson.encodeToString(TransactionEdit.serializer(), edit), EditResponse.serializer())
+
     /** 카카오 로그인으로 기기 토큰을 받는다. 기기 토큰이 아직 없으므로 인증 없이 호출한다. */
     fun kakaoDeviceLogin(kakaoAccessToken: String, deviceName: String): ApiResult<DeviceLoginResponse> =
         call(

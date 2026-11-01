@@ -45,6 +45,19 @@
             </intent-filter>
         </activity>
 
+        <!-- 홈 화면 위젯 (Jetpack Glance) -->
+        <receiver
+            android:name=".widget.SummaryWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/summary_widget_info" />
+        </receiver>
+
         <!-- 알림 수집기. 시스템만 바인딩할 수 있도록 권한으로 보호한다. -->
         <service
             android:name=".capture.CaptureService"
