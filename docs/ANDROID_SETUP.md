@@ -47,7 +47,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 앱 홈 → **설정**
 
-1. 서버 주소 입력 → 저장 (https만 허용. 개발용 http는 에뮬레이터 `http://10.0.2.2:8080`, 그리고 **디버그 빌드에서만** 같은 Wi-Fi의 개발 PC `http://192.168.x.x:8080`)
+1. 서버 주소 입력 → 저장 (**실사용(릴리스) 빌드는 https만**. 개발용 http — 에뮬레이터 `http://10.0.2.2:8080`, 같은 Wi-Fi의 개발 PC `http://192.168.x.x:8080` — 는 **디버그 빌드에서만** 된다)
 2. 토큰: Phase 4 이후에는 **카카오 로그인**. 그 전이나 비상시에는 서버에서 발급한 토큰을 "토큰 직접 입력"에 넣는다.
    ```
    /myhome token issue --name galaxy

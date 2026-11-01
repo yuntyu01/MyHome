@@ -42,7 +42,7 @@
 - **토큰은 Keystore AES-256-GCM 키로 직접 암호화** (EncryptedSharedPreferences 미사용) — security-crypto 라이브러리는 지원 중단 예정이고, 직접 구현이 단순하다 — `TokenStore`.
 - **테스트 알림은 제목 `[MyHome 테스트]`로 표시하고 서버는 거래로 만들지 않음** — 실제 기기 확인 절차(테스트 알림 → 서버 확인 → 알림 삭제)를 장부 오염 없이 하기 위해 — `CaptureRules.TEST_TITLE_MARKER`, 서버 파이프라인(Phase 3).
 - **앱 백업 끔(`allowBackup=false`, 데이터 추출 규칙에서 전부 제외)** — 토큰·알림 원문이 클라우드 백업으로 나가지 않게 — `AndroidManifest.xml`.
-- **http 서버 주소는 localhost·10.0.2.2·사설망(192.168.*, 10.*)만 허용** — 토큰 평문 전송 방지. 개발 편의는 유지 — `core/ServerUrl.kt`. Android 쪽 평문 허용은 network security config로: 릴리스는 에뮬레이터(10.0.2.2)·localhost만, 디버그 빌드는 사설망 개발 서버도 허용(`src/debug/res/xml/network_security_config.xml`). (Phase 7 검토 후 추가)
+- **http 서버 주소는 localhost·10.0.2.2·사설망(192.168.*, 10.*)만 허용** — 토큰 평문 전송 방지. 개발 편의는 유지 — `core/ServerUrl.kt`. Android 쪽 평문 허용은 network security config로: **릴리스는 HTTPS만**(예외는 기기 자신인 localhost·127.0.0.1뿐), 디버그 빌드만 에뮬레이터·사설망 개발 서버 http 허용(`src/debug/res/xml/network_security_config.xml`). 처음엔 릴리스에 10.0.2.2도 열어 뒀으나, 실제 폰에서는 이 주소가 같은 망의 다른 기기일 수 있어 뺐다.
 
 ## Phase 3
 

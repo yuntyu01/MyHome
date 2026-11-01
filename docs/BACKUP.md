@@ -18,14 +18,14 @@ make backup
 
 - 결과: `backups/myhome-YYYYMMDD-HHMMSS.dump` (pg_dump custom 형식, 압축됨, 권한 600)
 - 스크립트가 만든 직후 `pg_restore --list`로 파일이 읽히는지 확인한다.
-- **기본은 아무것도 지우지 않는다.** 오래된 백업을 자동 정리하려면 `KEEP_DAYS=30`처럼 지정한다.
+- **기본은 아무것도 지우지 않는다**(데이터 삭제 금지 원칙). 그대로 매일 돌리면 디스크가 계속 차므로, 자동 백업에는 **`KEEP_DAYS=30`을 꼭 지정**한다.
 - 백업 파일은 저장소에 커밋하지 않는다(`.gitignore`의 `/backups/`, `*.dump`). 외장 저장소나 암호화된 클라우드 폴더에 보관한다.
 
 ### 매일 자동 백업 (예: 서버나 PC의 cron)
 
 ```cron
 # 매일 04:10 KST
-10 4 * * * cd /path/to/MyHome && DATABASE_URL='...' KEEP_DAYS=60 scripts/backup.sh /secure/backups >> /var/log/myhome-backup.log 2>&1
+10 4 * * * cd /path/to/MyHome && DATABASE_URL='...' KEEP_DAYS=30 scripts/backup.sh /secure/backups >> /var/log/myhome-backup.log 2>&1
 ```
 
 kodeploy에 예약 작업 기능이 있으면 같은 명령을 등록한다(확인 필요). 관리형 DB가 자체 스냅샷을 제공하면 그것도 켜 둔다.
