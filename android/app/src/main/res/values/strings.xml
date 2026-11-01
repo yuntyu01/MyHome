@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MyHome 가계부</string>
+    <string name="capture_service_label">MyHome 결제 알림 수집</string>
+</resources>

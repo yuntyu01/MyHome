@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 단순한 지갑 모양 아이콘 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,40h44a4,4 0,0 1,4 4v24a4,4 0,0 1,-4 4h-44a4,4 0,0 1,-4 -4v-24a4,4 0,0 1,4 -4z" />
+    <path
+        android:fillColor="#2E7D5B"
+        android:pathData="M62,50h18v12h-18a6,6 0,0 1,0 -12z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M64,56m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+</vector>

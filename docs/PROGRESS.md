@@ -4,7 +4,7 @@
 
 ## 현재 Phase
 
-Phase 1 완료 → Phase 2 진행 예정
+Phase 2 완료 → Phase 3 진행 예정
 
 ## 완료된 것
 
@@ -25,9 +25,17 @@ Phase 1 완료 → Phase 2 진행 예정
 - 검증: `go test ./...` 통과(정상 저장·중복·인증 실패·검증·폐기 토큰), Docker 이미지 빌드 성공,
   compose에서 실제 토큰 발급 → 201 → 재전송 200(duplicate) → 무토큰 401 확인
 
+### Phase 2: Android v0 수집기 (코드 완성, 앱 빌드 미검증)
+- `android/core` (순수 Kotlin): API 클라이언트(OkHttp), 수집 규칙, 중복 키(서버 content_hash와 동일), 서버 주소 검사, 금액 포맷
+- `android/app`: `CaptureService`(NotificationListenerService) → Room 대기열 → `UploadWorker`(WorkManager, 재시도·재부팅 유지) → 성공 시 `cancelNotification`
+- 화면: 홈(상태), 권한 안내(삼성 안내 포함), 최근 알림·수집 대상 선택(실제 패키지명), 설정(서버 URL, 토큰 직접 입력, 자동 삭제), 전송 로그(최근 50건)
+- 토큰 Keystore 암호화 저장, 앱 백업 제외, 테스트 알림 기능
+- `docs/ANDROID_SETUP.md`
+- 검증: `gradle -p core test` 16개 통과(MockWebServer로 Bearer·JSON·재시도 판단 확인, Kotlin↔Go 해시 일치 확인).
+  `./gradlew assembleDebug`는 **실행 못 함**(아래 "막힌 것").
+
 ## 남은 것
 
-- Phase 2: Android 수집기
 - Phase 3: 해석·분류·예산 코어
 - Phase 4: 카카오 로그인
 - Phase 5: PC 웹
@@ -36,7 +44,8 @@ Phase 1 완료 → Phase 2 진행 예정
 
 ## 막힌 것
 
-- 없음
+- **Android 앱 빌드(`assembleDebug`) 검증 불가**: 작업 환경에서 Google Maven과 Android SDK 주소(dl.google.com)가 네트워크 정책으로 막혀 있다. AGP·androidx를 받을 수 없어서 `app` 모듈은 코드만 작성했다. Maven Central은 쓸 수 있어서 `core` 모듈은 빌드·테스트했다.
+  → 사용자 PC(Android Studio)에서 첫 빌드 필요. 컴파일 오류가 나면 그 메시지로 수정 요청.
 
 ## 작업 환경 메모 (이 클라우드 세션 기준)
 

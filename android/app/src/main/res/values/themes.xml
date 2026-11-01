@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose가 실제 테마를 그린다. 이 테마는 시작 화면·창 배경용. -->
+    <style name="Theme.MyHome" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
