@@ -1,6 +1,7 @@
 package com.yuntyu.myhome
 
 import android.app.Application
+import com.kakao.sdk.common.KakaoSdk
 import com.yuntyu.myhome.core.api.MyHomeApi
 import com.yuntyu.myhome.data.AppDatabase
 import com.yuntyu.myhome.notify.Notifications
@@ -27,6 +28,9 @@ class MyHomeApp : Application() {
         tokenStore = TokenStore(this)
         api = MyHomeApi(baseUrl = { settings.serverUrl }, token = { tokenStore.read() })
         Notifications.createChannels(this)
+        if (BuildConfig.KAKAO_NATIVE_APP_KEY.isNotBlank()) {
+            KakaoSdk.init(this, BuildConfig.KAKAO_NATIVE_APP_KEY)
+        }
         // 앱이 켜질 때마다 남은 대기열을 비우고 주기 작업을 보장한다.
         WorkScheduler.ensurePeriodic(this)
         WorkScheduler.flushNow(this)

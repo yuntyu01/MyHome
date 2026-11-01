@@ -24,6 +24,16 @@ class MyHomeApi(
     fun postEvent(payload: EventPayload): ApiResult<EventResponse> =
         call("POST", "/v1/events", MyHomeJson.encodeToString(EventPayload.serializer(), payload), EventResponse.serializer())
 
+    /** 카카오 로그인으로 기기 토큰을 받는다. 기기 토큰이 아직 없으므로 인증 없이 호출한다. */
+    fun kakaoDeviceLogin(kakaoAccessToken: String, deviceName: String): ApiResult<DeviceLoginResponse> =
+        call(
+            "POST",
+            "/v1/auth/kakao/device",
+            MyHomeJson.encodeToString(DeviceLoginRequest.serializer(), DeviceLoginRequest(kakaoAccessToken, deviceName)),
+            DeviceLoginResponse.serializer(),
+            auth = false,
+        )
+
     /** 공통 호출. 인증이 필요 없는 경로는 auth=false. */
     fun <T> call(
         method: String,

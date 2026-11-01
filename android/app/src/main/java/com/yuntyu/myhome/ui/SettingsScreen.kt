@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.yuntyu.myhome.MyHomeApp
+import com.yuntyu.myhome.auth.KakaoLogin
 import com.yuntyu.myhome.core.ServerUrl
 import com.yuntyu.myhome.work.WorkScheduler
 import kotlinx.coroutines.Dispatchers
@@ -124,10 +125,36 @@ fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
-/** 카카오 로그인(Phase 4에서 구현). */
+/** 카카오 로그인: 서버가 회원번호를 검증한 뒤 기기 토큰을 발급한다. */
 @Composable
 fun KakaoLoginSection() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
     SectionCard("카카오 로그인") {
-        Text("Phase 4에서 추가됩니다. 지금은 토큰 직접 입력을 쓰세요.", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "처음 한 번 로그인하면 서버가 이 폰 전용 토큰을 발급해요. 토큰은 Android Keystore로 암호화해서 저장해요.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Button(enabled = KakaoLogin.available && !busy, onClick = {
+            busy = true
+            message = null
+            scope.launch {
+                message = when (val o = KakaoLogin.login(ctx)) {
+                    KakaoLogin.Outcome.Success -> {
+                        WorkScheduler.flushNow(ctx)
+                        "로그인했어요. 기기 토큰을 저장했어요."
+                    }
+                    KakaoLogin.Outcome.Cancelled -> "로그인을 취소했어요."
+                    is KakaoLogin.Outcome.Failed -> o.message
+                }
+                busy = false
+            }
+        }) { Text(if (busy) "로그인 중…" else "카카오로 로그인") }
+        if (!KakaoLogin.available) {
+            Text("이 빌드에는 카카오 앱 키가 없어요. 토큰 직접 입력을 쓰세요.", style = MaterialTheme.typography.bodySmall)
+        }
+        message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
     }
 }

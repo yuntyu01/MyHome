@@ -27,6 +27,38 @@ type Config struct {
 
 	// ParserPackages는 패키지명 → 파서 매핑이다. 형식: "kb=패키지1,패키지2;toss=패키지3"
 	ParserPackages string
+
+	// AppEnv: production(기본) 또는 development
+	AppEnv string
+
+	// 카카오 로그인. 키가 없으면 카카오 로그인 경로는 503을 반환한다.
+	KakaoRestAPIKey   string
+	KakaoClientSecret string
+	KakaoRedirectURI  string
+	KakaoAppID        int64 // 설정하면 앱 로그인 토큰이 이 앱에서 발급됐는지 확인한다
+	KakaoAuthBase     string
+	KakaoAPIBase      string
+	AllowedKakaoIDs   []int64
+
+	CookieSecure bool
+	SessionTTL   time.Duration
+	// DevLoginKakaoID는 APP_ENV=development일 때만 쓰는 로컬 개발용 로그인 우회다.
+	DevLoginKakaoID int64
+}
+
+// KakaoConfigured는 웹 카카오 로그인에 필요한 값이 모두 있는지 반환한다.
+func (c Config) KakaoConfigured() bool {
+	return c.KakaoRestAPIKey != "" && c.KakaoRedirectURI != ""
+}
+
+// IsAllowedKakaoID는 회원번호가 허용 목록에 있는지 반환한다.
+func (c Config) IsAllowedKakaoID(id int64) bool {
+	for _, a := range c.AllowedKakaoIDs {
+		if a == id {
+			return true
+		}
+	}
+	return false
 }
 
 // Load는 환경변수에서 설정을 읽는다.
@@ -43,6 +75,20 @@ func Load() (Config, error) {
 		TrustProxyHeaders:    boolean("TRUST_PROXY_HEADERS", false, &errs),
 		CLITokenIssueEnabled: boolean("CLI_TOKEN_ISSUE_ENABLED", true, &errs),
 		ParserPackages:       os.Getenv("PARSER_PACKAGES"),
+		AppEnv:               str("APP_ENV", "production"),
+		KakaoRestAPIKey:      os.Getenv("KAKAO_REST_API_KEY"),
+		KakaoClientSecret:    os.Getenv("KAKAO_CLIENT_SECRET"),
+		KakaoRedirectURI:     os.Getenv("KAKAO_REDIRECT_URI"),
+		KakaoAppID:           int64(integer("KAKAO_APP_ID", 0, &errs)),
+		KakaoAuthBase:        str("KAKAO_AUTH_BASE", "https://kauth.kakao.com"),
+		KakaoAPIBase:         str("KAKAO_API_BASE", "https://kapi.kakao.com"),
+		AllowedKakaoIDs:      int64List("ALLOWED_KAKAO_IDS", &errs),
+		CookieSecure:         boolean("COOKIE_SECURE", true, &errs),
+		SessionTTL:           duration("SESSION_TTL", 30*24*time.Hour, &errs),
+		DevLoginKakaoID:      int64(integer("DEV_LOGIN_KAKAO_ID", 0, &errs)),
+	}
+	if c.DevLoginKakaoID != 0 && c.AppEnv != "development" {
+		errs = append(errs, "DEV_LOGIN_KAKAO_ID는 APP_ENV=development에서만 쓸 수 있습니다")
 	}
 	if len(errs) > 0 {
 		return c, fmt.Errorf("환경변수 오류: %s", strings.Join(errs, "; "))
@@ -127,7 +173,15 @@ func list(key string) []string {
 	return out
 }
 
-var (
-	_ = duration
-	_ = list
-)
+func int64List(key string, errs *[]string) []int64 {
+	var out []int64
+	for _, s := range list(key) {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			*errs = append(*errs, key+"는 쉼표로 구분한 숫자여야 합니다")
+			return nil
+		}
+		out = append(out, n)
+	}
+	return out
+}

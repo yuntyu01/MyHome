@@ -10,18 +10,19 @@ import (
 )
 
 const createDevice = `-- name: CreateDevice :one
-INSERT INTO devices (name, token_hash)
-VALUES ($1, $2)
-RETURNING id, name, token_hash, created_at, last_seen_at, revoked_at
+INSERT INTO devices (name, token_hash, kakao_id)
+VALUES ($1, $2, $3)
+RETURNING id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id
 `
 
 type CreateDeviceParams struct {
 	Name      string `json:"name"`
 	TokenHash []byte `json:"token_hash"`
+	KakaoID   *int64 `json:"kakao_id"`
 }
 
 func (q *Queries) CreateDevice(ctx context.Context, arg CreateDeviceParams) (Device, error) {
-	row := q.db.QueryRow(ctx, createDevice, arg.Name, arg.TokenHash)
+	row := q.db.QueryRow(ctx, createDevice, arg.Name, arg.TokenHash, arg.KakaoID)
 	var i Device
 	err := row.Scan(
 		&i.ID,
@@ -30,12 +31,13 @@ func (q *Queries) CreateDevice(ctx context.Context, arg CreateDeviceParams) (Dev
 		&i.CreatedAt,
 		&i.LastSeenAt,
 		&i.RevokedAt,
+		&i.KakaoID,
 	)
 	return i, err
 }
 
 const getActiveDeviceByTokenHash = `-- name: GetActiveDeviceByTokenHash :one
-SELECT id, name, token_hash, created_at, last_seen_at, revoked_at
+SELECT id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id
 FROM devices
 WHERE token_hash = $1
   AND revoked_at IS NULL
@@ -51,12 +53,13 @@ func (q *Queries) GetActiveDeviceByTokenHash(ctx context.Context, tokenHash []by
 		&i.CreatedAt,
 		&i.LastSeenAt,
 		&i.RevokedAt,
+		&i.KakaoID,
 	)
 	return i, err
 }
 
 const listDevices = `-- name: ListDevices :many
-SELECT id, name, token_hash, created_at, last_seen_at, revoked_at
+SELECT id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id
 FROM devices
 ORDER BY id
 `
@@ -77,6 +80,7 @@ func (q *Queries) ListDevices(ctx context.Context) ([]Device, error) {
 			&i.CreatedAt,
 			&i.LastSeenAt,
 			&i.RevokedAt,
+			&i.KakaoID,
 		); err != nil {
 			return nil, err
 		}
@@ -92,7 +96,7 @@ const revokeDevice = `-- name: RevokeDevice :one
 UPDATE devices
 SET revoked_at = coalesce(revoked_at, now())
 WHERE id = $1
-RETURNING id, name, token_hash, created_at, last_seen_at, revoked_at
+RETURNING id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id
 `
 
 func (q *Queries) RevokeDevice(ctx context.Context, id int64) (Device, error) {
@@ -105,6 +109,7 @@ func (q *Queries) RevokeDevice(ctx context.Context, id int64) (Device, error) {
 		&i.CreatedAt,
 		&i.LastSeenAt,
 		&i.RevokedAt,
+		&i.KakaoID,
 	)
 	return i, err
 }

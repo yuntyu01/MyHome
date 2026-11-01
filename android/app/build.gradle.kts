@@ -30,6 +30,12 @@ android {
 
         // 기본 서버 주소(선택). 앱 설정 화면에서 바꿀 수 있다.
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"${buildSetting("myhome.serverUrl")}\"")
+
+        // 카카오 네이티브 앱 키: local.properties의 kakao.nativeAppKey 또는 환경변수 KAKAO_NATIVEAPPKEY.
+        // 비어 있으면 카카오 로그인 버튼이 비활성화되고 "토큰 직접 입력"만 쓸 수 있다.
+        val kakaoKey = buildSetting("kakao.nativeAppKey")
+        buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"$kakaoKey\"")
+        manifestPlaceholders["kakaoScheme"] = if (kakaoKey.isBlank()) "kakaodisabled" else "kakao$kakaoKey"
     }
 
     buildTypes {
@@ -79,6 +85,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kakao.user)
 
     testImplementation(libs.junit)
 }

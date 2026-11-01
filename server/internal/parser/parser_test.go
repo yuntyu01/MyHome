@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -32,20 +33,28 @@ type fixture struct {
 	} `json:"want"`
 }
 
+// loadFixtures는 합성 픽스처(필수)와 익명화한 실데이터 픽스처(있으면)를 읽는다.
 func loadFixtures(t *testing.T) []fixture {
 	t.Helper()
-	b, err := os.ReadFile("testdata/synthetic/cases.json")
-	if err != nil {
-		t.Fatal(err)
+	var all []fixture
+	for _, path := range []string{"testdata/synthetic/cases.json", "testdata/anonymized/cases.json"} {
+		b, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) && strings.Contains(path, "anonymized") {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		var f fixtureFile
+		if err := json.Unmarshal(b, &f); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if f.Note == "" {
+			t.Fatalf("%s: 픽스처 출처를 밝히는 _note가 있어야 함", path)
+		}
+		all = append(all, f.Cases...)
 	}
-	var f fixtureFile
-	if err := json.Unmarshal(b, &f); err != nil {
-		t.Fatal(err)
-	}
-	if f.Note == "" {
-		t.Fatal("합성 픽스처에는 실제 형식이 아니라는 _note가 있어야 함")
-	}
-	return f.Cases
+	return all
 }
 
 func TestSyntheticFixtures(t *testing.T) {

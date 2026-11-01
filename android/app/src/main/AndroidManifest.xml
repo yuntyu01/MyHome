@@ -31,6 +31,20 @@
             </intent-filter>
         </activity>
 
+        <!-- 카카오톡/카카오계정 로그인 결과를 받는 화면 (카카오 SDK). 스킴은 kakao{네이티브 앱 키} -->
+        <activity
+            android:name="com.kakao.sdk.auth.AuthCodeHandlerActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="oauth"
+                    android:scheme="${kakaoScheme}" />
+            </intent-filter>
+        </activity>
+
         <!-- 알림 수집기. 시스템만 바인딩할 수 있도록 권한으로 보호한다. -->
         <service
             android:name=".capture.CaptureService"

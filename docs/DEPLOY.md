@@ -41,6 +41,14 @@
 | `TRUST_PROXY_HEADERS` | `false` | 리버스 프록시 뒤라면 `true` (X-Forwarded-For 사용) |
 | `CLI_TOKEN_ISSUE_ENABLED` | `true` | `false`면 CLI 비상 토큰 발급 금지 |
 | `PARSER_PACKAGES` | (빈 값) | 패키지명 → 파서 매핑. `docs/PARSERS.md` |
+| `APP_ENV` | `production` | `development`면 개발용 로그인 허용 |
+| `KAKAO_REST_API_KEY` | | 카카오 REST API 키 (`docs/KAKAO_SETUP.md`) |
+| `KAKAO_CLIENT_SECRET` | | 카카오 Client Secret |
+| `KAKAO_REDIRECT_URI` | | `https://<도메인>/auth/kakao/callback` |
+| `KAKAO_APP_ID` | | 카카오 앱 ID(숫자). 앱 로그인 토큰 검증용 |
+| `ALLOWED_KAKAO_IDS` | | 허용할 카카오 회원번호(쉼표 구분) |
+| `COOKIE_SECURE` | `true` | 세션 쿠키 Secure 속성. https 운영에서는 반드시 true |
+| `SESSION_TTL` | `720h` | 웹 세션 유지 기간 |
 
 이후 Phase에서 추가되는 변수(카카오 로그인 등)는 이 문서와 `.env.example`에 계속 추가한다.
 

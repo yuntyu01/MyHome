@@ -4,7 +4,7 @@
 
 ## 현재 Phase
 
-Phase 3 완료 → Phase 4 진행 예정
+Phase 4 완료 → Phase 5 진행 예정
 
 ## 완료된 것
 
@@ -47,9 +47,18 @@ Phase 3 완료 → Phase 4 진행 예정
   카드대금, 내 계좌→투자, 머니 충전 vs 티머니, 친구 송금, 해석 실패, 금액만, 테스트 알림, 멱등, 학습, 정산 되돌림,
   현금 입력, 재처리 수동 보존, 재처리 연결 일관성), API E2E 5개
 
+### Phase 4: 카카오 로그인
+- 서버: 카카오 API 인터페이스(`auth.Kakao`) + 실제 구현(`KakaoHTTP`), 웹 OAuth 로그인(state 검증), `ALLOWED_KAKAO_IDS` 허용 목록,
+  DB 세션 + HttpOnly/Secure/SameSite=Lax 쿠키, CSRF 검사, 로그아웃, 개발용 로그인(development 전용)
+- 앱 로그인 API `POST /v1/auth/kakao/device`(회원번호·앱 ID 검증 후 기기 토큰 발급), 기기 목록·폐기 API
+- 사용자 API는 기기 토큰 또는 웹 세션으로 접근
+- Android: 카카오 SDK 로그인 → 서버 검증 → Keystore 저장, 네이티브 앱 키는 빌드 설정 주입, 토큰 직접 입력 유지
+- `docs/KAKAO_SETUP.md`
+- 검증: 허용 계정 로그인(세션 쿠키 속성, 세션 API, CSRF 거부/허용, 로그아웃), 미허용 계정 거부, state 위조 거부,
+  앱 기기 토큰 발급 → 수집 성공 → 폐기 → 401, 다른 앱 토큰·미허용·잘못된 토큰 거부, KakaoHTTP 요청 형식. core 테스트 18개 통과
+
 ## 남은 것
 
-- Phase 4: 카카오 로그인
 - Phase 5: PC 웹
 - Phase 6: 위젯·앱 화면
 - Phase 7: 마무리

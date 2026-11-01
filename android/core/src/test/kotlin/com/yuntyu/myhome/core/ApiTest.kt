@@ -70,6 +70,24 @@ class ApiTest {
         assertEquals(UploadDecision.RETRY, dead.postEvent(payload).toUploadDecision())
     }
 
+    @Test fun kakaoDeviceLoginWithoutDeviceToken() {
+        token = null // 아직 기기 토큰이 없어도 호출할 수 있어야 한다
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"token":"mhd_new","device_id":3,"device_name":"galaxy"}"""))
+        val r = api().kakaoDeviceLogin("kakao-at", "galaxy")
+        assertTrue(r is ApiResult.Ok)
+        assertEquals("mhd_new", (r as ApiResult.Ok).value.token)
+        val req = server.takeRequest()
+        assertEquals("/v1/auth/kakao/device", req.path)
+        assertEquals(null, req.getHeader("Authorization"))
+        assertTrue(req.body.readUtf8().contains("\"access_token\":\"kakao-at\""))
+    }
+
+    @Test fun kakaoNotAllowed() {
+        server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":"kakao account not allowed","kakao_id":9}"""))
+        val r = api().kakaoDeviceLogin("x", "y")
+        assertEquals(403, (r as ApiResult.HttpError).code)
+    }
+
     @Test fun notConfigured() {
         token = null
         val r = api().postEvent(payload)

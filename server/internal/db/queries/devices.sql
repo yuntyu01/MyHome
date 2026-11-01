@@ -1,6 +1,6 @@
 -- name: CreateDevice :one
-INSERT INTO devices (name, token_hash)
-VALUES ($1, $2)
+INSERT INTO devices (name, token_hash, kakao_id)
+VALUES ($1, $2, $3)
 RETURNING *;
 
 -- name: GetActiveDeviceByTokenHash :one

@@ -47,11 +47,16 @@ type DeviceCreator interface {
 
 // IssueDeviceToken은 새 기기와 토큰을 만든다. 반환한 토큰 원문은 다시 조회할 수 없다.
 func IssueDeviceToken(ctx context.Context, q DeviceCreator, name string) (string, dbq.Device, error) {
+	return IssueDeviceTokenFor(ctx, q, name, nil)
+}
+
+// IssueDeviceTokenFor는 카카오 계정(kakaoID)으로 기기 토큰을 발급한다. CLI 발급은 nil.
+func IssueDeviceTokenFor(ctx context.Context, q DeviceCreator, name string, kakaoID *int64) (string, dbq.Device, error) {
 	tok, err := NewToken(TokenPrefix)
 	if err != nil {
 		return "", dbq.Device{}, err
 	}
-	d, err := q.CreateDevice(ctx, dbq.CreateDeviceParams{Name: name, TokenHash: HashToken(tok)})
+	d, err := q.CreateDevice(ctx, dbq.CreateDeviceParams{Name: name, TokenHash: HashToken(tok), KakaoID: kakaoID})
 	if err != nil {
 		return "", dbq.Device{}, err
 	}

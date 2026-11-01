@@ -31,6 +31,7 @@ type Device struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	RevokedAt  *time.Time `json:"revoked_at"`
+	KakaoID    *int64     `json:"kakao_id"`
 }
 
 type MerchantRule struct {
@@ -56,6 +57,15 @@ type RawEvent struct {
 	ContentHash   string     `json:"content_hash"`
 	ProcessedAt   *time.Time `json:"processed_at"`
 	ParseError    *string    `json:"parse_error"`
+}
+
+type Session struct {
+	IDHash     []byte    `json:"id_hash"`
+	KakaoID    int64     `json:"kakao_id"`
+	CsrfToken  string    `json:"csrf_token"`
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	LastSeenAt time.Time `json:"last_seen_at"`
 }
 
 type Setting struct {
