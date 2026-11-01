@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -48,9 +50,11 @@ class SummaryWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(setOf(SMALL, MEDIUM, LARGE))
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val summary = (context.applicationContext as MyHomeApp).summaryRepo.cached()
+        val repo = (context.applicationContext as MyHomeApp).summaryRepo
         provideContent {
-            GlanceTheme { WidgetContent(context, summary) }
+            // updateAll은 실행 중인 provideGlance를 다시 시작하지 않으므로, 캐시 상태를 구독해서 바로 다시 그린다.
+            val st by repo.state.collectAsState()
+            GlanceTheme { WidgetContent(context, st.summary) }
         }
     }
 
@@ -121,19 +125,22 @@ private fun WidgetContent(context: Context, summary: Summary?) {
             }
         }
         Spacer(GlanceModifier.height(6.dp))
-        for (c in WidgetModel.topCategories(summary, layout.categoryCount)) {
-            Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp)) {
-                Text(c.name, style = TextStyle(color = text, fontSize = 13.sp), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
-                Text(
-                    if (layout == WidgetLayout.SMALL) Money.compact(c.remaining) else Money.won(c.remaining),
-                    style = TextStyle(color = colorFor(WidgetModel.stateOf(c)), fontSize = 13.sp, fontWeight = FontWeight.Medium),
-                )
+        // Glance 컨테이너는 직접 자식을 10개까지만 그리므로 분류·최근 결제를 각각 Column으로 묶는다.
+        Column(modifier = GlanceModifier.fillMaxWidth()) {
+            for (c in WidgetModel.topCategories(summary, layout.categoryCount)) {
+                Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp)) {
+                    Text(c.name, style = TextStyle(color = text, fontSize = 13.sp), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
+                    Text(
+                        if (layout == WidgetLayout.SMALL) Money.compact(c.remaining) else Money.won(c.remaining),
+                        style = TextStyle(color = colorFor(WidgetModel.stateOf(c)), fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                    )
+                }
             }
         }
-        if (layout.recentCount > 0) {
-            val recent = WidgetModel.recentPayments(summary, layout.recentCount)
-            if (recent.isNotEmpty()) {
-                Spacer(GlanceModifier.height(6.dp))
+        val recent = if (layout.recentCount > 0) WidgetModel.recentPayments(summary, layout.recentCount) else emptyList()
+        if (recent.isNotEmpty()) {
+            Spacer(GlanceModifier.height(6.dp))
+            Column(modifier = GlanceModifier.fillMaxWidth()) {
                 Text("최근 결제", style = TextStyle(color = sub, fontSize = 11.sp))
                 for (t in recent) {
                     val review = t.status == "needs_review"

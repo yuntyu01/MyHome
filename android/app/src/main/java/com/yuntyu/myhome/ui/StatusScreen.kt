@@ -28,8 +28,8 @@ fun StatusScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
     val app = MyHomeApp.instance
     val settings by app.settings.state.collectAsState()
     val hasToken by app.tokenStore.hasToken.collectAsState()
-    val pending by app.db.pendingEvents().pendingCount().collectAsState(initial = 0)
-    val rejected by app.db.pendingEvents().rejectedCount().collectAsState(initial = 0)
+    val pending by remember { app.db.pendingEvents().pendingCount() }.collectAsState(initial = 0)
+    val rejected by remember { app.db.pendingEvents().rejectedCount() }.collectAsState(initial = 0)
     val listenerOn = remember(resumeTick) { PermissionStatus.listenerEnabled(ctx) }
     val batteryOk = remember(resumeTick) { PermissionStatus.batteryUnrestricted(ctx) }
     val authProblem = remember(resumeTick, pending) { app.settings.authProblem }

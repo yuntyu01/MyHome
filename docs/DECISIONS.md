@@ -42,7 +42,7 @@
 - **토큰은 Keystore AES-256-GCM 키로 직접 암호화** (EncryptedSharedPreferences 미사용) — security-crypto 라이브러리는 지원 중단 예정이고, 직접 구현이 단순하다 — `TokenStore`.
 - **테스트 알림은 제목 `[MyHome 테스트]`로 표시하고 서버는 거래로 만들지 않음** — 실제 기기 확인 절차(테스트 알림 → 서버 확인 → 알림 삭제)를 장부 오염 없이 하기 위해 — `CaptureRules.TEST_TITLE_MARKER`, 서버 파이프라인(Phase 3).
 - **앱 백업 끔(`allowBackup=false`, 데이터 추출 규칙에서 전부 제외)** — 토큰·알림 원문이 클라우드 백업으로 나가지 않게 — `AndroidManifest.xml`.
-- **http 서버 주소는 localhost·10.0.2.2·사설망(192.168.*, 10.*)만 허용** — 토큰 평문 전송 방지. 개발 편의는 유지 — `core/ServerUrl.kt`. 단, Android 9+는 기본적으로 평문 HTTP를 막으므로 개발 서버에 http로 붙으려면 network security config가 필요하다(현재 미포함, https 권장).
+- **http 서버 주소는 localhost·10.0.2.2·사설망(192.168.*, 10.*)만 허용** — 토큰 평문 전송 방지. 개발 편의는 유지 — `core/ServerUrl.kt`. Android 쪽 평문 허용은 network security config로: 릴리스는 에뮬레이터(10.0.2.2)·localhost만, 디버그 빌드는 사설망 개발 서버도 허용(`src/debug/res/xml/network_security_config.xml`). (Phase 7 검토 후 추가)
 
 ## Phase 3
 
@@ -122,3 +122,14 @@
 - **대사 도우미 = 출처별 확정 지출 + 제외 내역(사유·출처별) + 최근 6개 기간 출처별 표 + 출처·성격별 합계** — 카드 명세서와 차이가 나면 "뺀 거래" 표(중복·취소·카드대금·충전)로 설명할 수 있게 — `/reconcile`, `GET /v1/reconcile`.
 - **백업은 `pg_dump --format=custom`, 기본으로 아무것도 지우지 않음(`KEEP_DAYS`를 줄 때만 정리)** — 데이터 삭제 금지 원칙. 백업 직후 `pg_restore --list`로 검증.
 - **복구 스크립트는 `--yes` 없으면 계획만 출력, 새 빈 DB에 복구 후 전환 권장** — 덮어쓰기 사고 방지.
+
+## 최종 검토 (Android 코드 리뷰 반영)
+
+앱 모듈을 빌드할 수 없어서 별도 검토를 한 번 돌렸다(Glance 1.1.0 API 시그니처 대조, Kotlin 2.1 문법 확인). 컴파일 실패 확정 항목은 없었고 아래를 고쳤다.
+
+- **위젯이 갱신 직후 옛 숫자를 그리는 문제** — Glance는 실행 중인 `provideGlance`를 `updateAll`로 다시 시작하지 않는다. 캐시 상태를 `collectAsState`로 구독하게 바꿨다.
+- **큰 위젯에서 행이 잘리는 문제** — Glance 컨테이너는 직접 자식 10개까지만 그린다. 분류·최근 결제를 각각 `Column`으로 묶었다.
+- **평문 HTTP 개발 서버 접속 불가** — network security config 추가(위 Phase 2 항목).
+- **"최근 알림"에 앱 이름 대신 패키지명이 보이는 문제** — Android 11+ 패키지 가시성. 런처 앱 `<queries>` 선언 추가.
+- 회전 후 위젯 인텐트 재처리 방지, 코루틴 취소 예외를 삼키지 않기, Room Flow `remember`, `material-icons-core`·`lifecycle-runtime-compose` 의존성 명시, `LocalLifecycleOwner`를 새 위치로.
+- **카카오 SDK API(`ClientError.reason/msg`, `loginWithKakaoTalk(context, callback=)` 등)는 저장소 접근이 막혀 확인하지 못했다**(검토자 확신도 85~90%). 첫 빌드에서 오류가 나면 이 부분부터 본다.

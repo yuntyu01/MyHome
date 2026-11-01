@@ -82,6 +82,10 @@
 - 검증: 서버 `go test ./...` 전부 통과(하위 테스트 포함 83개), core 테스트 29개 통과, Docker 이미지 빌드 후 compose로 기존 DB에 마이그레이션 3개 적용·healthz/login/static 확인,
   백업 → 새 DB 복구 → 건수 일치 확인, Playwright로 리포트·대사 화면 확인
 
+### 최종 검토
+- 빌드할 수 없는 Android 앱 코드를 별도 검토(Glance API 시그니처 대조 등). 컴파일 실패 확정 항목 없음.
+  런타임 문제 4건(위젯 갱신 지연, 큰 위젯 행 잘림, 평문 HTTP 차단, 앱 이름 조회 불가)과 작은 문제들을 고침(`DECISIONS.md` "최종 검토")
+
 ## 남은 것
 
 - 없음(Phase 0~7 완료). 실사용 후 파서 보정은 `docs/PARSERS.md` 절차로.

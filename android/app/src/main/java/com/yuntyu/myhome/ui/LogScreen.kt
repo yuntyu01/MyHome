@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yuntyu.myhome.MyHomeApp
@@ -18,7 +19,7 @@ import com.yuntyu.myhome.MyHomeApp
 /** 최근 50건 전송 로그. 본문은 저장하지 않고 패키지·결과만 보여준다. */
 @Composable
 fun LogScreen(modifier: Modifier) {
-    val logs by MyHomeApp.instance.db.sendLog().recent().collectAsState(initial = emptyList())
+    val logs by remember { MyHomeApp.instance.db.sendLog().recent() }.collectAsState(initial = emptyList())
     LazyColumn(modifier.fillMaxSize()) {
         if (logs.isEmpty()) item { Text("아직 전송 기록이 없어요.", Modifier.padding(16.dp)) }
         items(logs, key = { it.id }) { l ->

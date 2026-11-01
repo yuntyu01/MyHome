@@ -10,6 +10,14 @@
     <!-- WorkManager 긴급 작업이 Android 11 이하에서 포그라운드로 돌 때 필요 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
+    <!-- "최근 알림" 화면에서 다른 앱의 이름을 보여주려면 Android 11+에서 패키지 가시성 선언이 필요하다. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:name=".MyHomeApp"
         android:allowBackup="false"
@@ -17,6 +25,7 @@
         android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyHome">
 

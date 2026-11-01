@@ -26,9 +26,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /** 앱 화면 목록. 단순한 상태 기반 내비게이션(라이브러리 없음). */
 enum class Screen(val title: String) {
@@ -58,12 +58,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        readIntent(intent)
+        // 회전 등으로 다시 만들어질 때는 위젯 인텐트를 다시 처리하지 않는다(복원된 화면 유지).
+        if (savedInstanceState == null) readIntent(intent)
         setContent { MyHomeTheme { AppRoot(launchRequest) } }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         readIntent(intent)
     }
 

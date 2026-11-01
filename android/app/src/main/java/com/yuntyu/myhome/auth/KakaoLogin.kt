@@ -10,6 +10,7 @@ import com.yuntyu.myhome.BuildConfig
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.core.api.describe
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -37,6 +38,8 @@ object KakaoLogin {
 
         val kakaoToken = try {
             kakaoAccessToken(context)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: ClientError) {
             if (e.reason == ClientErrorCause.Cancelled) return Outcome.Cancelled
             return Outcome.Failed("카카오 로그인 실패: ${e.msg}")
@@ -66,6 +69,8 @@ object KakaoLogin {
         if (client.isKakaoTalkLoginAvailable(context)) {
             try {
                 return suspendLogin { cb -> client.loginWithKakaoTalk(context, callback = cb) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: ClientError) {
                 // 사용자가 카카오톡 로그인 화면에서 직접 취소하면 계정 로그인으로 넘어가지 않는다.
                 if (e.reason == ClientErrorCause.Cancelled) throw e

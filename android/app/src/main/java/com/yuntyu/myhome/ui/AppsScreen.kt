@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -27,7 +28,7 @@ import com.yuntyu.myhome.MyHomeApp
 @Composable
 fun AppsScreen(modifier: Modifier) {
     val app = MyHomeApp.instance
-    val apps by app.db.recentApps().all().collectAsState(initial = emptyList())
+    val apps by remember { app.db.recentApps().all() }.collectAsState(initial = emptyList())
     val settings by app.settings.state.collectAsState()
     // 선택했지만 아직 알림이 안 온 앱도 보이게 합친다.
     val knownPkgs = apps.map { it.packageName }.toSet()
