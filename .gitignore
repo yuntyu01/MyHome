@@ -1,0 +1,45 @@
+# --- 비밀값 ---
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+
+# --- Go ---
+/server/bin/
+/server/myhome
+*.test
+*.out
+coverage.*
+/server/vendor/
+
+# --- Android / Gradle ---
+local.properties
+.gradle/
+**/build/
+/android/.idea/
+/android/captures/
+/android/.externalNativeBuild/
+/android/.cxx/
+*.apk
+*.aab
+*.iml
+
+# --- 로컬 데이터·덤프 (개인정보) ---
+/data/
+/backups/
+*.dump
+*.sql.gz
+*.pgdump
+raw_events*.jsonl
+export*.jsonl
+/server/testdata/real/
+
+# --- 기타 ---
+.DS_Store
+.idea/
+.vscode/
+tmp/

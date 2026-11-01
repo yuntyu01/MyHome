@@ -1,0 +1,36 @@
+# 로컬 개발용. 실제 배포는 kodeploy로 한다(docs/DEPLOY.md).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: myhome
+      POSTGRES_PASSWORD: myhome
+      POSTGRES_DB: myhome
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myhome -d myhome"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build:
+      context: ./server
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://myhome:myhome@postgres:5432/myhome?sslmode=disable
+      HTTP_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
