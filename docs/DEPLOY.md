@@ -49,8 +49,11 @@
 | `ALLOWED_KAKAO_IDS` | | 허용할 카카오 회원번호(쉼표 구분) |
 | `COOKIE_SECURE` | `true` | 세션 쿠키 Secure 속성. https 운영에서는 반드시 true |
 | `SESSION_TTL` | `720h` | 웹 세션 유지 기간 |
+| `KAKAO_AUTH_BASE` | `https://kauth.kakao.com` | 카카오 인증 서버 주소 |
+| `KAKAO_API_BASE` | `https://kapi.kakao.com` | 카카오 API 서버 주소 |
+| `DEV_LOGIN_KAKAO_ID` | | 로컬 개발용 로그인. `APP_ENV=development`에서만 허용(운영에서 넣으면 서버가 시작 거부) |
 
-이후 Phase에서 추가되는 변수(카카오 로그인 등)는 이 문서와 `.env.example`에 계속 추가한다.
+전체 목록과 예시는 `.env.example`에 있다.
 
 ## 4. 첫 배포 절차
 
@@ -87,7 +90,11 @@
 /myhome token revoke --id 3   # 분실한 폰의 토큰 폐기
 ```
 
-## 7. 로컬에서 이미지 빌드
+## 7. 백업
+
+`scripts/backup.sh`로 매일 백업한다. 자세한 건 [`BACKUP.md`](BACKUP.md).
+
+## 8. 로컬에서 이미지 빌드
 
 ```bash
 make docker-build

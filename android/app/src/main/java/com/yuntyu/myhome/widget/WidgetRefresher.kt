@@ -11,6 +11,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.api.ApiResult
+import com.yuntyu.myhome.notify.BudgetAlertNotifier
 import java.util.concurrent.TimeUnit
 
 /** 위젯 갱신: 요약을 다시 받아 캐시에 넣고 모든 위젯을 다시 그린다. */
@@ -20,10 +21,11 @@ object WidgetRefresher {
     /** @return 요약을 새로 받았으면 true */
     suspend fun refresh(context: Context): Boolean {
         val app = context.applicationContext as MyHomeApp
-        val ok = app.summaryRepo.refresh() is ApiResult.Ok
+        val r = app.summaryRepo.refresh()
         // 실패해도 캐시로 다시 그린다(로그인 직후 등 상태 변화 반영)
         SummaryWidget().updateAll(context)
-        return ok
+        if (r is ApiResult.Ok) BudgetAlertNotifier.check(context, r.value)
+        return r is ApiResult.Ok
     }
 
     /** 30분마다 갱신(결제가 없어도 다른 기기·웹에서 바꾼 내용을 반영). */

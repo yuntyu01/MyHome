@@ -47,6 +47,14 @@ vet: ## go vet
 build: ## 서버 바이너리 빌드 → server/bin/myhome
 	cd $(SERVER_DIR) && CGO_ENABLED=0 go build -o bin/myhome ./cmd/myhome
 
+.PHONY: backup
+backup: ## 로컬 docker postgres 백업 → backups/
+	scripts/backup.sh --docker ./backups
+
+.PHONY: android-core-test
+android-core-test: ## Android core(순수 Kotlin) 단위 테스트
+	cd android && ./gradlew -p core test
+
 .PHONY: docker-build
 docker-build: ## 서버 Docker 이미지 빌드
 	docker build -t myhome-server:local $(SERVER_DIR)

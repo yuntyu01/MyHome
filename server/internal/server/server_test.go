@@ -216,3 +216,59 @@ func TestUserAPIRequiresAuth(t *testing.T) {
 }
 
 func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
+
+func TestMonthlyReportAndReconcile(t *testing.T) {
+	c := newClient(t)
+	now := time.Now()
+	c.event("test.kb", "KB국민카드", "홍*동님 12,000원 일시불 메가커피", now)
+	c.event("test.kb", "KB국민카드", "홍*동님 8,000원 일시불 메가커피", now.Add(time.Minute))
+	c.event("test.toss", "토스페이", "메가커피에서 8,000원 결제했어요", now.Add(90*time.Second))      // 중복 → 제외
+	c.event("test.toss", "토스뱅크", "출금 500,000원 | KB국민카드 결제대금", now.Add(2*time.Minute)) // 카드대금 → 제외
+	if code := c.do("PUT", "/v1/budgets", map[string]any{"month": month(), "items": []map[string]any{{"category_id": c.catID("카페·간식"), "amount": 15000}}}, nil); code != 200 {
+		t.Fatalf("budgets %d", code)
+	}
+
+	var rep struct {
+		Totals       struct{ Spent int64 }
+		ExpenseCount int64 `json:"expense_count"`
+		TopMerchants []struct {
+			Merchant string
+			Spent    int64
+		} `json:"top_merchants"`
+		OverBudget []struct{ Name string } `json:"over_budget"`
+	}
+	if code := c.do("GET", "/v1/reports/monthly?month="+month(), nil, &rep); code != 200 {
+		t.Fatalf("report status %d", code)
+	}
+	if rep.Totals.Spent != 20000 || rep.ExpenseCount != 2 || len(rep.TopMerchants) != 1 || rep.TopMerchants[0].Spent != 20000 || len(rep.OverBudget) != 1 {
+		t.Errorf("리포트 이상: %+v", rep)
+	}
+
+	var rc struct {
+		Sources []struct {
+			Source string
+			Spent  int64
+		}
+		Excluded []struct {
+			Reason string
+			Count  int64
+		}
+		History []struct{ Sum int64 }
+	}
+	if code := c.do("GET", "/v1/reconcile?month="+month(), nil, &rc); code != 200 {
+		t.Fatalf("reconcile status %d", code)
+	}
+	if len(rc.Sources) != 1 || rc.Sources[0].Source != "kb" || rc.Sources[0].Spent != 20000 {
+		t.Errorf("출처별 합계: %+v", rc.Sources)
+	}
+	reasons := map[string]int64{}
+	for _, e := range rc.Excluded {
+		reasons[e.Reason] += e.Count
+	}
+	if reasons["duplicate"] != 1 || reasons["card_payment"] != 1 {
+		t.Errorf("제외 내역: %+v", rc.Excluded)
+	}
+	if len(rc.History) != 6 || rc.History[0].Sum != 20000 {
+		t.Errorf("최근 6개 기간: %+v", rc.History)
+	}
+}

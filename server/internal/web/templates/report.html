@@ -1,0 +1,48 @@
+{{define "content"}}{{with .Data}}
+<h1>월간 리포트 · {{.Period.Label}}</h1>
+<p class="muted">{{.Period.Start}} ~ {{.Period.End}} · {{.PreviousPeriod.Label}}와 비교</p>
+
+<section class="cards">
+  <div class="card stat"><span class="label">지출</span><span class="value">{{won .Totals.Spent}}</span><span class="sub {{diffCls (sub_ .Totals.Spent .PreviousTotals.Spent)}}">전월 대비 {{plus (sub_ .Totals.Spent .PreviousTotals.Spent)}}원</span></div>
+  <div class="card stat"><span class="label">예산 사용</span><span class="value">{{pct .BudgetUsedPct}}</span><span class="sub">예산 {{num .Totals.Budget}} · 남은 돈 {{num .Totals.Remaining}}</span></div>
+  <div class="card stat"><span class="label">수입</span><span class="value">{{won .Totals.Income}}</span><span class="sub">투자·저축 {{num .Totals.Investment}}</span></div>
+  <div class="card stat"><span class="label">하루 평균 지출</span><span class="value">{{won .DailyAverage}}</span><span class="sub">결제 {{.ExpenseCount}}건{{if .ReviewCount}} · 확인 필요 {{.ReviewCount}}건{{end}}</span></div>
+</section>
+
+{{if .OverBudget}}
+<section class="card">
+  <h2>예산을 넘긴 분류</h2>
+  <ul class="budget-list">
+  {{range .OverBudget}}<li class="row-between"><span>{{.Name}}</span><span class="neg">{{won .Remaining}} (예산 {{num .Budget}})</span></li>{{end}}
+  </ul>
+</section>
+{{end}}
+
+<div class="grid-2">
+<section class="card">
+  <h2>분류별 증감</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>분류</th><th class="num">{{.Period.Label}}</th><th class="num">{{.PreviousPeriod.Label}}</th><th class="num">증감</th></tr></thead>
+    <tbody>
+    {{range .Categories}}{{if or .Current .Previous}}
+      <tr><td>{{.Name}}</td><td class="num">{{num .Current}}</td><td class="num muted">{{num .Previous}}</td><td class="num {{diffCls .Diff}}">{{plus .Diff}}</td></tr>
+    {{end}}{{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+<section class="card">
+  <h2>많이 쓴 곳</h2>
+  {{if .TopMerchants}}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>가맹점</th><th class="num">건수</th><th class="num">금액</th></tr></thead>
+    <tbody>{{range .TopMerchants}}<tr><td>{{.Merchant}}</td><td class="num">{{.Count}}</td><td class="num">{{num .Spent}}</td></tr>{{end}}</tbody>
+  </table>
+  </div>
+  {{else}}<p class="muted">이 기간 확정 지출이 없어요.</p>{{end}}
+</section>
+</div>
+<p class="muted small">기본은 지난 기간 리포트예요. 위의 화살표로 다른 달을 볼 수 있어요.</p>
+{{end}}{{end}}

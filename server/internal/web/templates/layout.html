@@ -19,7 +19,8 @@
     <a href="/review" {{if eq .Active "review"}}aria-current="page"{{end}}>확인 필요{{if gt .ReviewCount 0}} <span class="badge">{{.ReviewCount}}</span>{{end}}</a>
     <a href="/budgets" {{if eq .Active "budgets"}}aria-current="page"{{end}}>예산</a>
     <a href="/analytics" {{if eq .Active "analytics"}}aria-current="page"{{end}}>분석</a>
-    {{block "extra-nav" .}}{{end}}
+    <a href="/report" {{if eq .Active "report"}}aria-current="page"{{end}}>리포트</a>
+    <a href="/reconcile" {{if eq .Active "reconcile"}}aria-current="page"{{end}}>대사</a>
     <a href="/admin" {{if eq .Active "admin"}}aria-current="page"{{end}}>관리</a>
   </nav>
   <div class="top-actions">

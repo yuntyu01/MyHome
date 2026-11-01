@@ -175,6 +175,57 @@ func (q *Queries) DetachLinks(ctx context.Context, ids []int64) error {
 	return err
 }
 
+const excludedTotals = `-- name: ExcludedTotals :many
+SELECT coalesce(exclusion_reason, '')::text AS reason,
+       source,
+       count(*)::bigint                     AS cnt,
+       sum(amount)::bigint                  AS amount
+FROM transactions
+WHERE status = 'excluded'
+  AND occurred_at >= $1
+  AND occurred_at < $2
+GROUP BY reason, source
+ORDER BY reason, source
+`
+
+type ExcludedTotalsParams struct {
+	FromAt time.Time `json:"from_at"`
+	ToAt   time.Time `json:"to_at"`
+}
+
+type ExcludedTotalsRow struct {
+	Reason string `json:"reason"`
+	Source string `json:"source"`
+	Cnt    int64  `json:"cnt"`
+	Amount int64  `json:"amount"`
+}
+
+// 대사 도우미: 제외된 거래를 사유·출처별로(카드 명세서와 차이 설명용).
+func (q *Queries) ExcludedTotals(ctx context.Context, arg ExcludedTotalsParams) ([]ExcludedTotalsRow, error) {
+	rows, err := q.db.Query(ctx, excludedTotals, arg.FromAt, arg.ToAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ExcludedTotalsRow{}
+	for rows.Next() {
+		var i ExcludedTotalsRow
+		if err := rows.Scan(
+			&i.Reason,
+			&i.Source,
+			&i.Cnt,
+			&i.Amount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findCancelCandidates = `-- name: FindCancelCandidates :many
 SELECT id, raw_event_id, occurred_at, amount, flow, merchant, memo, direction, category_id, settle_category_id, status, exclusion_reason, review_reason, merged_into, cancels_id, source, kind, installment_months, balance, manually_edited, created_at, updated_at
 FROM transactions
@@ -922,6 +973,60 @@ func (q *Queries) RecentTransactions(ctx context.Context, limit int32) ([]Recent
 	return items, nil
 }
 
+const sourceFlowTotals = `-- name: SourceFlowTotals :many
+SELECT source,
+       direction,
+       flow,
+       count(*)::bigint    AS cnt,
+       sum(amount)::bigint AS amount
+FROM transactions
+WHERE status = 'confirmed'
+  AND occurred_at >= $1
+  AND occurred_at < $2
+GROUP BY source, direction, flow
+ORDER BY source, direction, flow
+`
+
+type SourceFlowTotalsParams struct {
+	FromAt time.Time `json:"from_at"`
+	ToAt   time.Time `json:"to_at"`
+}
+
+type SourceFlowTotalsRow struct {
+	Source    string `json:"source"`
+	Direction string `json:"direction"`
+	Flow      string `json:"flow"`
+	Cnt       int64  `json:"cnt"`
+	Amount    int64  `json:"amount"`
+}
+
+// 대사 도우미: 출처별 확정 거래를 방향(나감/들어옴)·성격별로.
+func (q *Queries) SourceFlowTotals(ctx context.Context, arg SourceFlowTotalsParams) ([]SourceFlowTotalsRow, error) {
+	rows, err := q.db.Query(ctx, sourceFlowTotals, arg.FromAt, arg.ToAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SourceFlowTotalsRow{}
+	for rows.Next() {
+		var i SourceFlowTotalsRow
+		if err := rows.Scan(
+			&i.Source,
+			&i.Direction,
+			&i.Flow,
+			&i.Cnt,
+			&i.Amount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sourceTotals = `-- name: SourceTotals :many
 SELECT source,
        count(*)::bigint AS cnt,
@@ -957,6 +1062,82 @@ func (q *Queries) SourceTotals(ctx context.Context, arg SourceTotalsParams) ([]S
 	for rows.Next() {
 		var i SourceTotalsRow
 		if err := rows.Scan(&i.Source, &i.Cnt, &i.Spent); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const statusCounts = `-- name: StatusCounts :one
+SELECT count(*) FILTER (WHERE status = 'confirmed' AND direction = 'expense')::bigint AS expense_count,
+       count(*) FILTER (WHERE status = 'needs_review')::bigint                        AS review_count,
+       count(*) FILTER (WHERE status = 'excluded')::bigint                            AS excluded_count
+FROM transactions
+WHERE occurred_at >= $1
+  AND occurred_at < $2
+`
+
+type StatusCountsParams struct {
+	FromAt time.Time `json:"from_at"`
+	ToAt   time.Time `json:"to_at"`
+}
+
+type StatusCountsRow struct {
+	ExpenseCount  int64 `json:"expense_count"`
+	ReviewCount   int64 `json:"review_count"`
+	ExcludedCount int64 `json:"excluded_count"`
+}
+
+// 기간 거래 건수(상태별).
+func (q *Queries) StatusCounts(ctx context.Context, arg StatusCountsParams) (StatusCountsRow, error) {
+	row := q.db.QueryRow(ctx, statusCounts, arg.FromAt, arg.ToAt)
+	var i StatusCountsRow
+	err := row.Scan(&i.ExpenseCount, &i.ReviewCount, &i.ExcludedCount)
+	return i, err
+}
+
+const topMerchants = `-- name: TopMerchants :many
+SELECT merchant,
+       count(*)::bigint AS cnt,
+       sum(CASE WHEN flow = 'out' THEN amount ELSE -amount END)::bigint AS spent
+FROM transactions
+WHERE status = 'confirmed'
+  AND direction = 'expense'
+  AND merchant <> ''
+  AND occurred_at >= $1
+  AND occurred_at < $2
+GROUP BY merchant
+ORDER BY spent DESC
+LIMIT $3
+`
+
+type TopMerchantsParams struct {
+	FromAt time.Time `json:"from_at"`
+	ToAt   time.Time `json:"to_at"`
+	Lim    int32     `json:"lim"`
+}
+
+type TopMerchantsRow struct {
+	Merchant string `json:"merchant"`
+	Cnt      int64  `json:"cnt"`
+	Spent    int64  `json:"spent"`
+}
+
+// 월간 리포트: 확정 지출이 큰 가맹점.
+func (q *Queries) TopMerchants(ctx context.Context, arg TopMerchantsParams) ([]TopMerchantsRow, error) {
+	rows, err := q.db.Query(ctx, topMerchants, arg.FromAt, arg.ToAt, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TopMerchantsRow{}
+	for rows.Next() {
+		var i TopMerchantsRow
+		if err := rows.Scan(&i.Merchant, &i.Cnt, &i.Spent); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

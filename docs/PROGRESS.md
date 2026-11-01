@@ -4,7 +4,7 @@
 
 ## 현재 Phase
 
-Phase 6 완료 → Phase 7 진행 예정
+**Phase 7 완료 — 전체 완료** (이후 작업은 아래 "사용자 할 일"과 "막힌 것" 참고)
 
 ## 완료된 것
 
@@ -73,9 +73,27 @@ Phase 6 완료 → Phase 7 진행 예정
 - 검증: core 테스트 24개 통과(서버 요약 JSON 해석, 상위 분류, 상태색, 최근 결제 필터, 크기별 레이아웃, 시각 포맷).
   `assembleDebug`는 Phase 2와 같은 이유로 실행 못 함
 
+### Phase 7: 마무리
+- 예산 알림: 80% 도달·초과, 무음 채널, 기간·분류·단계별 1회, 설정에서 끄기 (판단 로직은 core에서 테스트)
+- 월간 리포트(`/report`, `GET /v1/reports/monthly`): 지난달 요약, 예산 초과 분류, 분류별 증감, 많이 쓴 가맹점
+- 대사 도우미(`/reconcile`, `GET /v1/reconcile`): 출처별 확정 지출, 제외 내역, 최근 6개 기간 출처별 표
+- 백업: `scripts/backup.sh`(pg_dump custom), `scripts/restore.sh`, `docs/BACKUP.md`, `make backup`
+- README 최종 정리
+- 검증: 서버 `go test ./...` 전부 통과(하위 테스트 포함 83개), core 테스트 29개 통과, Docker 이미지 빌드 후 compose로 기존 DB에 마이그레이션 3개 적용·healthz/login/static 확인,
+  백업 → 새 DB 복구 → 건수 일치 확인, Playwright로 리포트·대사 화면 확인
+
 ## 남은 것
 
-- Phase 7: 마무리
+- 없음(Phase 0~7 완료). 실사용 후 파서 보정은 `docs/PARSERS.md` 절차로.
+
+## 사용자 할 일
+
+1. kodeploy 배포와 환경변수 설정 (`docs/DEPLOY.md`)
+2. 카카오 디벨로퍼스 설정 (`docs/KAKAO_SETUP.md`) → `ALLOWED_KAKAO_IDS`에 본인 회원번호
+3. Android Studio로 APK 빌드·설치, 권한 허용 (`docs/ANDROID_SETUP.md`) — **첫 빌드에서 컴파일 오류가 나면 메시지를 그대로 전달**
+4. 앱 "최근 알림"에서 실제 패키지명 확인 → 수집 대상 체크, 서버 `PARSER_PACKAGES` 설정
+5. 원본 앱(KB Pay, 토스 등) 알림 채널을 무음으로
+6. 1~2주 실사용 후 `myhome export-raw`로 익명화 원문을 뽑아 파서 보정 요청 (`docs/PARSERS.md`)
 
 ## 막힌 것
 

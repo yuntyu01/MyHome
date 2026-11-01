@@ -55,6 +55,8 @@ func (a *API) Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler)
 	h("PUT /v1/settings/{key}", a.putSetting)
 	h("GET /v1/raw-events", a.listRawEvents)
 	h("GET /v1/analytics", a.getAnalytics)
+	h("GET /v1/reports/monthly", a.getMonthlyReport)
+	h("GET /v1/reconcile", a.getReconcile)
 }
 
 func (a *API) q() *dbq.Queries { return dbq.New(a.Pool) }
@@ -92,7 +94,9 @@ func queryInt(r *http.Request, key string, def, max int) int {
 }
 
 // PeriodFor는 ?month=YYYY-MM(기본: 이번 기간)을 읽는다.
-func (a *API) PeriodFor(r *http.Request) (period.Period, pipeline.Config, error) { return a.periodFor(r) }
+func (a *API) PeriodFor(r *http.Request) (period.Period, pipeline.Config, error) {
+	return a.periodFor(r)
+}
 
 // periodFor는 ?month=YYYY-MM(기본: 이번 기간)을 읽는다.
 func (a *API) periodFor(r *http.Request) (period.Period, pipeline.Config, error) {

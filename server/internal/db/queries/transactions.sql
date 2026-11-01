@@ -211,3 +211,54 @@ FROM transactions
 WHERE id = ANY (@ids::bigint[])
   AND raw_event_id IS NOT NULL
   AND NOT manually_edited;
+
+-- name: TopMerchants :many
+-- 월간 리포트: 확정 지출이 큰 가맹점.
+SELECT merchant,
+       count(*)::bigint AS cnt,
+       sum(CASE WHEN flow = 'out' THEN amount ELSE -amount END)::bigint AS spent
+FROM transactions
+WHERE status = 'confirmed'
+  AND direction = 'expense'
+  AND merchant <> ''
+  AND occurred_at >= @from_at
+  AND occurred_at < @to_at
+GROUP BY merchant
+ORDER BY spent DESC
+LIMIT @lim;
+
+-- name: StatusCounts :one
+-- 기간 거래 건수(상태별).
+SELECT count(*) FILTER (WHERE status = 'confirmed' AND direction = 'expense')::bigint AS expense_count,
+       count(*) FILTER (WHERE status = 'needs_review')::bigint                        AS review_count,
+       count(*) FILTER (WHERE status = 'excluded')::bigint                            AS excluded_count
+FROM transactions
+WHERE occurred_at >= @from_at
+  AND occurred_at < @to_at;
+
+-- name: ExcludedTotals :many
+-- 대사 도우미: 제외된 거래를 사유·출처별로(카드 명세서와 차이 설명용).
+SELECT coalesce(exclusion_reason, '')::text AS reason,
+       source,
+       count(*)::bigint                     AS cnt,
+       sum(amount)::bigint                  AS amount
+FROM transactions
+WHERE status = 'excluded'
+  AND occurred_at >= @from_at
+  AND occurred_at < @to_at
+GROUP BY reason, source
+ORDER BY reason, source;
+
+-- name: SourceFlowTotals :many
+-- 대사 도우미: 출처별 확정 거래를 방향(나감/들어옴)·성격별로.
+SELECT source,
+       direction,
+       flow,
+       count(*)::bigint    AS cnt,
+       sum(amount)::bigint AS amount
+FROM transactions
+WHERE status = 'confirmed'
+  AND occurred_at >= @from_at
+  AND occurred_at < @to_at
+GROUP BY source, direction, flow
+ORDER BY source, direction, flow;

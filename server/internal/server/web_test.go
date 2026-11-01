@@ -109,6 +109,8 @@ func TestWebPagesRender(t *testing.T) {
 		"/budgets":      "분류별 예산",
 		"/analytics":    "분류별 비중",
 		"/admin":        "가맹점 규칙",
+		"/report":       "월간 리포트",
+		"/reconcile":    "출처별 확정 지출",
 	} {
 		rec := c.get(path)
 		if rec.Code != 200 {

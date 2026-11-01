@@ -43,7 +43,7 @@ type Web struct {
 }
 
 // pageNames는 layout과 함께 파싱할 페이지 템플릿 목록이다.
-var pageNames = []string{"dashboard", "transactions", "review", "budgets", "analytics", "admin"}
+var pageNames = []string{"dashboard", "transactions", "review", "budgets", "analytics", "admin", "report", "reconcile"}
 
 // New는 템플릿을 파싱해서 Web을 만든다.
 func New(a *api.API, authn *auth.Authenticator, devices *auth.Handlers, logger *slog.Logger, devLogin bool) (*Web, error) {
@@ -88,6 +88,8 @@ func (wb *Web) Register(mux *http.ServeMux) {
 	h("POST /admin/rules/{id}/delete", wb.deleteRule)
 	h("POST /admin/settings", wb.saveSettings)
 	h("POST /admin/devices/{id}/revoke", wb.revokeDevice)
+	h("GET /report", wb.report)
+	h("GET /reconcile", wb.reconcile)
 }
 
 func cacheStatic(next http.Handler) http.Handler {
@@ -207,6 +209,12 @@ var funcs = template.FuncMap{
 		return *p
 	},
 	"reason": reasonLabel,
+	"reasonText": func(s string) string {
+		if s == "" {
+			return "(사유 없음)"
+		}
+		return reasonLabel(&s)
+	},
 	"signed": func(t api.TransactionDTO) string {
 		if t.Flow == "in" {
 			return "+" + group(t.Amount) + "원"
