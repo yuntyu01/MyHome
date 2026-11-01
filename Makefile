@@ -5,7 +5,7 @@ SHELL := /bin/bash
 export
 
 SERVER_DIR := server
-TEST_DATABASE_URL ?= postgres://myhome:myhome@localhost:5432/myhome?sslmode=disable
+TEST_DATABASE_URL ?= postgres://myhome:myhome@localhost:5432/myhome_test?sslmode=disable
 
 .PHONY: help
 help: ## 명령 목록

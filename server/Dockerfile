@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # 멀티스테이지 빌드: Go 바이너리 하나만 담은 작은 이미지를 만든다.
 
-FROM golang:1.24-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 
 # 회사·클라우드 프록시처럼 TLS를 재암호화하는 환경을 위한 선택 사항:
