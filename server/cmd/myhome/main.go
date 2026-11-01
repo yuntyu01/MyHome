@@ -7,6 +7,9 @@
 //	token issue --name 이름       기기 토큰 발급 (비상용, CLI_TOKEN_ISSUE_ENABLED=false로 끔)
 //	token list                   기기 목록
 //	token revoke --id N          기기 토큰 폐기
+//	reprocess --from --to        기간 원문 재처리
+//	process-pending              처리 안 된 원문 처리
+//	export-raw --from --to       익명화한 원문 내보내기
 //	healthcheck                  로컬 /healthz 확인 (Docker HEALTHCHECK용)
 package main
 
@@ -52,6 +55,12 @@ func main() {
 		err = migrate(ctx, cfg, args)
 	case "token":
 		err = tokenCmd(ctx, cfg, args, os.Stdout)
+	case "reprocess":
+		err = reprocessCmd(ctx, cfg, logger, args, os.Stdout)
+	case "process-pending":
+		err = processPendingCmd(ctx, cfg, logger, os.Stdout)
+	case "export-raw":
+		err = exportRawCmd(ctx, cfg, args, os.Stdout)
 	case "healthcheck":
 		err = healthcheck(cfg)
 	case "help", "-h", "--help":
@@ -71,6 +80,9 @@ const usage = `사용법: myhome <명령> [옵션]
   token issue --name 이름        기기 토큰 발급(비상용)
   token list                    기기 목록
   token revoke --id N           기기 토큰 폐기
+  reprocess --from D --to D [--apply]   기간 원문 재처리 (기본은 계획만 출력)
+  process-pending               처리 안 된 원문 처리
+  export-raw --from D --to D [--out F] [--failed]  익명화한 원문 내보내기(JSONL)
   healthcheck                   /healthz 확인`
 
 func newLogger(level string) *slog.Logger {
@@ -103,7 +115,18 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 	defer pool.Close()
 
-	handler := server.New(server.Deps{Config: cfg, Pool: pool, Logger: logger})
+	proc, err := newProcessor(cfg, pool, logger)
+	if err != nil {
+		return err
+	}
+	// 지난번에 처리 도중 멈춘 원문이 있으면 먼저 처리한다.
+	if n, err := proc.ProcessPending(ctx, 1000); err != nil {
+		logger.Warn("미처리 원문 처리 실패", "err", err)
+	} else if n > 0 {
+		logger.Info("미처리 원문 처리", "count", n)
+	}
+
+	handler := server.New(server.Deps{Config: cfg, Pool: pool, Logger: logger, Processor: proc})
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,

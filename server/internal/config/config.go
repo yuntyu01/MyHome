@@ -24,6 +24,9 @@ type Config struct {
 
 	// CLITokenIssueEnabled가 false면 `myhome token issue`(비상용 토큰 발급)를 막는다.
 	CLITokenIssueEnabled bool
+
+	// ParserPackages는 패키지명 → 파서 매핑이다. 형식: "kb=패키지1,패키지2;toss=패키지3"
+	ParserPackages string
 }
 
 // Load는 환경변수에서 설정을 읽는다.
@@ -39,6 +42,7 @@ func Load() (Config, error) {
 		RateLimitBurst:       integer("RATE_LIMIT_BURST", 30, &errs),
 		TrustProxyHeaders:    boolean("TRUST_PROXY_HEADERS", false, &errs),
 		CLITokenIssueEnabled: boolean("CLI_TOKEN_ISSUE_ENABLED", true, &errs),
+		ParserPackages:       os.Getenv("PARSER_PACKAGES"),
 	}
 	if len(errs) > 0 {
 		return c, fmt.Errorf("환경변수 오류: %s", strings.Join(errs, "; "))

@@ -40,6 +40,7 @@
 | `RATE_LIMIT_BURST` | `30` | 순간 허용량 (IP별은 2배) |
 | `TRUST_PROXY_HEADERS` | `false` | 리버스 프록시 뒤라면 `true` (X-Forwarded-For 사용) |
 | `CLI_TOKEN_ISSUE_ENABLED` | `true` | `false`면 CLI 비상 토큰 발급 금지 |
+| `PARSER_PACKAGES` | (빈 값) | 패키지명 → 파서 매핑. `docs/PARSERS.md` |
 
 이후 Phase에서 추가되는 변수(카카오 로그인 등)는 이 문서와 `.env.example`에 계속 추가한다.
 
@@ -62,14 +63,23 @@
    ```
    처음은 201, 같은 요청을 다시 보내면 200과 `"duplicate":true`.
 
-## 5. 토큰 관리
+## 5. 운영 명령
+
+```
+/myhome process-pending                                   # 처리 안 된 원문 처리(서버 시작 때도 자동)
+/myhome reprocess --from 2026-11-01 --to 2026-11-30       # 재처리 계획
+/myhome reprocess --from 2026-11-01 --to 2026-11-30 --apply
+/myhome export-raw --from 2026-11-01 --to 2026-11-14 --out /tmp/raw.jsonl   # 익명화 내보내기
+```
+
+## 6. 토큰 관리
 
 ```
 /myhome token list            # 기기 목록
 /myhome token revoke --id 3   # 분실한 폰의 토큰 폐기
 ```
 
-## 6. 로컬에서 이미지 빌드
+## 7. 로컬에서 이미지 빌드
 
 ```bash
 make docker-build

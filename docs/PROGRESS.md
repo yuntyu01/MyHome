@@ -4,7 +4,7 @@
 
 ## 현재 Phase
 
-Phase 2 완료 → Phase 3 진행 예정
+Phase 3 완료 → Phase 4 진행 예정
 
 ## 완료된 것
 
@@ -34,9 +34,21 @@ Phase 2 완료 → Phase 3 진행 예정
 - 검증: `gradle -p core test` 16개 통과(MockWebServer로 Bearer·JSON·재시도 판단 확인, Kotlin↔Go 해시 일치 확인).
   `./gradlew assembleDebug`는 **실행 못 함**(아래 "막힌 것").
 
+### Phase 3: 서버 해석·분류·예산 코어
+- 마이그레이션: `categories`(기본 분류 seed), `transactions`, `budgets`, `merchant_rules`(seed 약 100개), `settings`
+- 파서: 소스별 플러그인(KB·토스 잠정, 범용), 패키지 매핑 `PARSER_PACKAGES`, 합성 픽스처 20건
+- 파이프라인: 파싱 → 예외(카드대금·내 계좌·머니 충전) → 중복 합치기 → 취소 상계 → 규칙 분류 → 확인 필요. 수신 즉시 동기 처리
+- 사용자 수정: 분류 변경 + "항상 이 분류" 학습(같은 가맹점 확인 필요 건 일괄 분류), 메모, 제외, 정산 분류 지정, 현금 수동 입력
+- 명령: `reprocess`(수동 수정 보존, 연결 거래 포함), `process-pending`, `export-raw`(익명화)
+- API: `/v1/summary`, `/v1/transactions`(GET/POST/PATCH), `/v1/review`, `/v1/categories`, `/v1/budgets`(+지난달 복사), `/v1/rules`, `/v1/settings`, `/v1/raw-events?failed=true`, `/v1/analytics`
+- 남은 돈: `CategorySummary` 쿼리 하나(예산 − 확정 지출(취소 차감) + 정산)
+- `docs/PARSERS.md`
+- 검증: `go test ./...` 전부 통과. 파이프라인 통합 테스트 21개(중복 양방향, 같은 앱 비중복, 전액·부분·미매칭 취소,
+  카드대금, 내 계좌→투자, 머니 충전 vs 티머니, 친구 송금, 해석 실패, 금액만, 테스트 알림, 멱등, 학습, 정산 되돌림,
+  현금 입력, 재처리 수동 보존, 재처리 연결 일관성), API E2E 5개
+
 ## 남은 것
 
-- Phase 3: 해석·분류·예산 코어
 - Phase 4: 카카오 로그인
 - Phase 5: PC 웹
 - Phase 6: 위젯·앱 화면

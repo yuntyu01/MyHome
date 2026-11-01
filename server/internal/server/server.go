@@ -8,11 +8,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/yuntyu01/MyHome/server/internal/api"
 	"github.com/yuntyu01/MyHome/server/internal/auth"
 	"github.com/yuntyu01/MyHome/server/internal/config"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
 	"github.com/yuntyu01/MyHome/server/internal/httpx"
 	"github.com/yuntyu01/MyHome/server/internal/ingest"
+	"github.com/yuntyu01/MyHome/server/internal/pipeline"
 )
 
 // Deps는 라우터가 쓰는 의존성이다.
@@ -20,7 +22,7 @@ type Deps struct {
 	Config    config.Config
 	Pool      *pgxpool.Pool
 	Logger    *slog.Logger
-	Processor ingest.Processor
+	Processor *pipeline.Processor // nil이면 원문 저장만 한다
 }
 
 // New는 전체 HTTP 핸들러를 만든다.
@@ -30,9 +32,16 @@ func New(d Deps) http.Handler {
 
 	mux.HandleFunc("GET /healthz", httpx.Healthz)
 
-	ing := &ingest.Handler{Pool: d.Pool, Processor: d.Processor, Logger: d.Logger}
+	ing := &ingest.Handler{Pool: d.Pool, Logger: d.Logger}
+	if d.Processor != nil {
+		ing.Processor = d.Processor
+	}
 	deviceLimiter := httpx.NewRateLimiter(d.Config.RateLimitRPS, d.Config.RateLimitBurst)
 	mux.Handle("POST /v1/events", auth.RequireDevice(q, d.Logger, perDeviceLimit(deviceLimiter, http.HandlerFunc(ing.PostEvent))))
+
+	a := &api.API{Pool: d.Pool, Editor: &pipeline.Editor{Pool: d.Pool}, Processor: d.Processor, Logger: d.Logger}
+	requireUser := func(h http.Handler) http.Handler { return auth.RequireDevice(q, d.Logger, h) }
+	a.Register(mux, requireUser)
 
 	var h http.Handler = mux
 	h = httpx.LimitBody(d.Config.MaxBodyBytes, h)

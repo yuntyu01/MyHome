@@ -60,6 +60,32 @@ func (q *Queries) GetRawEventByHash(ctx context.Context, contentHash string) (Ra
 	return i, err
 }
 
+const getRawEventForUpdate = `-- name: GetRawEventForUpdate :one
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+FROM raw_events
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetRawEventForUpdate(ctx context.Context, id int64) (RawEvent, error) {
+	row := q.db.QueryRow(ctx, getRawEventForUpdate, id)
+	var i RawEvent
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceID,
+		&i.SourcePackage,
+		&i.Title,
+		&i.Text,
+		&i.BigText,
+		&i.PostedAt,
+		&i.ReceivedAt,
+		&i.ContentHash,
+		&i.ProcessedAt,
+		&i.ParseError,
+	)
+	return i, err
+}
+
 const insertRawEvent = `-- name: InsertRawEvent :one
 INSERT INTO raw_events (device_id, source_package, title, text, big_text, posted_at, content_hash)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -103,4 +129,197 @@ func (q *Queries) InsertRawEvent(ctx context.Context, arg InsertRawEventParams) 
 		&i.ParseError,
 	)
 	return i, err
+}
+
+const listFailedRawEvents = `-- name: ListFailedRawEvents :many
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+FROM raw_events
+WHERE parse_error IS NOT NULL
+ORDER BY posted_at DESC
+LIMIT $1
+`
+
+func (q *Queries) ListFailedRawEvents(ctx context.Context, limit int32) ([]RawEvent, error) {
+	rows, err := q.db.Query(ctx, listFailedRawEvents, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RawEvent{}
+	for rows.Next() {
+		var i RawEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceID,
+			&i.SourcePackage,
+			&i.Title,
+			&i.Text,
+			&i.BigText,
+			&i.PostedAt,
+			&i.ReceivedAt,
+			&i.ContentHash,
+			&i.ProcessedAt,
+			&i.ParseError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRawEvents = `-- name: ListRawEvents :many
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+FROM raw_events
+ORDER BY posted_at DESC
+LIMIT $1
+`
+
+func (q *Queries) ListRawEvents(ctx context.Context, limit int32) ([]RawEvent, error) {
+	rows, err := q.db.Query(ctx, listRawEvents, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RawEvent{}
+	for rows.Next() {
+		var i RawEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceID,
+			&i.SourcePackage,
+			&i.Title,
+			&i.Text,
+			&i.BigText,
+			&i.PostedAt,
+			&i.ReceivedAt,
+			&i.ContentHash,
+			&i.ProcessedAt,
+			&i.ParseError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRawEventsInRange = `-- name: ListRawEventsInRange :many
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+FROM raw_events
+WHERE posted_at >= $1
+  AND posted_at < $2
+ORDER BY posted_at, id
+`
+
+type ListRawEventsInRangeParams struct {
+	FromAt time.Time `json:"from_at"`
+	ToAt   time.Time `json:"to_at"`
+}
+
+func (q *Queries) ListRawEventsInRange(ctx context.Context, arg ListRawEventsInRangeParams) ([]RawEvent, error) {
+	rows, err := q.db.Query(ctx, listRawEventsInRange, arg.FromAt, arg.ToAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RawEvent{}
+	for rows.Next() {
+		var i RawEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceID,
+			&i.SourcePackage,
+			&i.Title,
+			&i.Text,
+			&i.BigText,
+			&i.PostedAt,
+			&i.ReceivedAt,
+			&i.ContentHash,
+			&i.ProcessedAt,
+			&i.ParseError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnprocessedRawEvents = `-- name: ListUnprocessedRawEvents :many
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+FROM raw_events
+WHERE processed_at IS NULL
+ORDER BY posted_at, id
+LIMIT $1
+`
+
+func (q *Queries) ListUnprocessedRawEvents(ctx context.Context, limit int32) ([]RawEvent, error) {
+	rows, err := q.db.Query(ctx, listUnprocessedRawEvents, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RawEvent{}
+	for rows.Next() {
+		var i RawEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceID,
+			&i.SourcePackage,
+			&i.Title,
+			&i.Text,
+			&i.BigText,
+			&i.PostedAt,
+			&i.ReceivedAt,
+			&i.ContentHash,
+			&i.ProcessedAt,
+			&i.ParseError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markRawEventProcessed = `-- name: MarkRawEventProcessed :exec
+UPDATE raw_events
+SET processed_at = now(),
+    parse_error  = $2
+WHERE id = $1
+`
+
+type MarkRawEventProcessedParams struct {
+	ID         int64   `json:"id"`
+	ParseError *string `json:"parse_error"`
+}
+
+func (q *Queries) MarkRawEventProcessed(ctx context.Context, arg MarkRawEventProcessedParams) error {
+	_, err := q.db.Exec(ctx, markRawEventProcessed, arg.ID, arg.ParseError)
+	return err
+}
+
+const resetRawEventProcessing = `-- name: ResetRawEventProcessing :exec
+UPDATE raw_events
+SET processed_at = NULL,
+    parse_error  = NULL
+WHERE id = ANY ($1::bigint[])
+`
+
+func (q *Queries) ResetRawEventProcessing(ctx context.Context, ids []int64) error {
+	_, err := q.db.Exec(ctx, resetRawEventProcessing, ids)
+	return err
 }

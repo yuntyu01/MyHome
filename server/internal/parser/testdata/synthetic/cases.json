@@ -1,0 +1,146 @@
+{
+  "_note": "합성 데이터 — 실제 알림 형식이 아니다. 실제 원문을 보지 못한 상태에서 흔한 패턴을 흉내 내 만든 예시다. 실데이터를 받으면 익명화해서 testdata/anonymized/에 추가하고 이 파일은 일반 패턴 회귀 테스트로 유지한다.",
+  "cases": [
+    {
+      "name": "KB 승인 일시불 (문자형)",
+      "package": "test.kb", "title": "KB국민카드",
+      "text": "홍*동님 11/01 12:34 12,345원 일시불 스타벅스강남점 누적 345,678원",
+      "posted_at": "2026-11-01T12:34:20+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 12345, "merchant": "스타벅스강남점", "occurred_at": "2026-11-01T12:34:00+09:00"}
+    },
+    {
+      "name": "KB 승인 할부",
+      "package": "test.kb", "title": "[KB국민카드] 승인",
+      "text": "1*3*님 450,000원 할부(3개월) 하이마트 11/02 19:01",
+      "posted_at": "2026-11-02T19:01:05+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 450000, "merchant": "하이마트", "installment": 3}
+    },
+    {
+      "name": "KB Pay 푸시 (파이프 구분)",
+      "package": "test.kbpay", "title": "KB Pay",
+      "text": "결제 12,000원 | 투썸플레이스 역삼점",
+      "posted_at": "2026-11-03T08:10:00+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 12000, "merchant": "투썸플레이스 역삼점"}
+    },
+    {
+      "name": "KB 승인취소",
+      "package": "test.kb", "title": "KB국민카드 승인취소",
+      "text": "홍*동님 12,345원 스타벅스강남점 11/01 13:00",
+      "posted_at": "2026-11-01T13:00:10+09:00",
+      "want": {"source": "kb", "kind": "cancel", "amount": 12345, "merchant": "스타벅스강남점"}
+    },
+    {
+      "name": "KB 결제대행사 이름으로 찍힌 승인",
+      "package": "test.kb", "title": "KB국민카드",
+      "text": "홍*동님 11/04 21:10 32,900원 일시불 KG이니시스 누적 400,000원",
+      "posted_at": "2026-11-04T21:10:02+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 32900, "merchant": "KG이니시스"}
+    },
+    {
+      "name": "KB 월말 자정 직전 결제, 다음 달 0시에 알림",
+      "package": "test.kb", "title": "KB국민카드",
+      "text": "홍*동님 10/31 23:59 8,000원 일시불 GS25 역삼점",
+      "posted_at": "2026-11-01T00:00:30+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 8000, "merchant": "GS25 역삼점", "occurred_at": "2026-10-31T23:59:00+09:00"}
+    },
+    {
+      "name": "토스페이 결제 (국민카드 연결)",
+      "package": "test.toss", "title": "토스페이",
+      "text": "스타벅스 역삼점에서 5,600원 결제했어요",
+      "posted_at": "2026-11-05T09:00:00+09:00",
+      "want": {"source": "toss", "kind": "approval", "amount": 5600, "merchant": "스타벅스 역삼점"}
+    },
+    {
+      "name": "토스 송금 (친구)",
+      "package": "test.toss", "title": "토스",
+      "text": "김민수님에게 25,000원을 보냈어요",
+      "posted_at": "2026-11-05T20:00:00+09:00",
+      "want": {"source": "toss", "kind": "transfer_out", "amount": 25000, "merchant": "김민수"}
+    },
+    {
+      "name": "토스 입금 (친구가 보냄, 더치페이 회수)",
+      "package": "test.toss", "title": "토스",
+      "text": "이영희님이 12,500원을 보냈어요",
+      "posted_at": "2026-11-05T21:00:00+09:00",
+      "want": {"source": "toss", "kind": "deposit", "amount": 12500, "merchant": "이영희"}
+    },
+    {
+      "name": "토스뱅크 입금 (급여)",
+      "package": "test.toss", "title": "토스뱅크",
+      "text": "입금 3,000,000원 | 주식회사테스트 급여\n잔액 3,120,000원",
+      "posted_at": "2026-11-25T10:00:00+09:00",
+      "want": {"source": "toss", "kind": "deposit", "amount": 3000000, "merchant": "주식회사테스트 급여", "balance": 3120000}
+    },
+    {
+      "name": "토스뱅크 카드대금 출금",
+      "package": "test.toss", "title": "토스뱅크",
+      "text": "출금 812,340원 | KB국민카드 결제대금\n잔액 2,307,660원",
+      "posted_at": "2026-11-25T08:00:00+09:00",
+      "want": {"source": "toss", "kind": "withdrawal", "amount": 812340, "balance": 2307660}
+    },
+    {
+      "name": "토스뱅크 → 토스증권 (내 계좌)",
+      "package": "test.toss", "title": "토스뱅크",
+      "text": "토스증권으로 500,000원을 옮겼어요",
+      "posted_at": "2026-11-26T09:00:00+09:00",
+      "want": {"source": "toss", "kind": "withdrawal", "amount": 500000, "merchant": "토스증권"}
+    },
+    {
+      "name": "토스뱅크 자동이체 (통신비)",
+      "package": "test.toss", "title": "토스뱅크",
+      "text": "자동이체 출금 55,000원 | SK텔레콤",
+      "posted_at": "2026-11-20T06:00:00+09:00",
+      "want": {"source": "toss", "kind": "withdrawal", "amount": 55000, "merchant": "SK텔레콤"}
+    },
+    {
+      "name": "카카오페이머니 충전",
+      "package": "test.kakaopay", "title": "카카오페이",
+      "text": "카카오페이머니 50,000원 충전 완료",
+      "posted_at": "2026-11-06T12:00:00+09:00",
+      "want": {"source": "generic", "kind": "charge", "amount": 50000}
+    },
+    {
+      "name": "티머니 충전 (교통비로 기록)",
+      "package": "test.tmoney", "title": "티머니",
+      "text": "티머니 30,000원 충전되었습니다",
+      "posted_at": "2026-11-07T07:30:00+09:00",
+      "want": {"source": "generic", "kind": "charge", "amount": 30000, "merchant": "티머니"}
+    },
+    {
+      "name": "쿠팡 결제 (카드 연결)",
+      "package": "test.coupang", "title": "쿠팡",
+      "text": "주문하신 상품의 결제가 완료되었습니다. 결제금액 23,450원",
+      "posted_at": "2026-11-08T22:00:00+09:00",
+      "want": {"source": "generic", "kind": "approval", "amount": 23450}
+    },
+    {
+      "name": "네이버페이 결제",
+      "package": "test.naverpay", "title": "네이버페이",
+      "text": "가맹점: 교보문고 | 18,000원 결제",
+      "posted_at": "2026-11-09T15:00:00+09:00",
+      "want": {"source": "generic", "kind": "approval", "amount": 18000, "merchant": "교보문고"}
+    },
+    {
+      "name": "금액 없음 (광고성) → 해석 실패",
+      "package": "test.toss", "title": "토스",
+      "text": "이번 주 혜택을 확인해 보세요",
+      "posted_at": "2026-11-09T15:00:00+09:00",
+      "want": {"error": true}
+    },
+    {
+      "name": "잔액만 있는 알림 → 해석 실패",
+      "package": "test.toss", "title": "토스뱅크",
+      "text": "현재 잔액 1,000,000원",
+      "posted_at": "2026-11-09T15:00:00+09:00",
+      "want": {"error": true}
+    },
+    {
+      "name": "big_text에 상세가 있는 경우",
+      "package": "test.kb", "title": "KB국민카드",
+      "text": "12,000원 승인",
+      "big_text": "12,000원 승인\n일시불 맥도날드 강남역점\n누적 50,000원",
+      "posted_at": "2026-11-10T12:00:00+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 12000, "merchant": "맥도날드 강남역점"}
+    }
+  ]
+}

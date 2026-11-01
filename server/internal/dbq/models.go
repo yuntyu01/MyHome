@@ -8,6 +8,22 @@ import (
 	"time"
 )
 
+type Budget struct {
+	PeriodStart time.Time `json:"period_start"`
+	CategoryID  int64     `json:"category_id"`
+	Amount      int64     `json:"amount"`
+}
+
+type Category struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Kind      string    `json:"kind"`
+	Code      *string   `json:"code"`
+	Sort      int32     `json:"sort"`
+	Archived  bool      `json:"archived"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Device struct {
 	ID         int64      `json:"id"`
 	Name       string     `json:"name"`
@@ -15,6 +31,17 @@ type Device struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	RevokedAt  *time.Time `json:"revoked_at"`
+}
+
+type MerchantRule struct {
+	ID          int64     `json:"id"`
+	Pattern     string    `json:"pattern"`
+	MatchType   string    `json:"match_type"`
+	CategoryID  int64     `json:"category_id"`
+	Flow        *string   `json:"flow"`
+	Priority    int32     `json:"priority"`
+	CreatedFrom string    `json:"created_from"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type RawEvent struct {
@@ -29,4 +56,35 @@ type RawEvent struct {
 	ContentHash   string     `json:"content_hash"`
 	ProcessedAt   *time.Time `json:"processed_at"`
 	ParseError    *string    `json:"parse_error"`
+}
+
+type Setting struct {
+	Key       string    `json:"key"`
+	Value     []byte    `json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type Transaction struct {
+	ID                int64     `json:"id"`
+	RawEventID        *int64    `json:"raw_event_id"`
+	OccurredAt        time.Time `json:"occurred_at"`
+	Amount            int64     `json:"amount"`
+	Flow              string    `json:"flow"`
+	Merchant          string    `json:"merchant"`
+	Memo              string    `json:"memo"`
+	Direction         string    `json:"direction"`
+	CategoryID        *int64    `json:"category_id"`
+	SettleCategoryID  *int64    `json:"settle_category_id"`
+	Status            string    `json:"status"`
+	ExclusionReason   *string   `json:"exclusion_reason"`
+	ReviewReason      *string   `json:"review_reason"`
+	MergedInto        *int64    `json:"merged_into"`
+	CancelsID         *int64    `json:"cancels_id"`
+	Source            string    `json:"source"`
+	Kind              string    `json:"kind"`
+	InstallmentMonths int32     `json:"installment_months"`
+	Balance           *int64    `json:"balance"`
+	ManuallyEdited    bool      `json:"manually_edited"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
