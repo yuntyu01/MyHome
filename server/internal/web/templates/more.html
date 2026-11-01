@@ -1,0 +1,24 @@
+{{define "content"}}
+<div class="section-title">가계부</div>
+<div class="group">
+  <a class="item" href="/budgets"><span class="grow">예산</span>{{template "ic-chev"}}</a>
+  <a class="item" href="/report"><span class="grow">월간 리포트</span>{{template "ic-chev"}}</a>
+  <a class="item" href="/reconcile"><span class="grow">대사 도우미</span>{{template "ic-chev"}}</a>
+</div>
+<div class="section-title">관리</div>
+<div class="group">
+  <a class="item" href="/admin#cash"><span class="grow">현금 입력</span>{{template "ic-chev"}}</a>
+  <a class="item" href="/admin#categories"><span class="grow">분류</span>{{template "ic-chev"}}</a>
+  <a class="item" href="/admin#rules"><span class="grow">가맹점 규칙</span>{{template "ic-chev"}}</a>
+  <a class="item" href="/admin#settings"><span class="grow">설정</span>{{template "ic-chev"}}</a>
+  <a class="item" href="/admin#failed"><span class="grow">해석 실패 원문</span>{{template "ic-chev"}}</a>
+  <a class="item" href="/admin#devices"><span class="grow">기기</span>{{template "ic-chev"}}</a>
+</div>
+<div class="section-title">화면</div>
+<div class="group">
+  <button type="button" class="item link-row" data-theme-toggle><span class="grow">밝게 / 어둡게</span>{{template "ic-theme"}}</button>
+</div>
+<div class="group">
+  <form method="post" action="/auth/logout" class="item"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="link-row danger"><span class="grow">로그아웃</span>{{template "ic-chev"}}</button></form>
+</div>
+{{end}}

@@ -15,6 +15,7 @@ func (wb *Web) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pd := wb.base(r, "월간 리포트", "report")
+	pd.Wide = true
 	wb.withPeriod(&pd, p, startDay)
 	pd.Data = rep
 	wb.render(w, "report", pd)
@@ -33,6 +34,7 @@ func (wb *Web) reconcile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pd := wb.base(r, "대사 도우미", "reconcile")
+	pd.Wide = true
 	wb.withPeriod(&pd, p, cfg.BudgetStartDay)
 	pd.Data = rc
 	wb.render(w, "reconcile", pd)

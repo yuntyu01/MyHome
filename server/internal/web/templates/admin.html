@@ -21,7 +21,6 @@
   <h2>분류</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>이름</th><th>종류</th><th class="num">순서</th><th>상태</th><th></th></tr></thead>
     <tbody>
     {{range .Cats.All}}
       <tr class="{{if .Archived}}muted{{end}}">

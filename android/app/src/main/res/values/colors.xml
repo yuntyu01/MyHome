@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- modo 바탕색: 앱이 그려지기 전 창 바탕(깜빡임 방지) -->
+    <color name="window_bg">#F7F9FC</color>
+</resources>

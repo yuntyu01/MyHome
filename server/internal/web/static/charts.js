@@ -20,6 +20,7 @@
     charts = [];
     Chart.defaults.color = css("--muted");
     Chart.defaults.borderColor = css("--line");
+    Chart.defaults.plugins.legend.labels.boxWidth = 10;
     Chart.defaults.font.family = css("--font");
 
     var cats = (data.categories || []).filter(function (c) { return c.current > 0; })
@@ -27,8 +28,8 @@
 
     charts.push(new Chart(document.getElementById("chart-share"), {
       type: "doughnut",
-      data: { labels: cats.map(function (c) { return c.name; }), datasets: [{ data: cats.map(function (c) { return c.current; }), backgroundColor: palette(cats.length), borderColor: css("--surface"), borderWidth: 2 }] },
-      options: { maintainAspectRatio: false, plugins: { legend: { position: "right" }, tooltip: { callbacks: { label: function (ctx) {
+      data: { labels: cats.map(function (c) { return c.name; }), datasets: [{ data: cats.map(function (c) { return c.current; }), backgroundColor: palette(cats.length), borderColor: css("--card-solid"), borderWidth: 3, borderRadius: 4 }] },
+      options: { maintainAspectRatio: false, cutout: "64%", plugins: { legend: { position: "right", labels: { usePointStyle: true, pointStyle: "circle" } }, tooltip: { callbacks: { label: function (ctx) {
         var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
         return ctx.label + ": " + won(ctx.raw) + " (" + Math.round(ctx.raw * 100 / total) + "%)";
       } } } } }
@@ -55,8 +56,8 @@
       data: {
         labels: both.map(function (c) { return c.name; }),
         datasets: [
-          { label: data.previous_period.label, data: both.map(function (c) { return c.previous; }), backgroundColor: css("--muted-bar") },
-          { label: data.period.label, data: both.map(function (c) { return c.current; }), backgroundColor: css("--accent") }
+          { label: data.previous_period.label, data: both.map(function (c) { return c.previous; }), backgroundColor: css("--muted-bar"), borderRadius: 6 },
+          { label: data.period.label, data: both.map(function (c) { return c.current; }), backgroundColor: css("--accent"), borderRadius: 6 }
         ]
       },
       options: { maintainAspectRatio: false, scales: { y: { ticks: { callback: function (v) { return (v / 10000) + "만"; } } } },

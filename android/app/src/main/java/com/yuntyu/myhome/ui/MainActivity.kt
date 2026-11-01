@@ -7,6 +7,29 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.yuntyu.myhome.MyHomeApp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,7 +55,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /** 앱 화면 목록. 단순한 상태 기반 내비게이션(라이브러리 없음). */
 enum class Screen(val title: String) {
-    HOME("MyHome 가계부"),
+    HOME("내 가계부"),
     STATUS("수집 상태"),
     REVIEW("확인 필요"),
     TRANSACTIONS("이번 달 거래"),
@@ -41,6 +64,10 @@ enum class Screen(val title: String) {
     SETTINGS("설정"),
     LOGS("전송 로그"),
     ;
+
+    /** 하단바에 있는 첫 화면들 */
+    val topLevel: Boolean
+        get() = this == HOME || this == TRANSACTIONS || this == REVIEW || this == SETTINGS
 
     /** 뒤로 가기 대상 */
     val parent: Screen?
@@ -107,31 +134,80 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
     }
 
     BackHandler(enabled = screen.parent != null) { screen = screen.parent ?: Screen.HOME }
+    val summaryState by MyHomeApp.instance.summaryRepo.state.collectAsState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(screen.title) },
-                navigationIcon = {
-                    if (screen.parent != null) {
-                        IconButton(onClick = { screen = screen.parent ?: Screen.HOME }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+    ModoBackground {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            screen.title,
+                            style = if (screen.topLevel) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
+                        )
+                    },
+                    navigationIcon = {
+                        if (!screen.topLevel && screen.parent != null) {
+                            IconButton(onClick = { screen = screen.parent ?: Screen.HOME }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                            }
                         }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
+                )
+            },
+            bottomBar = {
+                if (screen.topLevel) {
+                    ModoBottomBar(screen, summaryState.summary?.needsReview ?: 0L) { screen = it }
+                }
+            },
+        ) { padding ->
+            val mod = Modifier.padding(padding)
+            when (screen) {
+                Screen.HOME -> HomeScreen(mod, resumeTick, onNavigate = { screen = it })
+                Screen.STATUS -> StatusScreen(mod, resumeTick, onNavigate = { screen = it })
+                Screen.REVIEW -> ReviewScreen(mod, openTxId, onOpened = { openTxId = null })
+                Screen.TRANSACTIONS -> TransactionsScreen(mod)
+                Screen.PERMISSIONS -> PermissionScreen(mod, resumeTick)
+                Screen.APPS -> AppsScreen(mod)
+                Screen.SETTINGS -> SettingsScreen(mod)
+                Screen.LOGS -> LogScreen(mod)
+            }
+        }
+    }
+}
+
+/** modo처럼 화면 아래에 떠 있는 알약 모양 하단바. 선택한 칸은 옅은 강조색 알약으로 표시한다. */
+@Composable
+private fun ModoBottomBar(current: Screen, reviewCount: Long, onSelect: (Screen) -> Unit) {
+    val m = LocalModo.current
+    val items = listOf(
+        Triple(Screen.HOME, Icons.Filled.Home, "홈"),
+        Triple(Screen.TRANSACTIONS, Icons.AutoMirrored.Filled.List, "거래"),
+        Triple(Screen.REVIEW, Icons.Filled.CheckCircle, "확인 필요"),
+        Triple(Screen.SETTINGS, Icons.Filled.Settings, "설정"),
+    )
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Row(
+            Modifier.fillMaxWidth().height(60.dp).clip(RoundedCornerShape(30.dp)).background(m.nav).padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            for ((s, icon, label) in items) {
+                val selected = current == s
+                Box(
+                    Modifier.size(width = 64.dp, height = 40.dp).clip(RoundedCornerShape(20.dp))
+                        .background(if (selected) m.pill else Color.Transparent)
+                        .clickable(onClickLabel = label) { onSelect(s) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(icon, contentDescription = label, tint = if (selected) m.accent else m.muted)
+                    if (s == Screen.REVIEW && reviewCount > 0) {
+                        Box(Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 14.dp).size(8.dp).clip(CircleShape).background(m.accent))
                     }
-                },
-            )
-        },
-    ) { padding ->
-        val mod = Modifier.padding(padding)
-        when (screen) {
-            Screen.HOME -> HomeScreen(mod, resumeTick, onNavigate = { screen = it })
-            Screen.STATUS -> StatusScreen(mod, resumeTick, onNavigate = { screen = it })
-            Screen.REVIEW -> ReviewScreen(mod, openTxId, onOpened = { openTxId = null })
-            Screen.TRANSACTIONS -> TransactionsScreen(mod)
-            Screen.PERMISSIONS -> PermissionScreen(mod, resumeTick)
-            Screen.APPS -> AppsScreen(mod)
-            Screen.SETTINGS -> SettingsScreen(mod)
-            Screen.LOGS -> LogScreen(mod)
+                }
+            }
         }
     }
 }

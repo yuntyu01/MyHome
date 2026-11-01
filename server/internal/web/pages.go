@@ -42,7 +42,7 @@ func (wb *Web) dashboard(w http.ResponseWriter, r *http.Request) {
 		wb.fail(w, err)
 		return
 	}
-	pd := wb.base(r, "대시보드", "dashboard")
+	pd := wb.base(r, "내 가계부", "dashboard")
 	wb.withPeriod(&pd, p, cfg.BudgetStartDay)
 	pd.Data = dashboardData{Summary: s}
 	wb.render(w, "dashboard", pd)
@@ -380,6 +380,7 @@ func (wb *Web) analytics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pd := wb.base(r, "분석", "analytics")
+	pd.Wide = true
 	wb.withPeriod(&pd, p, cfg.BudgetStartDay)
 	pd.Data = an
 	wb.render(w, "analytics", pd)
@@ -429,6 +430,7 @@ func (wb *Web) admin(w http.ResponseWriter, r *http.Request) {
 		own = append(own, o.Pattern+"="+o.Target)
 	}
 	pd := wb.base(r, "관리", "admin")
+	pd.Wide = true
 	pd.Data = adminData{Cats: cats, Rules: rules, Failed: failed, Devices: devs, Config: cfg, OwnLines: strings.Join(own, "\n"), Now: time.Now()}
 	wb.render(w, "admin", pd)
 }
@@ -607,4 +609,9 @@ func (wb *Web) revokeDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirect(w, r, "/admin#devices", "기기 토큰을 폐기했어요", false)
+}
+
+// more는 휴대폰 하단바의 "더보기" 화면이다(예산·리포트·대사·관리·테마·로그아웃).
+func (wb *Web) more(w http.ResponseWriter, r *http.Request) {
+	wb.render(w, "more", wb.base(r, "더보기", "more"))
 }

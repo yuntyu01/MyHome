@@ -9,7 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -48,14 +48,14 @@ fun StatusScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
         }
 
         Button(onClick = { onNavigate(Screen.PERMISSIONS) }, modifier = Modifier.padding(top = 4.dp)) { Text("권한 안내") }
-        OutlinedButton(onClick = { onNavigate(Screen.APPS) }) { Text("최근 알림 · 수집 대상 고르기") }
-        OutlinedButton(onClick = { onNavigate(Screen.SETTINGS) }) { Text("설정") }
-        OutlinedButton(onClick = { onNavigate(Screen.LOGS) }) { Text("전송 로그") }
-        OutlinedButton(onClick = {
+        FilledTonalButton(onClick = { onNavigate(Screen.APPS) }) { Text("최근 알림 · 수집 대상 고르기") }
+        FilledTonalButton(onClick = { onNavigate(Screen.SETTINGS) }) { Text("설정") }
+        FilledTonalButton(onClick = { onNavigate(Screen.LOGS) }) { Text("전송 로그") }
+        FilledTonalButton(onClick = {
             WorkScheduler.flushNow(ctx)
             Toast.makeText(ctx, "전송을 시작했어요", Toast.LENGTH_SHORT).show()
         }) { Text("지금 전송") }
-        OutlinedButton(onClick = {
+        FilledTonalButton(onClick = {
             val ok = Notifications.postTest(ctx)
             Toast.makeText(ctx, if (ok) "테스트 알림을 띄웠어요. 잠시 뒤 사라지면 성공" else "알림 권한이 필요해요", Toast.LENGTH_LONG).show()
         }) { Text("테스트 알림 보내기") }

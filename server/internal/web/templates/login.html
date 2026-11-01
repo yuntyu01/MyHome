@@ -9,10 +9,13 @@
 </head>
 <body class="login-page">
 <main class="login-box">
-  <h1>MyHome 가계부</h1>
-  <p class="muted">개인용 가계부입니다. 등록된 카카오 계정만 들어올 수 있어요.</p>
-  <a class="btn kakao" href="/auth/kakao/login">카카오로 로그인</a>
-  {{if .DevLogin}}<p><a class="btn ghost" href="/auth/dev-login">개발용 로그인</a></p>{{end}}
+  <h1>내 가계부</h1>
+  <p class="muted">결제 알림으로 자동으로 쓰는 개인 가계부</p>
+  <div class="card">
+    <a class="btn kakao" href="/auth/kakao/login">카카오로 로그인</a>
+    {{if .DevLogin}}<p style="margin:14px 0 0"><a class="btn ghost" href="/auth/dev-login">개발용 로그인</a></p>{{end}}
+    <p class="muted small" style="margin:14px 0 0">등록된 카카오 계정만 들어올 수 있어요.</p>
+  </div>
 </main>
 </body>
 </html>{{end}}

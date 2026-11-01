@@ -12,9 +12,8 @@
     el._t = setTimeout(function () { el.hidden = true; }, 3500);
   }
 
-  // 테마 전환: 시스템 → 반대 → 저장
-  var btn = document.getElementById("theme-toggle");
-  if (btn) {
+  // 테마 전환(메뉴·더보기의 data-theme-toggle 버튼): 시스템 → 반대 → 저장
+  document.querySelectorAll("[data-theme-toggle]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var root = document.documentElement;
       var cur = root.getAttribute("data-theme");
@@ -23,8 +22,17 @@
       root.setAttribute("data-theme", next);
       try { localStorage.setItem("mh-theme", next); } catch (e) {}
       document.dispatchEvent(new CustomEvent("mh:theme"));
+      var menu = btn.closest("details");
+      if (menu) menu.removeAttribute("open");
     });
-  }
+  });
+
+  // 메뉴 밖을 누르면 닫는다
+  document.addEventListener("click", function (e) {
+    document.querySelectorAll("details.menu[open]").forEach(function (d) {
+      if (!d.contains(e.target)) d.removeAttribute("open");
+    });
+  });
 
   // 서버가 HX-Trigger: {"toast": "..."}로 보낸 안내
   document.body.addEventListener("toast", function (e) {

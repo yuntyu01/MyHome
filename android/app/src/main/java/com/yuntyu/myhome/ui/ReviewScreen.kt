@@ -1,7 +1,10 @@
 package com.yuntyu.myhome.ui
 
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,9 +18,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -91,7 +93,11 @@ fun ReviewScreen(modifier: Modifier, openTxId: Long?, onOpened: () -> Unit) {
             )
         }
         items(items, key = { it.id }) { t ->
-            Column(Modifier.fillMaxWidth().clickable { selected = t }.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            val m = LocalModo.current
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clip(RoundedCornerShape(16.dp))
+                    .background(m.card).clickable { selected = t }.padding(horizontal = 18.dp, vertical = 14.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(t.merchant.ifBlank { "(이름 없음)" }, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                     Text((if (t.flow == "in") "+" else "") + Money.won(t.amount), style = MaterialTheme.typography.bodyLarge)
@@ -103,7 +109,6 @@ fun ReviewScreen(modifier: Modifier, openTxId: Long?, onOpened: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            HorizontalDivider()
         }
     }
 
@@ -145,7 +150,7 @@ private fun ClassifyDialog(t: TransactionDto, cats: List<Category>, onDismiss: (
                     Text("이 가맹점은 항상 이 분류")
                 }
                 for (c in ordered) {
-                    OutlinedButton(onClick = { onSubmit(TransactionEdit(categoryId = c.id, rememberRule = remember)) }, modifier = Modifier.fillMaxWidth()) {
+                    FilledTonalButton(onClick = { onSubmit(TransactionEdit(categoryId = c.id, rememberRule = remember)) }, modifier = Modifier.fillMaxWidth()) {
                         Text(c.name)
                     }
                 }

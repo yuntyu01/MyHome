@@ -12,7 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -63,7 +63,7 @@ fun PermissionScreen(modifier: Modifier, resumeTick: Int) {
                 """.trimIndent(),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            OutlinedButton(onClick = { PermissionStatus.openAppDetails(ctx) }) { Text("앱 정보 열기") }
+            FilledTonalButton(onClick = { PermissionStatus.openAppDetails(ctx) }) { Text("앱 정보 열기") }
         }
 
         SectionCard("3. 앱 알림 (선택)") {

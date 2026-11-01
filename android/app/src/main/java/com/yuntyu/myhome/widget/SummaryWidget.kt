@@ -69,9 +69,13 @@ class SummaryWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = SummaryWidget()
 }
 
-private val OkColor = ColorProvider(day = Color(0xFF2E7D5B), night = Color(0xFF6CC79C))
-private val WarnColor = ColorProvider(day = Color(0xFFB07800), night = Color(0xFFF0B93A))
-private val OverColor = ColorProvider(day = Color(0xFFC62F2F), night = Color(0xFFFF7A70))
+// modo 색: 강조 #85ADE2(라이트 글자는 한 단계 진하게), 카드 바탕, 본문·보조 글자
+private val OkColor = ColorProvider(day = Color(0xFF3F78C2), night = Color(0xFF85ADE2))
+private val WarnColor = ColorProvider(day = Color(0xFFC98A00), night = Color(0xFFF5C451))
+private val OverColor = ColorProvider(day = Color(0xFFE5484D), night = Color(0xFFFF6B6B))
+private val WidgetBg = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFF16191F))
+private val TextColor = ColorProvider(day = Color(0xFF15171A), night = Color(0xFFFFFFFF))
+private val SubColor = ColorProvider(day = Color(0xFF7A7F87), night = Color(0xFF929398))
 
 private fun colorFor(s: BudgetState) = when (s) {
     BudgetState.OVER -> OverColor
@@ -91,12 +95,12 @@ private fun openIntent(context: Context, screen: String, txId: Long? = null): In
 private fun WidgetContent(context: Context, summary: Summary?) {
     val size = LocalSize.current
     val layout = WidgetLayout.forSize(size.width.value, size.height.value)
-    val text = GlanceTheme.colors.onSurface
-    val sub = GlanceTheme.colors.onSurfaceVariant
+    val text = TextColor
+    val sub = SubColor
 
     Column(
-        modifier = GlanceModifier.fillMaxSize().cornerRadius(16.dp)
-            .background(GlanceTheme.colors.widgetBackground).padding(12.dp)
+        modifier = GlanceModifier.fillMaxSize().cornerRadius(22.dp)
+            .background(WidgetBg).padding(14.dp)
             .clickable(actionStartActivity(openIntent(context, "home"))),
     ) {
         if (summary == null) {

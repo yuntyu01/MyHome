@@ -11,7 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -95,7 +95,7 @@ fun SettingsScreen(modifier: Modifier) {
                         Toast.makeText(ctx, "토큰을 저장했어요", Toast.LENGTH_SHORT).show()
                     }
                 }) { Text("토큰 저장") }
-                OutlinedButton(enabled = hasToken, onClick = { app.tokenStore.clear() }) { Text("토큰 삭제") }
+                FilledTonalButton(enabled = hasToken, onClick = { app.tokenStore.clear() }) { Text("토큰 삭제") }
             }
         }
 
@@ -106,7 +106,7 @@ fun SettingsScreen(modifier: Modifier) {
 
         SectionCard("거부된 알림") {
             Text("서버가 형식 오류로 거부한 원문은 지우지 않고 보관해요. 서버를 고친 뒤 다시 보낼 수 있어요.", style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = {
+            FilledTonalButton(onClick = {
                 scope.launch {
                     val n = withContext(Dispatchers.IO) { app.db.pendingEvents().requeueRejected() }
                     WorkScheduler.flushNow(ctx)

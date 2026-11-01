@@ -1,6 +1,5 @@
 {{define "content"}}{{with .Data}}
-<h1>월간 리포트 · {{.Period.Label}}</h1>
-<p class="muted">{{.Period.Start}} ~ {{.Period.End}} · {{.PreviousPeriod.Label}}와 비교</p>
+<p class="muted" style="margin:0 6px 12px">{{.Period.Start}} ~ {{.Period.End}} · {{.PreviousPeriod.Label}}와 비교</p>
 
 <section class="cards">
   <div class="card stat"><span class="label">지출</span><span class="value">{{won .Totals.Spent}}</span><span class="sub {{diffCls (sub_ .Totals.Spent .PreviousTotals.Spent)}}">전월 대비 {{plus (sub_ .Totals.Spent .PreviousTotals.Spent)}}원</span></div>
@@ -44,5 +43,5 @@
   {{else}}<p class="muted">이 기간 확정 지출이 없어요.</p>{{end}}
 </section>
 </div>
-<p class="muted small">기본은 지난 기간 리포트예요. 위의 화살표로 다른 달을 볼 수 있어요.</p>
+<p class="muted small" style="margin:10px 6px">기본은 지난 기간 리포트예요. 위의 화살표로 다른 달을 볼 수 있어요.</p>
 {{end}}{{end}}

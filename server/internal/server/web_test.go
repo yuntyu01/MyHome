@@ -111,6 +111,7 @@ func TestWebPagesRender(t *testing.T) {
 		"/admin":        "가맹점 규칙",
 		"/report":       "월간 리포트",
 		"/reconcile":    "출처별 확정 지출",
+		"/more":         "대사 도우미",
 	} {
 		rec := c.get(path)
 		if rec.Code != 200 {
@@ -149,7 +150,7 @@ func TestWebTransactionRowUpdate(t *testing.T) {
 	c := newWebClient(t)
 	id := c.event("홍*동님 4,500원 일시불 메가커피")
 	rec := c.post("/web/transactions/"+itoa(id), url.Values{"memo": {"친구랑"}}, true)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `value="친구랑"`) || !strings.HasPrefix(strings.TrimSpace(rec.Body.String()), "<tr") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `value="친구랑"`) || !strings.HasPrefix(strings.TrimSpace(rec.Body.String()), "<div id=\"tx-") {
 		t.Fatalf("행 갱신: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = c.post("/web/transactions/"+itoa(id), url.Values{"status": {"excluded"}}, true)

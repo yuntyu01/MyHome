@@ -43,7 +43,7 @@ type Web struct {
 }
 
 // pageNames는 layout과 함께 파싱할 페이지 템플릿 목록이다.
-var pageNames = []string{"dashboard", "transactions", "review", "budgets", "analytics", "admin", "report", "reconcile"}
+var pageNames = []string{"dashboard", "transactions", "review", "budgets", "analytics", "admin", "report", "reconcile", "more"}
 
 // New는 템플릿을 파싱해서 Web을 만든다.
 func New(a *api.API, authn *auth.Authenticator, devices *auth.Handlers, logger *slog.Logger, devLogin bool) (*Web, error) {
@@ -90,6 +90,7 @@ func (wb *Web) Register(mux *http.ServeMux) {
 	h("POST /admin/devices/{id}/revoke", wb.revokeDevice)
 	h("GET /report", wb.report)
 	h("GET /reconcile", wb.reconcile)
+	h("GET /more", wb.more)
 }
 
 func cacheStatic(next http.Handler) http.Handler {
@@ -118,6 +119,7 @@ func secureHeaders(next http.Handler) http.Handler {
 type pageData struct {
 	Title       string
 	Active      string
+	Wide        bool // 표·차트가 많은 화면은 본문 폭을 넓게
 	CSRF        string
 	ReviewCount int64
 	AssetVer    string
@@ -240,8 +242,15 @@ var funcs = template.FuncMap{
 		b, err := json.Marshal(v)
 		return template.JS(b), err
 	},
-	"lines": func(ss []string) string { return strings.Join(ss, "\n") },
-	"sub_":  func(a, b int64) int64 { return a - b },
+	"lines":    func(ss []string) string { return strings.Join(ss, "\n") },
+	"sub_":     func(a, b int64) int64 { return a - b },
+	"wonShort": wonShort,
+	"ratio_": func(used, budget int64) float64 {
+		if budget <= 0 {
+			return 0
+		}
+		return float64(used) / float64(budget)
+	},
 	"row": func(t api.TransactionDTO, c categoryGroups, csrf string) txRowData {
 		return txRowData{T: t, Cats: c, CSRF: csrf}
 	},
@@ -264,6 +273,26 @@ func group(n int64) string {
 		return "-" + b.String()
 	}
 	return b.String()
+}
+
+// wonShort는 좁은 칸용 금액이다: 100만 원 미만은 그대로, 그 이상은 만 단위.
+// 3200000 → "320만", 120000000 → "1억 2,000만", 108600 → "108,600원".
+func wonShort(n int64) string {
+	sign := ""
+	if n < 0 {
+		sign, n = "-", -n
+	}
+	switch {
+	case n >= 100_000_000:
+		s := sign + group(n/100_000_000) + "억"
+		if m := (n % 100_000_000) / 10_000; m > 0 {
+			s += " " + group(m) + "만"
+		}
+		return s
+	case n >= 1_000_000:
+		return sign + group(n/10_000) + "만"
+	}
+	return sign + group(n) + "원"
 }
 
 // barClass: 80% 이상 경고색, 100% 초과 빨강.

@@ -1,37 +1,41 @@
 {{define "content"}}{{with .Data.Summary}}
-<section class="cards">
-  <div class="card stat"><span class="label">이번 기간 예산</span><span class="value">{{won .Totals.Budget}}</span><span class="sub">{{.Period.Start}} ~ {{.Period.End}}</span></div>
-  <div class="card stat"><span class="label">지출</span><span class="value">{{won .Totals.Spent}}</span>{{if .Totals.Settled}}<span class="sub">정산 +{{num .Totals.Settled}}</span>{{end}}</div>
-  <div class="card stat {{if lt .Totals.Remaining 0}}neg{{end}}"><span class="label">남은 돈</span><span class="value">{{won .Totals.Remaining}}</span></div>
-  <div class="card stat"><span class="label">수입</span><span class="value">{{won .Totals.Income}}</span>{{if .Totals.Investment}}<span class="sub">투자·저축 {{num .Totals.Investment}}</span>{{end}}</div>
+<section class="hero">
+  <div class="label">{{.Period.Label}} 남은 돈</div>
+  <div class="amount {{if lt .Totals.Remaining 0}}neg{{end}}">{{won .Totals.Remaining}}</div>
+  <div class="sub">예산 {{num .Totals.Budget}} · 지출 {{num .Totals.Spent}}{{if .Totals.Settled}} · 정산 +{{num .Totals.Settled}}{{end}}</div>
+  {{if .Totals.Budget}}{{$r := ratio_ (sub_ .Totals.Spent .Totals.Settled) .Totals.Budget}}<div class="bar"><span class="fill {{barCls $r}}" style="width:{{barW $r}}%"></span></div>{{end}}
 </section>
 
-{{if gt .NeedsReview 0}}<a class="notice" href="/review">확인이 필요한 거래가 <strong>{{.NeedsReview}}건</strong> 있어요 →</a>{{end}}
+{{if gt .NeedsReview 0}}<a class="notice" href="/review"><span>확인이 필요한 거래 <strong>{{.NeedsReview}}건</strong></span>{{template "ic-chev"}}</a>{{end}}
 
-<section class="card">
-  <h2>분류별 남은 돈</h2>
-  <ul class="budget-list">
-  {{range .Categories}}{{if or .Budget .Spent}}
-    <li>
-      <div class="row-between"><span>{{.Name}}</span><span class="{{if lt .Remaining 0}}neg{{end}}"><strong>{{won .Remaining}}</strong> <span class="muted small">/ {{num .Budget}}</span></span></div>
-      <div class="bar" role="progressbar" aria-valuenow="{{barW .Ratio}}" aria-valuemin="0" aria-valuemax="100"><span class="fill {{barCls .Ratio}}" style="width:{{barW .Ratio}}%"></span></div>
-      <div class="muted small">지출 {{num .Spent}}{{if .Settled}} · 정산 +{{num .Settled}}{{end}} · {{pct .Ratio}}</div>
-    </li>
-  {{end}}{{else}}<li class="muted">분류가 없어요.</li>{{end}}
-  </ul>
-  <p class="muted small">예산이 없는 분류는 지출이 있을 때만 보여요. <a href="/budgets">예산 설정</a></p>
+<section class="cards three">
+  <div class="card stat"><span class="label">지출</span><span class="value"><span class="full">{{won .Totals.Spent}}</span><span class="short">{{wonShort .Totals.Spent}}</span></span><span class="sub">{{.Period.Start}} ~ {{.Period.End}}</span></div>
+  <div class="card stat"><span class="label">수입</span><span class="value in"><span class="full">{{won .Totals.Income}}</span><span class="short">{{wonShort .Totals.Income}}</span></span></div>
+  <div class="card stat"><span class="label">투자·저축</span><span class="value"><span class="full">{{won .Totals.Investment}}</span><span class="short">{{wonShort .Totals.Investment}}</span></span></div>
 </section>
 
-<section class="card">
-  <div class="row-between"><h2>최근 거래</h2><a href="/transactions">전체 보기 →</a></div>
-  <ul class="tx-mini">
-  {{range .Recent}}
-    <li class="{{if eq .Status "needs_review"}}review{{end}}">
-      <span class="when">{{dt .OccurredAt}}</span>
-      <span class="what">{{if .Merchant}}{{.Merchant}}{{else}}<em class="muted">(이름 없음)</em>{{end}}<span class="muted small"> · {{if .Category}}{{.Category}}{{else}}확인 필요{{end}}</span></span>
-      <span class="amount {{if eq .Flow "in"}}in{{end}}">{{signed .}}</span>
-    </li>
-  {{else}}<li class="muted">아직 거래가 없어요.</li>{{end}}
-  </ul>
-</section>
+<div class="section-title">분류별 남은 돈</div>
+<div class="budget-cards">
+{{range .Categories}}{{if or .Budget .Spent}}
+  <div class="budget-card">
+    <div class="row-between"><span class="name">{{.Name}}</span><span class="left {{if lt .Remaining 0}}neg{{end}}">{{won .Remaining}}</span></div>
+    {{if .Budget}}<div class="bar" role="progressbar" aria-label="{{.Name}} 예산 사용률" aria-valuenow="{{barW .Ratio}}" aria-valuemin="0" aria-valuemax="100"><span class="fill {{barCls .Ratio}}" style="width:{{barW .Ratio}}%"></span></div>{{end}}
+    <div class="meta">지출 {{num .Spent}}{{if .Settled}} · 정산 +{{num .Settled}}{{end}}{{if .Budget}} · 예산 {{num .Budget}} · {{pct .Ratio}}{{else}} · 예산 없음{{end}}</div>
+  </div>
+{{end}}{{else}}<div class="card muted">분류가 없어요.</div>{{end}}
+</div>
+<p class="muted small" style="margin:8px 6px 0">예산이 없는 분류는 지출이 있을 때만 보여요. <a href="/budgets">예산 설정</a></p>
+
+<div class="section-title row-between"><span>최근 거래</span><a href="/transactions">전체 보기</a></div>
+<div class="group">
+{{range .Recent}}
+  <div class="item {{if eq .Status "needs_review"}}review{{end}}">
+    <div class="grow">
+      <div class="title">{{if .Merchant}}{{.Merchant}}{{else}}<span class="muted">(이름 없음)</span>{{end}}</div>
+      <div class="meta">{{dt .OccurredAt}} · {{if .Category}}<span class="accent">{{.Category}}</span>{{else}}확인 필요{{end}}</div>
+    </div>
+    <span class="amount {{if eq .Flow "in"}}in{{end}}">{{signed .}}</span>
+  </div>
+{{else}}<div class="item muted">아직 거래가 없어요.</div>{{end}}
+</div>
 {{end}}{{end}}

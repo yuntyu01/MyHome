@@ -96,6 +96,11 @@ make run    # go run ./cmd/myhome serve (.env 읽음)
 
 서버 관리 명령(배포된 컨테이너에서 `/myhome …`): `token issue|list|revoke`, `reprocess --from --to [--apply]`, `process-pending`, `export-raw`. 자세한 건 [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
+## 디자인
+
+웹·앱·위젯은 [modo](https://github.com/yuntyu01/modo)의 디자인 언어를 따른다: 다크는 검정 바탕 + 위쪽 남색 그라데이션, 라이트는 옅은 하늘빛, 테두리 없는 둥근 카드, 강조색 `#85ADE2`, Pretendard 글꼴, 휴대폰에서는 떠 있는 알약 하단바. 자세한 값은 `docs/DECISIONS.md` "디자인".
+
 ## 라이선스 고지
 
 - htmx (0BSD), Chart.js (MIT): `server/internal/web/static/vendor/`에 라이선스 파일 포함
+- Pretendard 글꼴 (SIL OFL 1.1, Kil Hyung-jin): 웹 `server/internal/web/static/fonts/`, 앱 `android/app/src/main/res/font/` (라이선스 `android/app/src/main/assets/licenses/`)
