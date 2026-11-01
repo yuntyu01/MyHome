@@ -1,0 +1,58 @@
+{{define "content"}}{{with .Data}}
+<form class="filters card" method="get" action="/transactions">
+  <input type="hidden" name="month" value="{{$.Month}}">
+  <input type="search" name="q" value="{{.Q}}" placeholder="가맹점·메모 검색" aria-label="검색">
+  <select name="category_id" aria-label="분류">
+    <option value="">모든 분류</option>
+    {{$cid := .CategoryID}}{{range .Cats.All}}<option value="{{.ID}}" {{if eq .ID $cid}}selected{{end}}>{{.Name}}</option>{{end}}
+  </select>
+  <select name="status" aria-label="상태">
+    <option value="">모든 상태</option>
+    <option value="confirmed" {{if eq .Status "confirmed"}}selected{{end}}>확정</option>
+    <option value="needs_review" {{if eq .Status "needs_review"}}selected{{end}}>확인 필요</option>
+    <option value="excluded" {{if eq .Status "excluded"}}selected{{end}}>제외</option>
+  </select>
+  <button class="btn">검색</button>
+</form>
+
+<div class="table-wrap card">
+<table class="tx-table">
+  <thead><tr><th>시각</th><th>가맹점</th><th class="num">금액</th><th>분류</th><th>메모</th><th>상태</th><th></th></tr></thead>
+  <tbody>
+  {{$cats := .Cats}}{{range .Transactions}}{{template "tx-row" (row . $cats $.CSRF)}}{{else}}<tr><td colspan="7" class="muted">거래가 없어요.</td></tr>{{end}}
+  </tbody>
+</table>
+</div>
+{{if .HasMore}}<p><a class="btn ghost" href="?month={{$.Month}}&q={{.Q}}&status={{.Status}}&offset={{.NextOffset}}">더 보기</a></p>{{end}}
+{{end}}{{end}}
+
+{{define "tx-row"}}<tr id="tx-{{.T.ID}}" class="status-{{.T.Status}}">
+  <td class="nowrap">{{dt .T.OccurredAt}}</td>
+  <td>{{if .T.Merchant}}{{.T.Merchant}}{{else}}<em class="muted">(이름 없음)</em>{{end}}<div class="muted small">{{.T.Source}}{{if .T.Installment}} · {{.T.Installment}}개월 할부{{end}}</div></td>
+  <td class="num nowrap {{if eq .T.Flow "in"}}in{{end}}">{{signed .T}}</td>
+  <td>
+    <form hx-post="/web/transactions/{{.T.ID}}" hx-target="#tx-{{.T.ID}}" hx-swap="outerHTML" hx-trigger="change from:find select">
+      <select name="category_id" aria-label="분류">
+        <option value="">— 선택 —</option>
+        {{$cur := derefID .T.CategoryID}}{{range .Cats.All}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{.Name}}{{if .Archived}} (보관){{end}}</option>{{end}}
+      </select>
+      <label class="small nowrap" title="체크한 뒤 분류를 고르면 이 가맹점 규칙으로 저장"><input type="checkbox" name="remember"> 항상</label>
+    </form>
+  </td>
+  <td>
+    <form hx-post="/web/transactions/{{.T.ID}}" hx-target="#tx-{{.T.ID}}" hx-swap="outerHTML" hx-trigger="change">
+      <input type="text" name="memo" value="{{.T.Memo}}" placeholder="메모" aria-label="메모" class="memo">
+    </form>
+  </td>
+  <td class="nowrap">
+    {{if eq .T.Status "confirmed"}}<span class="pill ok">확정</span>{{else if eq .T.Status "needs_review"}}<span class="pill warn" title="{{reason .T.ReviewReason}}">확인 필요</span>{{else}}<span class="pill muted" title="{{reason .T.ExclusionReason}}">제외 · {{reason .T.ExclusionReason}}</span>{{end}}
+    {{if .T.ManuallyEdited}}<span class="muted small" title="직접 수정함(재처리해도 유지)">✎</span>{{end}}
+  </td>
+  <td class="nowrap">
+    {{if eq .T.Status "excluded"}}
+      <button class="link-btn" hx-post="/web/transactions/{{.T.ID}}" hx-vals='{"status":"confirmed"}' hx-target="#tx-{{.T.ID}}" hx-swap="outerHTML">제외 해제</button>
+    {{else}}
+      <button class="link-btn" hx-post="/web/transactions/{{.T.ID}}" hx-vals='{"status":"excluded"}' hx-target="#tx-{{.T.ID}}" hx-swap="outerHTML" hx-confirm="이 거래를 합계에서 제외할까요?">제외</button>
+    {{end}}
+  </td>
+</tr>{{end}}

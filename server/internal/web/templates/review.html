@@ -1,0 +1,43 @@
+{{define "content"}}
+<h1>확인 필요</h1>
+<p class="muted">자동으로 분류하지 못한 거래예요. 분류를 누르면 바로 저장되고 다음 건이 나와요. "이 가맹점은 항상"을 켜 두면 다음부터 자동으로 분류해요.</p>
+<div id="review-box">{{template "review-item" .Data}}</div>
+{{end}}
+
+{{define "review-item"}}
+{{if .Flash}}<div class="flash ok" role="status">{{.Flash}}</div>{{end}}
+{{with .Item}}
+<div class="card review-card">
+  <div class="row-between">
+    <span class="pill warn">{{reason .ReviewReason}}</span>
+    <span class="muted small">남은 {{$.Left}}건</span>
+  </div>
+  <div class="review-main">
+    <div class="review-merchant">{{if .Merchant}}{{.Merchant}}{{else}}<em class="muted">(이름 없음)</em>{{end}}</div>
+    <div class="review-amount {{if eq .Flow "in"}}in{{end}}">{{signed .}}</div>
+    <div class="muted small">{{dt .OccurredAt}} · {{.Source}}{{if eq .Flow "in"}} · 들어온 돈{{end}}{{if .Category}} · 제안: {{.Category}}{{end}}</div>
+  </div>
+  <form hx-post="/web/review/{{.ID}}" hx-target="#review-box" hx-swap="innerHTML">
+    <label class="remember"><input type="checkbox" name="remember" {{if .Merchant}}checked{{end}} {{if not .Merchant}}disabled{{end}}> 이 가맹점은 항상 이 분류</label>
+    {{if eq .Flow "in"}}
+    <div class="settle-row">
+      <label class="small">정산이면 되돌려 놓을 분류
+        <select name="settle_category_id"><option value="">총계에만 더하기</option>{{range $.Cats.Expense}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+      </label>
+    </div>
+    {{end}}
+    <div class="cat-grid">
+      {{if eq .Flow "in"}}{{range $.Cats.Other}}<button class="btn cat special" name="category_id" value="{{.ID}}">{{.Name}}</button>{{end}}{{end}}
+      {{range $.Cats.Expense}}<button class="btn cat" name="category_id" value="{{.ID}}">{{.Name}}</button>{{end}}
+      {{if ne .Flow "in"}}{{range $.Cats.Other}}<button class="btn cat special" name="category_id" value="{{.ID}}">{{.Name}}</button>{{end}}{{end}}
+    </div>
+    <div class="row-between">
+      <input type="text" name="memo" value="{{.Memo}}" placeholder="메모(선택)" class="memo" aria-label="메모">
+      <button class="btn ghost" name="action" value="exclude" hx-confirm="합계에서 제외할까요?">제외</button>
+    </div>
+  </form>
+</div>
+{{else}}
+<div class="card empty">확인할 거래가 없어요. 🎉</div>
+{{end}}
+{{end}}

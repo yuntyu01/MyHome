@@ -1,0 +1,30 @@
+{{define "content"}}{{with .Data}}
+<form method="post" action="/budgets" class="card">
+  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+  <input type="hidden" name="month" value="{{$.Month}}">
+  <div class="row-between"><h2>분류별 예산 · {{$.Month}}</h2><span class="muted small">기간 시작일: 매월 {{.StartDay}}일 (관리에서 변경)</span></div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>분류</th><th class="num">예산</th><th class="num">지난달 예산</th><th class="num">이번 기간 지출</th></tr></thead>
+    <tbody>
+    {{range .Rows}}
+      <tr>
+        <td>{{.Category.Name}}</td>
+        <td class="num"><input class="money" type="text" inputmode="numeric" name="amount_{{.Category.ID}}" value="{{if .Amount}}{{num .Amount}}{{end}}" placeholder="0" aria-label="{{.Category.Name}} 예산"></td>
+        <td class="num muted">{{num .Previous}}</td>
+        <td class="num">{{num .Spent}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+    <tfoot><tr><th>합계</th><th class="num">{{won .Total}}</th><th></th><th></th></tr></tfoot>
+  </table>
+  </div>
+  <div class="actions"><button class="btn">저장</button></div>
+</form>
+<form method="post" action="/budgets/copy" class="inline">
+  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+  <input type="hidden" name="month" value="{{$.Month}}">
+  <button class="btn ghost">지난달 예산 복사 ({{$.PrevMonth}} → {{$.Month}})</button>
+  <span class="muted small">이미 입력한 분류는 덮어쓰지 않아요.</span>
+</form>
+{{end}}{{end}}

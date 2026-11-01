@@ -47,7 +47,7 @@ func (a *API) getSummary(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	s, err := a.buildSummary(r, p, queryInt(r, "recent", 4, 50))
+	s, err := a.BuildSummary(r, p, queryInt(r, "recent", 4, 50))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -55,7 +55,8 @@ func (a *API) getSummary(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, s)
 }
 
-func (a *API) buildSummary(r *http.Request, p period.Period, recentN int) (Summary, error) {
+// BuildSummary는 기간 요약을 만든다(웹·위젯 공용).
+func (a *API) BuildSummary(r *http.Request, p period.Period, recentN int) (Summary, error) {
 	ctx := r.Context()
 	q := a.q()
 	rows, err := q.CategorySummary(ctx, dbq.CategorySummaryParams{PeriodStart: p.StartDate(), FromAt: p.Start, ToAt: p.End})

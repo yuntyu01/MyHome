@@ -59,6 +59,9 @@ func (a *API) Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler)
 
 func (a *API) q() *dbq.Queries { return dbq.New(a.Pool) }
 
+// Q는 쿼리 객체다(웹 핸들러용).
+func (a *API) Q() *dbq.Queries { return a.q() }
+
 // fail은 에러 종류에 맞는 HTTP 응답을 쓴다.
 func (a *API) fail(w http.ResponseWriter, err error) {
 	switch {
@@ -88,6 +91,9 @@ func queryInt(r *http.Request, key string, def, max int) int {
 	return n
 }
 
+// PeriodFor는 ?month=YYYY-MM(기본: 이번 기간)을 읽는다.
+func (a *API) PeriodFor(r *http.Request) (period.Period, pipeline.Config, error) { return a.periodFor(r) }
+
 // periodFor는 ?month=YYYY-MM(기본: 이번 기간)을 읽는다.
 func (a *API) periodFor(r *http.Request) (period.Period, pipeline.Config, error) {
 	cfg, err := pipeline.LoadConfig(r.Context(), a.q())
@@ -102,6 +108,7 @@ func (a *API) periodFor(r *http.Request) (period.Period, pipeline.Config, error)
 }
 
 // PeriodDTO는 기간 표시용이다(날짜는 KST).
+// Label은 "2026-11", Start/End는 YYYY-MM-DD.
 type PeriodDTO struct {
 	Label string `json:"label"`
 	Start string `json:"start"`

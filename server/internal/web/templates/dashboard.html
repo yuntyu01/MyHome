@@ -1,0 +1,37 @@
+{{define "content"}}{{with .Data.Summary}}
+<section class="cards">
+  <div class="card stat"><span class="label">이번 기간 예산</span><span class="value">{{won .Totals.Budget}}</span><span class="sub">{{.Period.Start}} ~ {{.Period.End}}</span></div>
+  <div class="card stat"><span class="label">지출</span><span class="value">{{won .Totals.Spent}}</span>{{if .Totals.Settled}}<span class="sub">정산 +{{num .Totals.Settled}}</span>{{end}}</div>
+  <div class="card stat {{if lt .Totals.Remaining 0}}neg{{end}}"><span class="label">남은 돈</span><span class="value">{{won .Totals.Remaining}}</span></div>
+  <div class="card stat"><span class="label">수입</span><span class="value">{{won .Totals.Income}}</span>{{if .Totals.Investment}}<span class="sub">투자·저축 {{num .Totals.Investment}}</span>{{end}}</div>
+</section>
+
+{{if gt .NeedsReview 0}}<a class="notice" href="/review">확인이 필요한 거래가 <strong>{{.NeedsReview}}건</strong> 있어요 →</a>{{end}}
+
+<section class="card">
+  <h2>분류별 남은 돈</h2>
+  <ul class="budget-list">
+  {{range .Categories}}{{if or .Budget .Spent}}
+    <li>
+      <div class="row-between"><span>{{.Name}}</span><span class="{{if lt .Remaining 0}}neg{{end}}"><strong>{{won .Remaining}}</strong> <span class="muted small">/ {{num .Budget}}</span></span></div>
+      <div class="bar" role="progressbar" aria-valuenow="{{barW .Ratio}}" aria-valuemin="0" aria-valuemax="100"><span class="fill {{barCls .Ratio}}" style="width:{{barW .Ratio}}%"></span></div>
+      <div class="muted small">지출 {{num .Spent}}{{if .Settled}} · 정산 +{{num .Settled}}{{end}} · {{pct .Ratio}}</div>
+    </li>
+  {{end}}{{else}}<li class="muted">분류가 없어요.</li>{{end}}
+  </ul>
+  <p class="muted small">예산이 없는 분류는 지출이 있을 때만 보여요. <a href="/budgets">예산 설정</a></p>
+</section>
+
+<section class="card">
+  <div class="row-between"><h2>최근 거래</h2><a href="/transactions">전체 보기 →</a></div>
+  <ul class="tx-mini">
+  {{range .Recent}}
+    <li class="{{if eq .Status "needs_review"}}review{{end}}">
+      <span class="when">{{dt .OccurredAt}}</span>
+      <span class="what">{{if .Merchant}}{{.Merchant}}{{else}}<em class="muted">(이름 없음)</em>{{end}}<span class="muted small"> · {{if .Category}}{{.Category}}{{else}}확인 필요{{end}}</span></span>
+      <span class="amount {{if eq .Flow "in"}}in{{end}}">{{signed .}}</span>
+    </li>
+  {{else}}<li class="muted">아직 거래가 없어요.</li>{{end}}
+  </ul>
+</section>
+{{end}}{{end}}

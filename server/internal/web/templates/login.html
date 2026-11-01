@@ -1,0 +1,18 @@
+{{define "login"}}<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>로그인 · MyHome 가계부</title>
+<link rel="stylesheet" href="/static/app.css?v={{.AssetVer}}">
+<script src="/static/theme.js?v={{.AssetVer}}"></script>
+</head>
+<body class="login-page">
+<main class="login-box">
+  <h1>MyHome 가계부</h1>
+  <p class="muted">개인용 가계부입니다. 등록된 카카오 계정만 들어올 수 있어요.</p>
+  <a class="btn kakao" href="/auth/kakao/login">카카오로 로그인</a>
+  {{if .DevLogin}}<p><a class="btn ghost" href="/auth/dev-login">개발용 로그인</a></p>{{end}}
+</main>
+</body>
+</html>{{end}}

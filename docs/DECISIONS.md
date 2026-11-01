@@ -86,3 +86,18 @@
 - **앱: 카카오톡 로그인 → 실패 시 카카오계정 로그인, 사용자가 취소하면 중단** — 카카오 SDK 권장 흐름.
 - **카카오 SDK 버전 2.20.6, 저장소 `devrepo.kakao.com`** — 작업 환경에서 접속·확인하지 못했다. 빌드 오류가 나면 카카오 문서의 최신 버전으로 바꾼다 — `android/gradle/libs.versions.toml`.
 - **네이티브 앱 키는 `local.properties`(`kakao.nativeAppKey`)로 주입, 없으면 카카오 버튼 비활성** — 키 없이도 앱이 빌드·동작하게(토큰 직접 입력).
+
+## Phase 5
+
+- **웹 스택: Go `html/template` + htmx + Chart.js, 서버가 직접 서빙** (◆ 기본값) — 별도 프론트엔드 빌드 없음.
+- **htmx 2.0.11, Chart.js 4.5.1을 저장소에 내장(`internal/web/static/vendor/`)** — CDN에 의존하지 않고 CSP를 `script-src 'self'`로 엄격하게 두기 위해. npm 레지스트리에서 받아 `dist.integrity`(sha512)로 검증했고 라이선스 파일(0BSD, MIT)을 같이 뒀다. Chart.js는 출시 열흘 된 4.6.1 대신 1년 넘은 4.5.1을 골랐다 — 올리려면 같은 폴더의 파일과 템플릿의 파일명을 바꾼다.
+- **인라인 스크립트 금지(CSP), 차트 데이터는 `<script type="application/json">`으로 전달** — XSS 방어. 테마는 `theme.js`를 `<head>`에서 먼저 실행해 깜빡임 방지. 인라인 style은 진행 막대 너비 때문에 허용(`style-src 'unsafe-inline'`).
+- **htmx 요청의 CSRF는 `<body hx-headers>`로 헤더에 싣고, 일반 폼은 숨김 필드 `csrf_token`** — Phase 4의 세션 CSRF 검사와 같은 토큰.
+- **POST 후 303 리다이렉트 + `?ok=`/`?err=` 안내** — 새로고침 때 재전송 방지.
+- **분류 삭제 대신 "보관"** — Phase 3 결정과 같음(관리 화면).
+- **설정 목록 입력은 줄바꿈 또는 쉼표 구분 텍스트** — 별도 편집 UI 없이 빠르게 고칠 수 있게.
+- **확인 필요 큐는 오래된 것부터 한 건씩, 분류 버튼 = 저장 + 다음 건** — "한 건씩 빠르게" 요구. 가맹점이 있으면 "항상" 체크가 기본 켜짐. 들어온 돈이면 특수 분류(수입·정산 등)를 먼저 보여주고 정산이면 되돌릴 분류를 고를 수 있다.
+- **거래 목록의 "항상" 체크박스는 분류를 고를 때만 전송(`hx-trigger="change from:find select"`)** — 체크만 했을 때 빈 분류로 저장 시도가 나가지 않게.
+- **분석 일별 추이에서 이번 기간의 미래 날짜는 비움** — 0으로 그리면 "지출 없음"처럼 보여서.
+- **다크 모드: 시스템 설정을 따르고, 상단 버튼으로 바꾸면 브라우저에 기억(localStorage)** — 저장소를 못 쓰면 시스템 설정.
+- **보안 헤더**: CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin`, 화면은 `Cache-Control: no-store`.

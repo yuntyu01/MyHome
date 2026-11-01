@@ -1,0 +1,32 @@
+{{define "content"}}{{with .Data}}
+<section class="cards">
+  <div class="card stat"><span class="label">이번 기간 지출</span><span class="value">{{won .Totals.Spent}}</span><span class="sub {{diffCls (sub_ .Totals.Spent .PreviousTotals.Spent)}}">지난 기간 대비 {{plus (sub_ .Totals.Spent .PreviousTotals.Spent)}}원</span></div>
+  <div class="card stat"><span class="label">수입</span><span class="value">{{won .Totals.Income}}</span><span class="sub">지난 기간 {{num .PreviousTotals.Income}}</span></div>
+  <div class="card stat"><span class="label">투자·저축</span><span class="value">{{won .Totals.Investment}}</span><span class="sub">지난 기간 {{num .PreviousTotals.Investment}}</span></div>
+  <div class="card stat"><span class="label">정산 회수</span><span class="value">{{won .Totals.Settled}}</span></div>
+</section>
+
+<div class="grid-2">
+  <section class="card"><h2>분류별 비중</h2><div class="chart-box"><canvas id="chart-share" aria-label="분류별 지출 비중 도넛 차트"></canvas></div></section>
+  <section class="card"><h2>일별 추이</h2><div class="chart-box"><canvas id="chart-daily" aria-label="일별 지출 추이"></canvas></div></section>
+</div>
+<section class="card"><h2>전월 대비</h2><div class="chart-box tall"><canvas id="chart-compare" aria-label="분류별 전월 대비"></canvas></div></section>
+
+<section class="card">
+  <h2>월간 요약</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>분류</th><th class="num">{{.Period.Label}}</th><th class="num">{{.PreviousPeriod.Label}}</th><th class="num">증감</th></tr></thead>
+    <tbody>
+    {{range .Categories}}{{if or .Current .Previous}}
+      <tr><td>{{.Name}}</td><td class="num">{{num .Current}}</td><td class="num muted">{{num .Previous}}</td><td class="num {{diffCls .Diff}}">{{plus .Diff}}</td></tr>
+    {{end}}{{end}}
+    </tbody>
+    <tfoot><tr><th>합계</th><th class="num">{{num .Totals.Spent}}</th><th class="num">{{num .PreviousTotals.Spent}}</th><th class="num {{diffCls (sub_ .Totals.Spent .PreviousTotals.Spent)}}">{{plus (sub_ .Totals.Spent .PreviousTotals.Spent)}}</th></tr></tfoot>
+  </table>
+  </div>
+</section>
+<script type="application/json" id="analytics-data">{{.}}</script>
+<script src="/static/vendor/chart-4.5.1.umd.min.js" defer></script>
+<script src="/static/charts.js?v={{$.AssetVer}}" defer></script>
+{{end}}{{end}}

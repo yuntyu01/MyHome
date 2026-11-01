@@ -1,0 +1,70 @@
+// 분석 화면 차트. 데이터는 페이지의 <script type="application/json" id="analytics-data">에서 읽는다.
+(function () {
+  "use strict";
+  var el = document.getElementById("analytics-data");
+  if (!el || typeof Chart === "undefined") return;
+  var data = JSON.parse(el.textContent);
+  var charts = [];
+
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function won(v) { return Number(v).toLocaleString("ko-KR") + "원"; }
+  // 분류 색: 테마 토큰에 정의한 팔레트를 순서대로 쓴다
+  function palette(n) {
+    var out = [];
+    for (var i = 0; i < n; i++) out.push(css("--c" + ((i % 10) + 1)));
+    return out;
+  }
+
+  function draw() {
+    charts.forEach(function (c) { c.destroy(); });
+    charts = [];
+    Chart.defaults.color = css("--muted");
+    Chart.defaults.borderColor = css("--line");
+    Chart.defaults.font.family = css("--font");
+
+    var cats = (data.categories || []).filter(function (c) { return c.current > 0; })
+      .sort(function (a, b) { return b.current - a.current; });
+
+    charts.push(new Chart(document.getElementById("chart-share"), {
+      type: "doughnut",
+      data: { labels: cats.map(function (c) { return c.name; }), datasets: [{ data: cats.map(function (c) { return c.current; }), backgroundColor: palette(cats.length), borderColor: css("--surface"), borderWidth: 2 }] },
+      options: { maintainAspectRatio: false, plugins: { legend: { position: "right" }, tooltip: { callbacks: { label: function (ctx) {
+        var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+        return ctx.label + ": " + won(ctx.raw) + " (" + Math.round(ctx.raw * 100 / total) + "%)";
+      } } } } }
+    }));
+
+    var cur = data.daily || [], prev = data.previous_daily || [];
+    charts.push(new Chart(document.getElementById("chart-daily"), {
+      type: "line",
+      data: {
+        labels: cur.map(function (d) { return d.day.slice(5); }),
+        datasets: [
+          { label: data.period.label, data: cur.map(function (d) { return d.day > data.today ? null : d.spent; }), borderColor: css("--accent"), backgroundColor: css("--accent"), tension: 0.25, pointRadius: 2 },
+          { label: data.previous_period.label, data: prev.map(function (d) { return d.spent; }), borderColor: css("--muted"), borderDash: [4, 4], pointRadius: 0, tension: 0.25 }
+        ]
+      },
+      options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+        scales: { y: { ticks: { callback: function (v) { return (v / 10000) + "만"; } } } },
+        plugins: { tooltip: { callbacks: { label: function (ctx) { return ctx.dataset.label + ": " + won(ctx.raw); } } } } }
+    }));
+
+    var both = (data.categories || []).filter(function (c) { return c.current || c.previous; });
+    charts.push(new Chart(document.getElementById("chart-compare"), {
+      type: "bar",
+      data: {
+        labels: both.map(function (c) { return c.name; }),
+        datasets: [
+          { label: data.previous_period.label, data: both.map(function (c) { return c.previous; }), backgroundColor: css("--muted-bar") },
+          { label: data.period.label, data: both.map(function (c) { return c.current; }), backgroundColor: css("--accent") }
+        ]
+      },
+      options: { maintainAspectRatio: false, scales: { y: { ticks: { callback: function (v) { return (v / 10000) + "만"; } } } },
+        plugins: { tooltip: { callbacks: { label: function (ctx) { return ctx.dataset.label + ": " + won(ctx.raw); } } } } }
+    }));
+  }
+
+  draw();
+  document.addEventListener("mh:theme", draw);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+})();

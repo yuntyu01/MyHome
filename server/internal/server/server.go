@@ -59,7 +59,7 @@ func New(d Deps) http.Handler {
 	a := &api.API{Pool: d.Pool, Editor: &pipeline.Editor{Pool: d.Pool}, Processor: d.Processor, Logger: d.Logger}
 	a.Register(mux, authn.RequireAPI)
 
-	registerWeb(mux, authn, d)
+	registerWeb(mux, authn, ah, a, d)
 
 	var h http.Handler = mux
 	h = httpx.LimitBody(d.Config.MaxBodyBytes, h)

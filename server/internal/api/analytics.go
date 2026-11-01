@@ -32,6 +32,7 @@ type Analytics struct {
 	Categories     []CategoryCompare `json:"categories"`
 	Daily          []DailyPoint      `json:"daily"`
 	PreviousDaily  []DailyPoint      `json:"previous_daily"`
+	Today          string            `json:"today"` // KST 오늘. 이번 기간 차트에서 미래 날짜를 비우는 데 쓴다
 }
 
 func (a *API) getAnalytics(w http.ResponseWriter, r *http.Request) {
@@ -50,15 +51,16 @@ func (a *API) getAnalytics(w http.ResponseWriter, r *http.Request) {
 
 // BuildAnalytics는 두 기간을 비교한 분석 데이터를 만든다(웹·리포트 공용).
 func (a *API) BuildAnalytics(r *http.Request, cur, prev period.Period) (Analytics, error) {
-	cs, err := a.buildSummary(r, cur, 0)
+	cs, err := a.BuildSummary(r, cur, 0)
 	if err != nil {
 		return Analytics{}, err
 	}
-	ps, err := a.buildSummary(r, prev, 0)
+	ps, err := a.BuildSummary(r, prev, 0)
 	if err != nil {
 		return Analytics{}, err
 	}
-	an := Analytics{Period: periodDTO(cur), PreviousPeriod: periodDTO(prev), Totals: cs.Totals, PreviousTotals: ps.Totals}
+	an := Analytics{Period: periodDTO(cur), PreviousPeriod: periodDTO(prev), Totals: cs.Totals, PreviousTotals: ps.Totals,
+		Today: a.now().In(period.KST).Format("2006-01-02")}
 	prevBy := map[int64]int64{}
 	for _, c := range ps.Categories {
 		prevBy[c.ID] = c.Spent
