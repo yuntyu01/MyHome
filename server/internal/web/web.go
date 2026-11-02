@@ -2,6 +2,7 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -125,7 +126,8 @@ type pageData struct {
 	AssetVer    string
 	Flash       string
 	Error       string
-	Month       string // 현재 선택 기간 라벨
+	Month       string // 현재 선택 기간 라벨(주소·폼 값). 화면에는 monthName으로 보여준다
+	MonthRange  string // 시작일이 1일이 아닐 때 기간("10/15~11/14")
 	PrevMonth   string
 	NextMonth   string
 	Data        any
@@ -140,6 +142,7 @@ func (wb *Web) base(r *http.Request, title, active string) pageData {
 
 func (wb *Web) withPeriod(pd *pageData, p period.Period, startDay int) {
 	pd.Month = p.Label
+	pd.MonthRange = monthRange(p, startDay)
 	pd.PrevMonth = p.Prev(startDay).Label
 	pd.NextMonth = period.ForMonth(p.Start.Year(), p.Start.Month()+1, startDay).Label
 }
@@ -150,17 +153,23 @@ func (wb *Web) render(w http.ResponseWriter, page string, pd pageData) {
 		http.Error(w, "unknown page", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := t.ExecuteTemplate(w, "layout", pd); err != nil {
-		wb.Logger.Error("템플릿 렌더링 실패", "page", page, "err", err)
+	wb.writeTemplate(w, t, "layout", page, pd)
+}
+
+// writeTemplate은 버퍼에 먼저 그린다. 중간에 실패해도 잘린 화면을 200으로 보내지 않고 500으로 알린다.
+func (wb *Web) writeTemplate(w http.ResponseWriter, t *template.Template, name, page string, data any) {
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, name, data); err != nil {
+		wb.Logger.Error("템플릿 렌더링 실패", "page", page, "name", name, "err", err)
+		http.Error(w, "화면을 그리지 못했습니다.", http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = buf.WriteTo(w)
 }
 
 func (wb *Web) partial(w http.ResponseWriter, page, name string, data any) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := wb.pages[page].ExecuteTemplate(w, name, data); err != nil {
-		wb.Logger.Error("부분 템플릿 렌더링 실패", "name", name, "err", err)
-	}
+	wb.writeTemplate(w, wb.pages[page], name, page, data)
 }
 
 func (wb *Web) fail(w http.ResponseWriter, err error) {
@@ -210,7 +219,11 @@ var funcs = template.FuncMap{
 		}
 		return *p
 	},
-	"reason": reasonLabel,
+	"reason":     reasonLabel,
+	"monthName":  monthName,
+	"shortDate":  shortDate,
+	"sourceName": sourceName,
+	"matchLabel": matchLabel,
 	"reasonText": func(s string) string {
 		if s == "" {
 			return "(사유 없음)"
@@ -295,7 +308,7 @@ func wonShort(n int64) string {
 	return sign + group(n) + "원"
 }
 
-// barClass: 80% 이상 경고색, 100% 초과 빨강.
+// barClass: 80% 이상 경고색(라벤더), 100% 초과 살구.
 func barClass(ratio float64) string {
 	switch {
 	case ratio > 1:
@@ -308,12 +321,12 @@ func barClass(ratio float64) string {
 
 var reasonLabels = map[string]string{
 	pipeline.ReviewNoMerchant:     "가맹점 이름 없음",
-	pipeline.ReviewNoRule:         "규칙 없음",
-	pipeline.ReviewPaymentGateway: "결제대행사 이름",
+	pipeline.ReviewNoRule:         "처음 보는 가맹점",
+	pipeline.ReviewPaymentGateway: "결제대행사로 찍힘",
 	pipeline.ReviewTransfer:       "송금",
-	pipeline.ReviewDeposit:        "입금 성격 확인",
-	pipeline.ReviewUnknownKind:    "종류 모름",
-	pipeline.ReviewCancelNoMatch:  "원거래 없는 취소",
+	pipeline.ReviewDeposit:        "어떤 입금인지 확인",
+	pipeline.ReviewUnknownKind:    "어떤 거래인지 모름",
+	pipeline.ReviewCancelNoMatch:  "원래 결제를 못 찾은 취소",
 	pipeline.ReviewCancelPartial:  "부분 취소",
 	pipeline.ExcludeCardPayment:   "카드대금",
 	pipeline.ExcludePrepaid:       "머니 충전",

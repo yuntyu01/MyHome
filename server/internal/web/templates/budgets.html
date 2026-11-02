@@ -2,7 +2,7 @@
 <form method="post" action="/budgets" class="card">
   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
   <input type="hidden" name="month" value="{{$.Month}}">
-  <div class="row-between"><h2>분류별 예산 · {{$.Month}}</h2><span class="muted small">기간 시작일: 매월 {{.StartDay}}일 (관리에서 변경)</span></div>
+  <div class="row-between"><h2>분류별 예산 · {{monthName $.Month}}</h2><span class="muted small">매월 {{.StartDay}}일 시작 · <a href="/admin?tab=settings">변경</a></span></div>
   <div class="table-wrap">
   <table>
     <thead><tr><th>분류</th><th class="num">예산</th><th class="num">지난달 예산</th><th class="num">이번 기간 지출</th></tr></thead>
@@ -24,7 +24,7 @@
 <form method="post" action="/budgets/copy" class="inline">
   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
   <input type="hidden" name="month" value="{{$.Month}}">
-  <button class="btn ghost">지난달 예산 복사 ({{$.PrevMonth}} → {{$.Month}})</button>
+  <button class="btn ghost">지난달 예산 복사 ({{monthName $.PrevMonth}} → {{monthName $.Month}})</button>
   <span class="muted small">이미 입력한 분류는 덮어쓰지 않아요.</span>
 </form>
 {{end}}{{end}}

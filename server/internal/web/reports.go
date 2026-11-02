@@ -21,7 +21,7 @@ func (wb *Web) report(w http.ResponseWriter, r *http.Request) {
 	wb.render(w, "report", pd)
 }
 
-// reconcile은 대사 도우미(출처별 합계, 제외 내역, 최근 6개 기간)다.
+// reconcile은 명세서 대조 화면(결제 수단별 합계, 제외 내역, 최근 6개 기간)이다.
 func (wb *Web) reconcile(w http.ResponseWriter, r *http.Request) {
 	p, cfg, err := wb.API.PeriodFor(r)
 	if err != nil {
@@ -33,7 +33,7 @@ func (wb *Web) reconcile(w http.ResponseWriter, r *http.Request) {
 		wb.fail(w, err)
 		return
 	}
-	pd := wb.base(r, "대사 도우미", "reconcile")
+	pd := wb.base(r, "명세서 대조", "reconcile")
 	pd.Wide = true
 	wb.withPeriod(&pd, p, cfg.BudgetStartDay)
 	pd.Data = rc

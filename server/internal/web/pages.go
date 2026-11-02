@@ -29,6 +29,8 @@ func (wb *Web) login(w http.ResponseWriter, r *http.Request) {
 
 type dashboardData struct {
 	Summary api.Summary
+	Top     []api.CategoryBudget // 바로 보이는 분류
+	Rest    []api.CategoryBudget // 접어 둔 분류
 }
 
 func (wb *Web) dashboard(w http.ResponseWriter, r *http.Request) {
@@ -37,14 +39,16 @@ func (wb *Web) dashboard(w http.ResponseWriter, r *http.Request) {
 		wb.fail(w, err)
 		return
 	}
-	s, err := wb.API.BuildSummary(r, p, 10)
+	s, err := wb.API.BuildSummary(r, p, 5)
 	if err != nil {
 		wb.fail(w, err)
 		return
 	}
 	pd := wb.base(r, "내 가계부", "dashboard")
 	wb.withPeriod(&pd, p, cfg.BudgetStartDay)
-	pd.Data = dashboardData{Summary: s}
+	d := dashboardData{Summary: s}
+	d.Top, d.Rest = splitCategories(s.Categories)
+	pd.Data = d
 	wb.render(w, "dashboard", pd)
 }
 
@@ -65,6 +69,7 @@ type txRowData struct {
 	T    api.TransactionDTO
 	Cats categoryGroups
 	CSRF string
+	Open bool // 수정 항목을 펼친 채로 그린다(방금 고친 행)
 }
 
 func (wb *Web) transactions(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +78,7 @@ func (wb *Web) transactions(w http.ResponseWriter, r *http.Request) {
 		wb.fail(w, err)
 		return
 	}
-	f.Limit = 200
+	f.Limit = 50
 	txs, err := wb.API.ListTransactions(r, f)
 	if err != nil {
 		wb.fail(w, err)
@@ -149,7 +154,7 @@ func (wb *Web) updateTransaction(w http.ResponseWriter, r *http.Request) {
 	if res.AlsoUpdated > 0 {
 		w.Header().Set("HX-Trigger", `{"toast":"같은 가맹점 `+strconv.Itoa(res.AlsoUpdated)+`건도 함께 분류했어요"}`)
 	}
-	wb.partial(w, "transactions", "tx-row", txRowData{T: dtoFromTx(t, name), Cats: cats, CSRF: pd.CSRF})
+	wb.partial(w, "transactions", "tx-row", txRowData{T: dtoFromTx(t, name), Cats: cats, CSRF: pd.CSRF, Open: true})
 }
 
 func dtoFromTx(t dbq.Transaction, catName string) api.TransactionDTO {
@@ -389,6 +394,7 @@ func (wb *Web) analytics(w http.ResponseWriter, r *http.Request) {
 // ---- 관리 ----
 
 type adminData struct {
+	Tab      string
 	Cats     categoryGroups
 	Rules    []dbq.ListRulesRow
 	Failed   []dbq.RawEvent
@@ -398,7 +404,14 @@ type adminData struct {
 	Now      time.Time
 }
 
+// adminTabs는 관리 화면의 탭이다. 없는 값이면 첫 탭(현금 입력)을 보여준다.
+var adminTabs = map[string]bool{"cash": true, "categories": true, "rules": true, "settings": true, "failed": true, "devices": true}
+
 func (wb *Web) admin(w http.ResponseWriter, r *http.Request) {
+	tab := r.URL.Query().Get("tab")
+	if !adminTabs[tab] {
+		tab = "cash"
+	}
 	q := wb.API.Q()
 	cats, err := wb.categories(r, true)
 	if err != nil {
@@ -427,11 +440,11 @@ func (wb *Web) admin(w http.ResponseWriter, r *http.Request) {
 	}
 	var own []string
 	for _, o := range cfg.OwnAccounts {
-		own = append(own, o.Pattern+"="+o.Target)
+		own = append(own, o.Pattern+"="+ownTargetLabel(o.Target))
 	}
 	pd := wb.base(r, "관리", "admin")
 	pd.Wide = true
-	pd.Data = adminData{Cats: cats, Rules: rules, Failed: failed, Devices: devs, Config: cfg, OwnLines: strings.Join(own, "\n"), Now: time.Now()}
+	pd.Data = adminData{Tab: tab, Cats: cats, Rules: rules, Failed: failed, Devices: devs, Config: cfg, OwnLines: strings.Join(own, "\n"), Now: time.Now()}
 	wb.render(w, "admin", pd)
 }
 
@@ -443,7 +456,7 @@ func (wb *Web) addCash(w http.ResponseWriter, r *http.Request) {
 	amount, ok := formInt64(r, "amount")
 	catID, ok2 := formInt64(r, "category_id")
 	if !ok || !ok2 {
-		redirect(w, r, "/admin", "금액과 분류를 입력하세요", true)
+		redirect(w, r, "/admin?tab=cash", "금액과 분류를 입력하세요", true)
 		return
 	}
 	m := pipeline.Manual{Amount: amount, Merchant: r.PostFormValue("merchant"), Memo: r.PostFormValue("memo"), CategoryID: catID, Flow: r.PostFormValue("flow")}
@@ -453,10 +466,10 @@ func (wb *Web) addCash(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, err := wb.API.Editor.CreateManual(r.Context(), m, time.Now()); err != nil {
-		redirect(w, r, "/admin", "입력 실패: "+err.Error(), true)
+		redirect(w, r, "/admin?tab=cash", "입력 실패: "+err.Error(), true)
 		return
 	}
-	redirect(w, r, "/admin", "현금 거래를 기록했어요", false)
+	redirect(w, r, "/admin?tab=cash", "현금 거래를 기록했어요", false)
 }
 
 func (wb *Web) addCategory(w http.ResponseWriter, r *http.Request) {
@@ -467,14 +480,14 @@ func (wb *Web) addCategory(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	kind := r.PostFormValue("kind")
 	if name == "" || (kind != "expense" && kind != "income") {
-		redirect(w, r, "/admin#categories", "이름과 종류를 확인하세요", true)
+		redirect(w, r, "/admin?tab=categories", "이름과 종류를 확인하세요", true)
 		return
 	}
 	if _, err := wb.API.Q().CreateCategory(r.Context(), dbq.CreateCategoryParams{Name: name, Kind: kind, Sort: 500}); err != nil {
-		redirect(w, r, "/admin#categories", "추가 실패(같은 이름이 있을 수 있어요)", true)
+		redirect(w, r, "/admin?tab=categories", "추가 실패(같은 이름이 있을 수 있어요)", true)
 		return
 	}
-	redirect(w, r, "/admin#categories", "분류를 추가했어요", false)
+	redirect(w, r, "/admin?tab=categories", "분류를 추가했어요", false)
 }
 
 func (wb *Web) updateCategory(w http.ResponseWriter, r *http.Request) {
@@ -502,10 +515,10 @@ func (wb *Web) updateCategory(w http.ResponseWriter, r *http.Request) {
 		archived = &f
 	}
 	if _, err := wb.API.UpdateCategory(r, id, name, sort, archived); err != nil {
-		redirect(w, r, "/admin#categories", "수정 실패(특수 분류는 보관할 수 없어요)", true)
+		redirect(w, r, "/admin?tab=categories", "수정 실패(특수 분류는 보관할 수 없어요)", true)
 		return
 	}
-	redirect(w, r, "/admin#categories", "분류를 수정했어요", false)
+	redirect(w, r, "/admin?tab=categories", "분류를 수정했어요", false)
 }
 
 func (wb *Web) addRule(w http.ResponseWriter, r *http.Request) {
@@ -523,10 +536,10 @@ func (wb *Web) addRule(w http.ResponseWriter, r *http.Request) {
 		in.Priority = &v
 	}
 	if _, err := wb.API.CreateRule(r, in); err != nil {
-		redirect(w, r, "/admin#rules", "규칙 저장 실패(패턴·분류를 확인하세요)", true)
+		redirect(w, r, "/admin?tab=rules", "규칙 저장 실패(패턴·분류를 확인하세요)", true)
 		return
 	}
-	redirect(w, r, "/admin#rules", "규칙을 저장했어요. 기존 거래에 적용하려면 재처리하세요", false)
+	redirect(w, r, "/admin?tab=rules", "규칙을 저장했어요. 다음 결제부터 적용돼요", false)
 }
 
 func (wb *Web) deleteRule(w http.ResponseWriter, r *http.Request) {
@@ -539,7 +552,7 @@ func (wb *Web) deleteRule(w http.ResponseWriter, r *http.Request) {
 		wb.fail(w, err)
 		return
 	}
-	redirect(w, r, "/admin#rules", "규칙을 지웠어요", false)
+	redirect(w, r, "/admin?tab=rules", "규칙을 지웠어요", false)
 }
 
 // saveSettings는 관리 화면의 설정 폼을 저장한다. 목록은 줄바꿈 또는 쉼표로 구분한다.
@@ -554,27 +567,23 @@ func (wb *Web) saveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if n, err := strconv.Atoi(r.PostFormValue("budget_start_day")); err == nil {
 		if err := save("budget_start_day", n); err != nil {
-			redirect(w, r, "/admin#settings", "예산 시작일은 1~28", true)
+			redirect(w, r, "/admin?tab=settings", "예산 시작일은 1~28", true)
 			return
 		}
 	}
 	if n, err := strconv.Atoi(r.PostFormValue("dedupe_window_seconds")); err == nil {
 		if err := save("dedupe_window_seconds", n); err != nil {
-			redirect(w, r, "/admin#settings", "중복 판단 시간은 0~3600초", true)
+			redirect(w, r, "/admin?tab=settings", "중복 판단 시간은 0~3600초", true)
 			return
 		}
 	}
 	var own []pipeline.OwnAccount
 	for _, line := range splitList(r.PostFormValue("own_accounts")) {
 		pat, target, ok := strings.Cut(line, "=")
-		target = strings.TrimSpace(target)
-		if !ok || target == "" {
-			target = "own_transfer"
-		}
-		own = append(own, pipeline.OwnAccount{Pattern: strings.TrimSpace(pat), Target: target})
+		own = append(own, pipeline.OwnAccount{Pattern: strings.TrimSpace(pat), Target: ownTargetFromInput(target, ok)})
 	}
 	if err := save("own_accounts", own); err != nil {
-		redirect(w, r, "/admin#settings", "내 계좌 형식: 이름=own_transfer 또는 이름=investment", true)
+		redirect(w, r, "/admin?tab=settings", "내 계좌는 이름=투자 또는 이름=이체로 적어 주세요", true)
 		return
 	}
 	for _, key := range []string{"card_payment_keywords", "card_company_names", "prepaid_keywords", "review_merchant_patterns"} {
@@ -585,7 +594,29 @@ func (wb *Web) saveSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	redirect(w, r, "/admin#settings", "설정을 저장했어요", false)
+	redirect(w, r, "/admin?tab=settings", "설정을 저장했어요", false)
+}
+
+// ownTargetLabel과 ownTargetFromInput은 내 계좌 설정의 값을 화면 말로 바꾼다(투자, 이체).
+func ownTargetLabel(target string) string {
+	switch target {
+	case "investment":
+		return "투자"
+	case "own_transfer":
+		return "이체"
+	}
+	return target
+}
+
+func ownTargetFromInput(s string, hasTarget bool) string {
+	s = strings.TrimSpace(s)
+	switch {
+	case !hasTarget || s == "" || s == "이체":
+		return "own_transfer"
+	case s == "투자":
+		return "investment"
+	}
+	return s // investment, own_transfer를 직접 적었거나 잘못된 값(저장할 때 검사한다)
 }
 
 func splitList(s string) []string {
@@ -608,10 +639,10 @@ func (wb *Web) revokeDevice(w http.ResponseWriter, r *http.Request) {
 		wb.fail(w, err)
 		return
 	}
-	redirect(w, r, "/admin#devices", "기기 토큰을 폐기했어요", false)
+	redirect(w, r, "/admin?tab=devices", "기기를 해제했어요", false)
 }
 
-// more는 휴대폰 하단바의 "더보기" 화면이다(예산·리포트·대사·관리·테마·로그아웃).
+// more는 휴대폰 하단바의 "더보기" 화면이다(예산·리포트·명세서 대조·관리·테마·로그아웃).
 func (wb *Web) more(w http.ResponseWriter, r *http.Request) {
 	wb.render(w, "more", wb.base(r, "더보기", "more"))
 }

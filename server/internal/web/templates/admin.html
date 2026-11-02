@@ -1,74 +1,94 @@
 {{define "content"}}{{with .Data}}
-<nav class="subnav"><a href="#cash">현금 입력</a><a href="#categories">분류</a><a href="#rules">규칙</a><a href="#settings">설정</a><a href="#failed">해석 실패</a><a href="#devices">기기</a></nav>
+<nav class="subnav" aria-label="관리 메뉴">
+  <a href="/admin?tab=cash" {{if eq .Tab "cash"}}aria-current="page"{{end}}>현금 입력</a>
+  <a href="/admin?tab=categories" {{if eq .Tab "categories"}}aria-current="page"{{end}}>분류</a>
+  <a href="/admin?tab=rules" {{if eq .Tab "rules"}}aria-current="page"{{end}}>자동 분류</a>
+  <a href="/admin?tab=settings" {{if eq .Tab "settings"}}aria-current="page"{{end}}>설정</a>
+  <a href="/admin?tab=failed" {{if eq .Tab "failed"}}aria-current="page"{{end}}>읽지 못한 알림{{if .Failed}} <span class="badge">{{len .Failed}}</span>{{end}}</a>
+  <a href="/admin?tab=devices" {{if eq .Tab "devices"}}aria-current="page"{{end}}>기기</a>
+</nav>
 
-<section class="card" id="cash">
+{{if eq .Tab "cash"}}
+<section class="card">
   <h2>현금 입력</h2>
   <form method="post" action="/admin/cash" class="form-grid">
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-    <label>금액 <input type="text" inputmode="numeric" name="amount" required placeholder="5000"></label>
+    <label>금액 <input class="money" style="width:100%;text-align:left" type="text" inputmode="numeric" name="amount" required placeholder="5,000"></label>
     <label>분류
       <select name="category_id" required>{{range .Cats.Expense}}{{if not .Archived}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}{{range .Cats.Other}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
     </label>
-    <label>가맹점·내용 <input type="text" name="merchant" placeholder="붕어빵"></label>
-    <label>시각 <input type="datetime-local" name="occurred_at" value="{{dtLocal .Now}}"></label>
-    <label>방향 <select name="flow"><option value="">자동(수입 분류면 들어온 돈)</option><option value="out">나간 돈</option><option value="in">들어온 돈</option></select></label>
-    <label>메모 <input type="text" name="memo"></label>
+    <label>내용 <input type="text" name="merchant" placeholder="붕어빵"></label>
+    <details class="advanced">
+      <summary>시각·메모 더 입력</summary>
+      <div class="form-grid">
+        <label>시각 <input type="datetime-local" name="occurred_at" value="{{dtLocal .Now}}"></label>
+        <label>돈의 방향 <select name="flow"><option value="">자동(수입 분류면 들어온 돈)</option><option value="out">나간 돈</option><option value="in">들어온 돈</option></select></label>
+        <label>메모 <input type="text" name="memo"></label>
+      </div>
+    </details>
     <div class="actions"><button class="btn">기록</button></div>
   </form>
 </section>
+{{end}}
 
-<section class="card" id="categories">
+{{if eq .Tab "categories"}}
+<section class="card">
   <h2>분류</h2>
-  <div class="table-wrap">
-  <table>
-    <tbody>
-    {{range .Cats.All}}
-      <tr class="{{if .Archived}}muted{{end}}">
-        <td colspan="5">
-          <form method="post" action="/admin/categories/{{.ID}}" class="inline-row">
-            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-            <input type="text" name="name" value="{{.Name}}" aria-label="이름">
-            <span class="pill">{{if eq .Kind "expense"}}지출{{else if eq .Kind "income"}}수입{{else}}특수{{end}}</span>
-            <input type="number" name="sort" value="{{.Sort}}" class="short" aria-label="순서">
-            {{if .Code}}<span class="muted small">특수 분류</span>{{else if .Archived}}<button class="link-btn" name="archived" value="false">보관 해제</button>{{else}}<button class="link-btn" name="archived" value="true">보관</button>{{end}}
-            <button class="btn small">저장</button>
-          </form>
-        </td>
-      </tr>
-    {{end}}
-    </tbody>
-  </table>
+  <div class="edit-list">
+  {{range .Cats.All}}
+    <details class="edit-row {{if .Archived}}archived{{end}}">
+      <summary><span class="grow">{{.Name}}{{if .Archived}} (보관){{end}}</span><span class="pill">{{if eq .Kind "expense"}}지출{{else if eq .Kind "income"}}수입{{else}}기본{{end}}</span>{{template "ic-chev"}}</summary>
+      <form method="post" action="/admin/categories/{{.ID}}" class="form-grid">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <label>이름 <input type="text" name="name" value="{{.Name}}"></label>
+        <label>표시 순서 (작을수록 위) <input type="number" name="sort" value="{{.Sort}}"></label>
+        <div class="actions row-between">
+          <button class="btn small">저장</button>
+          {{if .Code}}<span class="muted small">기본 분류는 보관할 수 없어요</span>{{else if .Archived}}<button class="link-btn" name="archived" value="false">보관 해제</button>{{else}}<button class="link-btn" name="archived" value="true">보관</button>{{end}}
+        </div>
+      </form>
+    </details>
+  {{end}}
   </div>
   <form method="post" action="/admin/categories" class="inline-row">
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
     <input type="text" name="name" placeholder="새 분류 이름" required>
-    <select name="kind"><option value="expense">지출</option><option value="income">수입</option></select>
+    <select name="kind" aria-label="종류"><option value="expense">지출</option><option value="income">수입</option></select>
     <button class="btn">추가</button>
   </form>
-  <p class="muted small">삭제 대신 "보관"해요. 보관한 분류는 새 거래에서 안 보이고 과거 거래는 그대로예요.</p>
+  <p class="muted small">삭제 대신 보관해요. 보관한 분류는 새 거래에서 안 보이고 지난 거래는 그대로예요.</p>
 </section>
+{{end}}
 
-<section class="card" id="rules">
-  <h2>가맹점 규칙</h2>
-  <form method="post" action="/admin/rules" class="inline-row">
+{{if eq .Tab "rules"}}
+<section class="card">
+  <h2>자동 분류 규칙</h2>
+  <p class="muted small" style="margin-top:0">이 이름이 들어간 결제를 자동으로 분류해요.</p>
+  <form method="post" action="/admin/rules" class="form-grid">
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-    <input type="text" name="pattern" placeholder="가맹점 이름(예: 동네빵집)" required>
-    <select name="match_type"><option value="contains">포함</option><option value="exact">정확히 같음</option><option value="regex">정규식</option></select>
-    <select name="category_id">{{range .Cats.All}}{{if not .Archived}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}</select>
-    <select name="flow"><option value="out">나간 돈</option><option value="in">들어온 돈</option><option value="">둘 다</option></select>
-    <input type="number" name="priority" value="50" class="short" aria-label="우선순위" title="우선순위(높을수록 먼저)">
-    <button class="btn">추가</button>
+    <label>가맹점 이름 <input type="text" name="pattern" placeholder="동네빵집" required></label>
+    <label>분류 <select name="category_id">{{range .Cats.All}}{{if not .Archived}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}</select></label>
+    <details class="advanced">
+      <summary>고급 설정</summary>
+      <div class="form-grid">
+        <label>이름 비교 방식 <select name="match_type"><option value="contains">포함</option><option value="prefix">이름으로 시작</option><option value="exact">정확히 같음</option><option value="regex">정규식</option></select></label>
+        <label>돈의 방향 <select name="flow"><option value="out">나간 돈</option><option value="in">들어온 돈</option><option value="">둘 다</option></select></label>
+        <label>우선순위 (높을수록 먼저) <input type="number" name="priority" value="50"></label>
+      </div>
+      <p class="muted small">규칙을 바꿔도 이미 기록된 거래는 그대로예요. 지난 거래에도 적용하려면 서버에서 <code>myhome reprocess</code>를 실행하세요(직접 고친 거래는 유지).</p>
+    </details>
+    <div class="actions"><button class="btn">추가</button></div>
   </form>
   <details>
     <summary>규칙 {{len .Rules}}개 보기</summary>
     <div class="table-wrap">
     <table>
-      <thead><tr><th>패턴</th><th>방식</th><th>분류</th><th>돈</th><th class="num">우선</th><th>출처</th><th></th></tr></thead>
+      <thead><tr><th>이름</th><th>방식</th><th>분류</th><th>돈</th><th class="num">우선</th><th>만든 곳</th><th></th></tr></thead>
       <tbody>
       {{range .Rules}}
         <tr>
-          <td>{{.Pattern}}</td><td>{{.MatchType}}</td><td>{{.CategoryName}}</td>
-          <td>{{with .Flow}}{{if eq . "in"}}들어온{{else}}나간{{end}}{{else}}둘 다{{end}}</td>
+          <td>{{.Pattern}}</td><td class="nowrap">{{matchLabel .MatchType}}</td><td class="nowrap">{{.CategoryName}}</td>
+          <td class="nowrap">{{with .Flow}}{{if eq (deref .) "in"}}들어온{{else}}나간{{end}}{{else}}둘 다{{end}}</td>
           <td class="num">{{.Priority}}</td>
           <td><span class="pill {{if eq .CreatedFrom "learned"}}ok{{end}}">{{if eq .CreatedFrom "seed"}}기본{{else if eq .CreatedFrom "learned"}}학습{{else}}직접{{end}}</span></td>
           <td><form method="post" action="/admin/rules/{{.ID}}/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="link-btn danger">삭제</button></form></td>
@@ -78,59 +98,70 @@
     </table>
     </div>
   </details>
-  <p class="muted small">규칙을 바꿔도 이미 기록된 거래는 그대로예요. 기존 거래에 적용하려면 서버에서 <code>myhome reprocess</code>를 실행하세요(직접 고친 거래는 유지).</p>
 </section>
+{{end}}
 
-<section class="card" id="settings">
+{{if eq .Tab "settings"}}
+<section class="card">
   <h2>설정</h2>
   <form method="post" action="/admin/settings" class="form-grid">
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
     <label>예산 기간 시작일 (1~28) <input type="number" name="budget_start_day" min="1" max="28" value="{{.Config.BudgetStartDay}}"></label>
-    <label>중복 판단 시간(초) <input type="number" name="dedupe_window_seconds" min="0" max="3600" value="{{printf "%.0f" .Config.DedupeWindow.Seconds}}"></label>
-    <label class="wide">내 계좌 (한 줄에 하나: 이름=investment 또는 이름=own_transfer)
+    <label class="wide">내 계좌 (한 줄에 하나. 예: 토스증권=투자, 내 저축통장=이체)
       <textarea name="own_accounts" rows="3">{{.OwnLines}}</textarea></label>
-    <label class="wide">카드대금 문구 (출금 알림에서) <textarea name="card_payment_keywords" rows="2">{{lines .Config.CardPaymentKeywords}}</textarea></label>
-    <label class="wide">카드사 이름 (출금 알림에서만 적용) <textarea name="card_company_names" rows="2">{{lines .Config.CardCompanyNames}}</textarea></label>
-    <label class="wide">충전식 머니 이름 <textarea name="prepaid_keywords" rows="2">{{lines .Config.PrepaidKeywords}}</textarea></label>
-    <label class="wide">결제대행사 이름 (이 이름뿐이면 확인 필요) <textarea name="review_merchant_patterns" rows="3">{{lines .Config.ReviewMerchantPatterns}}</textarea></label>
+    <details class="advanced">
+      <summary>고급 설정</summary>
+      <div class="form-grid">
+        <label>중복 판단 시간(초) <input type="number" name="dedupe_window_seconds" min="0" max="3600" value="{{printf "%.0f" .Config.DedupeWindow.Seconds}}"></label>
+        <label class="wide">카드대금 문구 (출금 알림에서) <textarea name="card_payment_keywords" rows="2">{{lines .Config.CardPaymentKeywords}}</textarea></label>
+        <label class="wide">카드사 이름 (출금 알림에서만 적용) <textarea name="card_company_names" rows="2">{{lines .Config.CardCompanyNames}}</textarea></label>
+        <label class="wide">충전식 머니 이름 <textarea name="prepaid_keywords" rows="2">{{lines .Config.PrepaidKeywords}}</textarea></label>
+        <label class="wide">결제대행사 이름 (이 이름뿐이면 확인 필요) <textarea name="review_merchant_patterns" rows="3">{{lines .Config.ReviewMerchantPatterns}}</textarea></label>
+      </div>
+    </details>
     <div class="actions"><button class="btn">설정 저장</button></div>
   </form>
 </section>
+{{end}}
 
-<section class="card" id="failed">
-  <h2>해석 실패 원문 <span class="muted small">(최근 50건)</span></h2>
+{{if eq .Tab "failed"}}
+<section class="card">
+  <h2>읽지 못한 알림 <span class="muted small">(최근 50건)</span></h2>
   {{if .Failed}}
+  <p class="muted small" style="margin-top:0">금액을 찾지 못해 거래로 만들지 못한 알림이에요. 원문은 보관돼 있어서 읽는 방법을 고치면 다시 처리할 수 있어요.</p>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>받은 시각</th><th>앱</th><th>원문</th><th>오류</th></tr></thead>
+    <thead><tr><th>받은 시각</th><th>앱</th><th>내용</th></tr></thead>
     <tbody>
     {{range .Failed}}
-      <tr><td class="nowrap">{{dt .PostedAt}}</td><td class="small">{{.SourcePackage}}</td><td class="raw"><strong>{{.Title}}</strong><br>{{.Text}}{{if .BigText}}<br><span class="muted">{{.BigText}}</span>{{end}}</td><td class="small">{{deref .ParseError}}</td></tr>
+      <tr><td class="nowrap">{{dt .PostedAt}}</td><td class="small">{{.SourcePackage}}</td><td class="raw"><strong>{{.Title}}</strong><br>{{.Text}}{{if .BigText}}<br><span class="muted">{{.BigText}}</span>{{end}}</td></tr>
     {{end}}
     </tbody>
   </table>
   </div>
-  <p class="muted small">파서 보정 방법은 docs/PARSERS.md를 보세요.</p>
-  {{else}}<p class="muted">해석에 실패한 원문이 없어요.</p>{{end}}
+  {{else}}<p class="muted">읽지 못한 알림이 없어요.</p>{{end}}
 </section>
+{{end}}
 
-<section class="card" id="devices">
+{{if eq .Tab "devices"}}
+<section class="card">
   <h2>기기</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>이름</th><th>발급</th><th>마지막 사용</th><th>상태</th><th></th></tr></thead>
+    <thead><tr><th>이름</th><th>등록</th><th>마지막 사용</th><th>상태</th><th></th></tr></thead>
     <tbody>
     {{range .Devices}}
       <tr>
-        <td>{{.Name}} {{if .ViaKakao}}<span class="pill">카카오</span>{{else}}<span class="pill muted">CLI</span>{{end}}</td>
+        <td>{{.Name}} {{if .ViaKakao}}<span class="pill">카카오</span>{{else}}<span class="pill muted">직접 발급</span>{{end}}</td>
         <td class="nowrap">{{dt .CreatedAt}}</td>
         <td class="nowrap">{{with .LastSeenAt}}{{dt .}}{{else}}-{{end}}</td>
-        <td>{{if .RevokedAt}}<span class="pill muted">폐기됨</span>{{else}}<span class="pill ok">사용 중</span>{{end}}</td>
-        <td>{{if not .RevokedAt}}<form method="post" action="/admin/devices/{{.ID}}/revoke" data-confirm="이 기기의 토큰을 폐기할까요? 그 폰은 다시 로그인해야 해요."><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="link-btn danger">폐기</button></form>{{end}}</td>
+        <td>{{if .RevokedAt}}<span class="pill muted">해제됨</span>{{else}}<span class="pill ok">사용 중</span>{{end}}</td>
+        <td>{{if not .RevokedAt}}<form method="post" action="/admin/devices/{{.ID}}/revoke" data-confirm="이 기기를 해제할까요? 그 폰은 다시 로그인해야 해요."><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="link-btn danger">해제</button></form>{{end}}</td>
       </tr>
     {{else}}<tr><td colspan="5" class="muted">등록된 기기가 없어요.</td></tr>{{end}}
     </tbody>
   </table>
   </div>
 </section>
+{{end}}
 {{end}}{{end}}

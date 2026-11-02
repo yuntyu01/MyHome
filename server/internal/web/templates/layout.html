@@ -32,26 +32,26 @@
     <a href="/budgets" {{if eq .Active "budgets"}}aria-current="page"{{end}}>예산</a>
     <a href="/analytics" {{if eq .Active "analytics"}}aria-current="page"{{end}}>분석</a>
     <a href="/report" {{if eq .Active "report"}}aria-current="page"{{end}}>리포트</a>
-    <a href="/reconcile" {{if eq .Active "reconcile"}}aria-current="page"{{end}}>대사</a>
+    <a href="/reconcile" {{if eq .Active "reconcile"}}aria-current="page"{{end}}>대조</a>
     <a href="/admin" {{if eq .Active "admin"}}aria-current="page"{{end}}>관리</a>
   </nav>
   {{if .Flash}}<div class="flash ok" role="status">{{.Flash}}</div>{{end}}
   {{if .Error}}<div class="flash err" role="alert">{{.Error}}</div>{{end}}
   {{if .Month}}
   <div class="period-nav">
-    <a href="?month={{.PrevMonth}}" aria-label="이전 기간 {{.PrevMonth}}">‹</a>
-    <strong>{{.Month}}</strong>
-    <a href="?month={{.NextMonth}}" aria-label="다음 기간 {{.NextMonth}}">›</a>
+    <a href="?month={{.PrevMonth}}" aria-label="이전 기간 {{monthName .PrevMonth}}">‹</a>
+    <strong>{{monthName .Month}}{{if .MonthRange}} <span class="range">{{.MonthRange}}</span>{{end}}</strong>
+    <a href="?month={{.NextMonth}}" aria-label="다음 기간 {{monthName .NextMonth}}">›</a>
   </div>
   {{end}}
   {{template "content" .}}
 </main>
 <nav class="bottom-nav" aria-label="빠른 이동">
-  <a href="/" title="홈" aria-label="홈" {{if eq .Active "dashboard"}}aria-current="page"{{end}}>{{template "ic-home"}}</a>
-  <a href="/transactions" title="거래" aria-label="거래" {{if eq .Active "transactions"}}aria-current="page"{{end}}>{{template "ic-list"}}</a>
-  <a href="/review" title="확인 필요" aria-label="확인 필요 {{.ReviewCount}}건" {{if eq .Active "review"}}aria-current="page"{{end}}>{{template "ic-check"}}{{if gt .ReviewCount 0}}<span class="dot"></span>{{end}}</a>
-  <a href="/analytics" title="분석" aria-label="분석" {{if eq .Active "analytics"}}aria-current="page"{{end}}>{{template "ic-chart"}}</a>
-  <a href="/more" title="더보기" aria-label="더보기" {{if or (eq .Active "more") (eq .Active "budgets") (eq .Active "report") (eq .Active "reconcile") (eq .Active "admin")}}aria-current="page"{{end}}>{{template "ic-dots"}}</a>
+  <a href="/" {{if eq .Active "dashboard"}}aria-current="page"{{end}}>{{template "ic-home"}}<span>홈</span></a>
+  <a href="/transactions" {{if eq .Active "transactions"}}aria-current="page"{{end}}>{{template "ic-list"}}<span>거래</span></a>
+  <a href="/review" aria-label="확인 필요 {{.ReviewCount}}건" {{if eq .Active "review"}}aria-current="page"{{end}}>{{template "ic-check"}}<span>확인</span>{{if gt .ReviewCount 0}}<i class="dot"></i>{{end}}</a>
+  <a href="/analytics" {{if eq .Active "analytics"}}aria-current="page"{{end}}>{{template "ic-chart"}}<span>분석</span></a>
+  <a href="/more" {{if or (eq .Active "more") (eq .Active "budgets") (eq .Active "report") (eq .Active "reconcile") (eq .Active "admin")}}aria-current="page"{{end}}>{{template "ic-dots"}}<span>더보기</span></a>
 </nav>
 <div id="toast" class="toast" hidden></div>
 </body>

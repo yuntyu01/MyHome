@@ -103,15 +103,20 @@ func TestWebPagesRender(t *testing.T) {
 	c.event("홍*동님 4,500원 일시불 메가커피")
 	c.event("홍*동님 8,000원 일시불 모르는가게")
 	for path, want := range map[string]string{
-		"/":             "분류별 남은 돈",
-		"/transactions": "메가커피",
-		"/review":       "모르는가게",
-		"/budgets":      "분류별 예산",
-		"/analytics":    "분류별 비중",
-		"/admin":        "가맹점 규칙",
-		"/report":       "월간 리포트",
-		"/reconcile":    "출처별 확정 지출",
-		"/more":         "대사 도우미",
+		"/":                     "분류별 남은 돈",
+		"/transactions":         "메가커피",
+		"/review":               "모르는가게",
+		"/budgets":              "분류별 예산",
+		"/analytics":            "분류별 비중",
+		"/admin":                "현금 입력",
+		"/admin?tab=categories": "새 분류 이름",
+		"/admin?tab=rules":      "자동 분류 규칙",
+		"/admin?tab=settings":   "예산 기간 시작일",
+		"/admin?tab=failed":     "읽지 못한 알림",
+		"/admin?tab=devices":    "마지막 사용",
+		"/report":               "월간 리포트",
+		"/reconcile":            "결제 수단별 지출",
+		"/more":                 "명세서 대조",
 	} {
 		rec := c.get(path)
 		if rec.Code != 200 {
@@ -130,6 +135,30 @@ func TestWebPagesRender(t *testing.T) {
 	}
 	if rec := serve(c.h, httptest.NewRequest("GET", "/login", nil)); rec.Code != 200 || !strings.Contains(rec.Body.String(), "카카오로 로그인") {
 		t.Errorf("로그인 화면 status %d", rec.Code)
+	}
+}
+
+// 화면에는 개발용 말 대신 사용자가 아는 말을 쓰고, 관리 화면은 고른 탭만 보여준다.
+func TestWebUsesPlainWords(t *testing.T) {
+	c := newWebClient(t)
+	c.event("홍*동님 4,500원 일시불 메가커피")
+	c.event("홍*동님 8,000원 일시불 모르는가게")
+	if body := c.get("/reconcile").Body.String(); strings.Contains(body, "PARSER_PACKAGES") || !strings.Contains(body, "KB국민카드") {
+		t.Error("명세서 대조: 결제 수단을 이름으로 보여줘야 함")
+	}
+	if body := c.get("/review").Body.String(); strings.Contains(body, "규칙 없음") || !strings.Contains(body, "처음 보는 가맹점") {
+		t.Error("확인 필요: 사유를 쉬운 말로 보여줘야 함")
+	}
+	month := time.Now().In(period.KST).Format("2006-01")
+	if body := c.get("/").Body.String(); strings.Contains(body, month+" 남은 돈") || !strings.Contains(body, "월 남은 돈") {
+		t.Error("홈: 기간을 달 이름으로 보여줘야 함")
+	}
+	admin := c.get("/admin?tab=rules").Body.String()
+	if strings.Contains(admin, "action=\"/admin/cash\"") {
+		t.Error("관리: 고른 탭만 보여줘야 함")
+	}
+	if !strings.Contains(admin, "<td>CU</td><td class=\"nowrap\">이름으로 시작</td>") || !strings.Contains(admin, "</html>") {
+		t.Error("관리: 기본 규칙 표가 끝까지 그려져야 함")
 	}
 }
 
@@ -152,6 +181,12 @@ func TestWebTransactionRowUpdate(t *testing.T) {
 	rec := c.post("/web/transactions/"+itoa(id), url.Values{"memo": {"친구랑"}}, true)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `value="친구랑"`) || !strings.HasPrefix(strings.TrimSpace(rec.Body.String()), "<div id=\"tx-") {
 		t.Fatalf("행 갱신: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "<details open>") {
+		t.Error("방금 고친 행은 펼쳐진 채로 돌아와야 함")
+	}
+	if body := c.get("/transactions").Body.String(); !strings.Contains(body, "<details >") {
+		t.Error("목록의 행은 접혀 있어야 함")
 	}
 	rec = c.post("/web/transactions/"+itoa(id), url.Values{"status": {"excluded"}}, true)
 	if !strings.Contains(rec.Body.String(), "제외 해제") {

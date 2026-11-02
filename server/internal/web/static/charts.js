@@ -8,6 +8,7 @@
 
   function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
   function won(v) { return Number(v).toLocaleString("ko-KR") + "원"; }
+  function monthName(label) { return Number(label.slice(5)) + "월"; }
   // 분류 색: 테마 토큰에 정의한 팔레트를 순서대로 쓴다
   function palette(n) {
     var out = [];
@@ -39,10 +40,10 @@
     charts.push(new Chart(document.getElementById("chart-daily"), {
       type: "line",
       data: {
-        labels: cur.map(function (d) { return d.day.slice(5); }),
+        labels: cur.map(function (d) { return d.day.slice(5).replace("-", "/"); }),
         datasets: [
-          { label: data.period.label, data: cur.map(function (d) { return d.day > data.today ? null : d.spent; }), borderColor: css("--accent"), backgroundColor: css("--accent"), tension: 0.25, pointRadius: 2 },
-          { label: data.previous_period.label, data: prev.map(function (d) { return d.spent; }), borderColor: css("--muted"), borderDash: [4, 4], pointRadius: 0, tension: 0.25 }
+          { label: monthName(data.period.label), data: cur.map(function (d) { return d.day > data.today ? null : d.spent; }), borderColor: css("--accent"), backgroundColor: css("--accent"), tension: 0.25, pointRadius: 2 },
+          { label: monthName(data.previous_period.label), data: prev.map(function (d) { return d.spent; }), borderColor: css("--muted"), borderDash: [4, 4], pointRadius: 0, tension: 0.25 }
         ]
       },
       options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
@@ -56,8 +57,8 @@
       data: {
         labels: both.map(function (c) { return c.name; }),
         datasets: [
-          { label: data.previous_period.label, data: both.map(function (c) { return c.previous; }), backgroundColor: css("--muted-bar"), borderRadius: 6 },
-          { label: data.period.label, data: both.map(function (c) { return c.current; }), backgroundColor: css("--accent"), borderRadius: 6 }
+          { label: monthName(data.previous_period.label), data: both.map(function (c) { return c.previous; }), backgroundColor: css("--muted-bar"), borderRadius: 6 },
+          { label: monthName(data.period.label), data: both.map(function (c) { return c.current; }), backgroundColor: css("--accent"), borderRadius: 6 }
         ]
       },
       options: { maintainAspectRatio: false, scales: { y: { ticks: { callback: function (v) { return (v / 10000) + "만"; } } } },

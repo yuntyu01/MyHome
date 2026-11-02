@@ -2,16 +2,16 @@
 <p class="muted" style="margin:0 6px 12px">토스 앱의 소비 탭이나 카드 명세서 합계와 비교해서 빠진 거래가 없는지 확인하세요. 금액은 <strong>확정된 지출</strong> 기준이고, 부분 취소·환불은 빼고 계산해요.</p>
 
 <section class="card">
-  <h2>출처별 확정 지출</h2>
+  <h2>결제 수단별 지출</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>출처</th><th class="num">건수</th><th class="num">지출</th></tr></thead>
+    <thead><tr><th>결제 수단</th><th class="num">건수</th><th class="num">지출</th></tr></thead>
     <tbody>
-    {{range .Sources}}<tr><td>{{.Source}}</td><td class="num">{{.Count}}</td><td class="num">{{num .Spent}}</td></tr>{{else}}<tr><td colspan="3" class="muted">확정 지출이 없어요.</td></tr>{{end}}
+    {{range .Sources}}<tr><td>{{sourceName .Source}}</td><td class="num">{{.Count}}</td><td class="num">{{num .Spent}}</td></tr>{{else}}<tr><td colspan="3" class="muted">확정 지출이 없어요.</td></tr>{{end}}
     </tbody>
   </table>
   </div>
-  <p class="muted small">출처 이름은 파서 이름(kb, toss 등)이나 PARSER_PACKAGES에서 붙인 이름, 현금은 manual이에요. 중복으로 합쳐진 건은 먼저 들어온 쪽 출처로 잡혀요.</p>
+  <p class="muted small">중복으로 합쳐진 거래는 먼저 들어온 쪽 결제 수단으로 계산해요.</p>
 </section>
 
 <section class="card">
@@ -19,24 +19,24 @@
   {{if .Excluded}}
   <div class="table-wrap">
   <table>
-    <thead><tr><th>사유</th><th>출처</th><th class="num">건수</th><th class="num">금액</th></tr></thead>
+    <thead><tr><th>사유</th><th>결제 수단</th><th class="num">건수</th><th class="num">금액</th></tr></thead>
     <tbody>
-    {{range .Excluded}}<tr><td>{{reasonText .Reason}}</td><td>{{.Source}}</td><td class="num">{{.Count}}</td><td class="num">{{num .Amount}}</td></tr>{{end}}
+    {{range .Excluded}}<tr><td>{{reasonText .Reason}}</td><td>{{sourceName .Source}}</td><td class="num">{{.Count}}</td><td class="num">{{num .Amount}}</td></tr>{{end}}
     </tbody>
   </table>
   </div>
-  <p class="muted small">카드 명세서에는 있는데 여기 지출에 없다면 이 표를 확인하세요. 예: 중복(토스페이+KB 2건 중 1건), 취소된 결제, 카드대금 출금, 머니 충전.</p>
+  <p class="muted small">카드 명세서에는 있는데 여기 지출에 없다면 이 표를 확인하세요. 예: 중복(토스페이와 KB국민카드 2건 중 1건), 취소된 결제, 카드대금 출금, 머니 충전.</p>
   {{else}}<p class="muted">뺀 거래가 없어요.</p>{{end}}
 </section>
 
 <section class="card">
-  <h2>최근 6개 기간 출처별 지출</h2>
+  <h2>최근 6개 기간 결제 수단별 지출</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>기간</th>{{range .AllSrcs}}<th class="num">{{.}}</th>{{end}}<th class="num">합계</th></tr></thead>
+    <thead><tr><th>기간</th>{{range .AllSrcs}}<th class="num">{{sourceName .}}</th>{{end}}<th class="num">합계</th></tr></thead>
     <tbody>
     {{$srcs := .AllSrcs}}{{range .History}}{{$t := .Totals}}
-      <tr><td class="nowrap">{{.Period.Label}}</td>{{range $srcs}}<td class="num">{{num (index $t .)}}</td>{{end}}<td class="num"><strong>{{num .Sum}}</strong></td></tr>
+      <tr><td class="nowrap">{{monthName .Period.Label}}</td>{{range $srcs}}<td class="num">{{num (index $t .)}}</td>{{end}}<td class="num"><strong>{{num .Sum}}</strong></td></tr>
     {{end}}
     </tbody>
   </table>
@@ -44,12 +44,12 @@
 </section>
 
 <section class="card">
-  <h2>출처·성격별 확정 거래</h2>
+  <h2>결제 수단·성격별 거래</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>출처</th><th>성격</th><th>돈</th><th class="num">건수</th><th class="num">금액</th></tr></thead>
+    <thead><tr><th>결제 수단</th><th>성격</th><th>돈</th><th class="num">건수</th><th class="num">금액</th></tr></thead>
     <tbody>
-    {{range .Flows}}<tr><td>{{.Source}}</td><td>{{if eq .Direction "expense"}}지출{{else if eq .Direction "income"}}수입·정산{{else}}이체{{end}}</td><td>{{if eq .Flow "in"}}들어옴{{else}}나감{{end}}</td><td class="num">{{.Count}}</td><td class="num">{{num .Amount}}</td></tr>{{end}}
+    {{range .Flows}}<tr><td>{{sourceName .Source}}</td><td>{{if eq .Direction "expense"}}지출{{else if eq .Direction "income"}}수입·정산{{else}}이체{{end}}</td><td>{{if eq .Flow "in"}}들어옴{{else}}나감{{end}}</td><td class="num">{{.Count}}</td><td class="num">{{num .Amount}}</td></tr>{{end}}
     </tbody>
   </table>
   </div>

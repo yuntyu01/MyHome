@@ -14,7 +14,7 @@
   <div class="review-main">
     <div class="review-merchant">{{if .Merchant}}{{.Merchant}}{{else}}<em class="muted">(이름 없음)</em>{{end}}</div>
     <div class="review-amount {{if eq .Flow "in"}}in{{end}}">{{signed .}}</div>
-    <div class="muted small">{{dt .OccurredAt}} · {{.Source}}{{if eq .Flow "in"}} · 들어온 돈{{end}}{{if .Category}} · 제안: {{.Category}}{{end}}</div>
+    <div class="muted small">{{dt .OccurredAt}} · {{sourceName .Source}}{{if eq .Flow "in"}} · 들어온 돈{{end}}{{if .Category}} · 제안: {{.Category}}{{end}}</div>
   </div>
   <form hx-post="/web/review/{{.ID}}" hx-target="#review-box" hx-swap="innerHTML">
     <label class="remember toggle"><input type="checkbox" class="switch" name="remember" {{if .Merchant}}checked{{end}} {{if not .Merchant}}disabled{{end}}> 이 가맹점은 항상 이 분류</label>

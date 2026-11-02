@@ -1,6 +1,6 @@
-{{define "content"}}{{with .Data.Summary}}
+{{define "content"}}{{$d := .Data}}{{with .Data.Summary}}
 <section class="hero">
-  <div class="label">{{.Period.Label}} 남은 돈</div>
+  <div class="label">{{monthName .Period.Label}} 남은 돈</div>
   <div class="amount {{if lt .Totals.Remaining 0}}neg{{end}}">{{won .Totals.Remaining}}</div>
   <div class="sub">예산 {{num .Totals.Budget}} · 지출 {{num .Totals.Spent}}{{if .Totals.Settled}} · 정산 +{{num .Totals.Settled}}{{end}}</div>
   {{if .Totals.Budget}}{{$r := ratio_ (sub_ .Totals.Spent .Totals.Settled) .Totals.Budget}}<div class="bar"><span class="fill {{barCls $r}}" style="width:{{barW $r}}%"></span></div>{{end}}
@@ -9,22 +9,23 @@
 {{if gt .NeedsReview 0}}<a class="notice" href="/review"><span>확인이 필요한 거래 <strong>{{.NeedsReview}}건</strong></span>{{template "ic-chev"}}</a>{{end}}
 
 <section class="cards three">
-  <div class="card stat"><span class="label">지출</span><span class="value"><span class="full">{{won .Totals.Spent}}</span><span class="short">{{wonShort .Totals.Spent}}</span></span><span class="sub">{{.Period.Start}} ~ {{.Period.End}}</span></div>
+  <div class="card stat"><span class="label">지출</span><span class="value"><span class="full">{{won .Totals.Spent}}</span><span class="short">{{wonShort .Totals.Spent}}</span></span><span class="sub">{{shortDate .Period.Start}} ~ {{shortDate .Period.End}}</span></div>
   <div class="card stat"><span class="label">수입</span><span class="value in"><span class="full">{{won .Totals.Income}}</span><span class="short">{{wonShort .Totals.Income}}</span></span></div>
   <div class="card stat"><span class="label">투자·저축</span><span class="value"><span class="full">{{won .Totals.Investment}}</span><span class="short">{{wonShort .Totals.Investment}}</span></span></div>
 </section>
 
-<div class="section-title">분류별 남은 돈</div>
+<div class="section-title row-between"><span>분류별 남은 돈</span><a href="/budgets">예산 설정</a></div>
+{{if or $d.Top $d.Rest}}
 <div class="budget-cards">
-{{range .Categories}}{{if or .Budget .Spent}}
-  <div class="budget-card">
-    <div class="row-between"><span class="name">{{.Name}}</span><span class="left {{if lt .Remaining 0}}neg{{end}}">{{won .Remaining}}</span></div>
-    {{if .Budget}}<div class="bar" role="progressbar" aria-label="{{.Name}} 예산 사용률" aria-valuenow="{{barW .Ratio}}" aria-valuemin="0" aria-valuemax="100"><span class="fill {{barCls .Ratio}}" style="width:{{barW .Ratio}}%"></span></div>{{end}}
-    <div class="meta">지출 {{num .Spent}}{{if .Settled}} · 정산 +{{num .Settled}}{{end}}{{if .Budget}} · 예산 {{num .Budget}} · {{pct .Ratio}}{{else}} · 예산 없음{{end}}</div>
-  </div>
-{{end}}{{else}}<div class="card muted">분류가 없어요.</div>{{end}}
+  {{range $d.Top}}{{template "budget-row" .}}{{end}}
+  {{if $d.Rest}}
+  <details class="budget-more" {{if not $d.Top}}open{{end}}>
+    <summary><span>나머지 분류 {{len $d.Rest}}개</span>{{template "ic-chev"}}</summary>
+    {{range $d.Rest}}{{template "budget-row" .}}{{end}}
+  </details>
+  {{end}}
 </div>
-<p class="muted small" style="margin:8px 6px 0">예산이 없는 분류는 지출이 있을 때만 보여요. <a href="/budgets">예산 설정</a></p>
+{{else}}<div class="card muted">예산을 정하면 분류별 남은 돈이 여기에 보여요.</div>{{end}}
 
 <div class="section-title row-between"><span>최근 거래</span><a href="/transactions">전체 보기</a></div>
 <div class="group">
@@ -39,3 +40,9 @@
 {{else}}<div class="item muted">아직 거래가 없어요.</div>{{end}}
 </div>
 {{end}}{{end}}
+
+{{define "budget-row"}}<div class="budget-card">
+  <div class="row-between"><span class="name">{{.Name}}</span><span class="left {{if lt .Remaining 0}}neg{{end}}">{{won .Remaining}}</span></div>
+  {{if .Budget}}<div class="bar" role="progressbar" aria-label="{{.Name}} 예산 사용률" aria-valuenow="{{barW .Ratio}}" aria-valuemin="0" aria-valuemax="100"><span class="fill {{barCls .Ratio}}" style="width:{{barW .Ratio}}%"></span></div>{{end}}
+  <div class="meta">지출 {{num .Spent}}{{if .Settled}} · 정산 +{{num .Settled}}{{end}}{{if .Budget}} · 예산 {{num .Budget}} · {{pct .Ratio}}{{else}} · 예산 없음{{end}}</div>
+</div>{{end}}

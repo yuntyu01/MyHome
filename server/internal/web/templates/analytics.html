@@ -16,7 +16,7 @@
   <h2>월간 요약</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>분류</th><th class="num">{{.Period.Label}}</th><th class="num">{{.PreviousPeriod.Label}}</th><th class="num">증감</th></tr></thead>
+    <thead><tr><th>분류</th><th class="num">{{monthName .Period.Label}}</th><th class="num">{{monthName .PreviousPeriod.Label}}</th><th class="num">증감</th></tr></thead>
     <tbody>
     {{range .Categories}}{{if or .Current .Previous}}
       <tr><td>{{.Name}}</td><td class="num">{{num .Current}}</td><td class="num muted">{{num .Previous}}</td><td class="num {{diffCls .Diff}}">{{plus .Diff}}</td></tr>
