@@ -1,24 +1,33 @@
 # 배포 (kodeploy)
 
-> kodeploy의 화면 이름이나 설정 방법은 이 저장소에서 확인하지 못했다. 아래는 **일반적인 컨테이너 배포 기준**이다. kodeploy에서 같은 의미의 항목을 찾아서 넣으면 된다.
+> KoDeploy 문서와 소스를 직접 읽지 못하고 검색 요약으로만 확인했다. **확인 필요**로 표시한 항목은 대시보드에서 직접 봐야 한다.
+>
+> 확인한 동작: 저장소에 Dockerfile이 있으면 그것을 쓰고 없으면 nixpacks로 생성한다. 빌드는 rootless BuildKit, 클러스터는 OCI ARM, 주소는 `{앱이름}.kodeploy.com`이다.
 
 ## 1. 준비물
 
-- PostgreSQL 16 이상 (kodeploy가 제공하는 DB 또는 별도 관리형 DB)
+- PostgreSQL 16 이상. 이 서버는 **MySQL로는 돌아가지 않는다.**
+  - KoDeploy의 DB 토글: 저장소 README에는 PostgreSQL도 있지만 서비스 소개에는 MySQL만 있다. **확인 필요.**
+  - 토글이 넣어 주는 환경변수 이름도 **확인 필요.** `DATABASE_URL`이 아니면 직접 만들어 넣는다.
+  - 토글이 없으면 외부 관리형 PostgreSQL을 쓴다.
 - HTTPS 도메인 (앱이 Bearer 토큰을 보내므로 **HTTP 평문 배포 금지**)
 
 ## 2. 빌드 설정
 
 | 항목 | 값 |
 |---|---|
-| 빌드 방식 | Dockerfile |
-| 빌드 컨텍스트 | `server/` |
-| Dockerfile 경로 | `server/Dockerfile` |
-| 컨테이너 포트 | `8080` (`HTTP_ADDR`로 변경 가능) |
+| 저장소 | 이 저장소. 루트의 `Dockerfile`을 쓴다 |
+| 빌드 컨텍스트 | 저장소 루트 (`.dockerignore`가 `server/`만 남긴다) |
+| 앱 포트 | `8080` (다른 포트만 허용되면 `HTTP_ADDR=:<포트>`) |
 | 헬스체크 | `GET /healthz` → 200 |
 | 실행 명령 | 기본값(`/myhome serve`) |
 
-이미지는 `scratch` 기반이라 셸이 없다. 관리 명령은 `/myhome <명령>` 형식으로 실행한다.
+`server/Dockerfile`은 로컬 compose용이다. 배포에는 쓰지 않는다.
+
+이미지는 `scratch` 기반이라 셸이 없고 `/tmp`도 없다. 관리 명령은 둘 중 하나로 실행한다.
+
+- **PC에서 실행** (DB에 외부에서 접속할 수 있을 때): `cd server && DATABASE_URL=... go run ./cmd/myhome <명령>`
+- **컨테이너 안에서 실행**: `/myhome <명령>`. KoDeploy 터미널이 셸을 요구하면 동작하지 않는다(**확인 필요**). 그때는 루트 `Dockerfile`의 `FROM scratch`를 `FROM alpine:3`으로 바꾼다.
 
 ## 3. 환경변수
 
@@ -27,6 +36,8 @@
 | 이름 | 설명 |
 |---|---|
 | `DATABASE_URL` | 예: `postgres://user:pass@host:5432/myhome?sslmode=require` |
+| `TRUST_PROXY_HEADERS` | KoDeploy에서는 `true`. 프록시 뒤라서 끄면 모든 요청이 같은 IP로 잡혀 IP별 제한에 함께 걸린다 |
+| `KAKAO_REDIRECT_URI` | `https://{앱이름}.kodeploy.com/auth/kakao/callback` |
 
 선택 (기본값):
 
@@ -38,13 +49,11 @@
 | `MAX_BODY_BYTES` | `65536` | 요청 본문 최대 크기 |
 | `RATE_LIMIT_RPS` | `5` | 기기별 초당 요청 수 (IP별은 4배) |
 | `RATE_LIMIT_BURST` | `30` | 순간 허용량 (IP별은 2배) |
-| `TRUST_PROXY_HEADERS` | `false` | 리버스 프록시 뒤라면 `true` (X-Forwarded-For 사용) |
 | `CLI_TOKEN_ISSUE_ENABLED` | `true` | `false`면 CLI 비상 토큰 발급 금지 |
 | `PARSER_PACKAGES` | (빈 값) | 패키지명 → 파서 매핑. `docs/PARSERS.md` |
 | `APP_ENV` | `production` | `development`면 개발용 로그인 허용 |
 | `KAKAO_REST_API_KEY` | | 카카오 REST API 키 (`docs/KAKAO_SETUP.md`) |
 | `KAKAO_CLIENT_SECRET` | | 카카오 Client Secret |
-| `KAKAO_REDIRECT_URI` | | `https://<도메인>/auth/kakao/callback` |
 | `KAKAO_APP_ID` | | 카카오 앱 ID(숫자). 앱 로그인 토큰 검증용 |
 | `ALLOWED_KAKAO_IDS` | | 허용할 카카오 회원번호(쉼표 구분) |
 | `COOKIE_SECURE` | `true` | 세션 쿠키 Secure 속성. https 운영에서는 반드시 true |
@@ -80,8 +89,10 @@
 /myhome process-pending                                   # 처리 안 된 원문 처리(서버 시작 때도 자동)
 /myhome reprocess --from 2026-11-01 --to 2026-11-30       # 재처리 계획
 /myhome reprocess --from 2026-11-01 --to 2026-11-30 --apply
-/myhome export-raw --from 2026-11-01 --to 2026-11-14 --out /tmp/raw.jsonl   # 익명화 내보내기
+/myhome export-raw --from 2026-11-01 --to 2026-11-14 > raw.jsonl   # 익명화 내보내기
 ```
+
+컨테이너 안에는 `/tmp`가 없어서 `--out /tmp/...`는 실패한다. `--out` 없이 표준출력으로 받는다.
 
 ## 6. 토큰 관리
 
@@ -97,6 +108,10 @@
 ## 8. 로컬에서 이미지 빌드
 
 ```bash
+# 배포와 같은 이미지 (ARM 클러스터 기준, 에뮬레이션 불필요)
+docker buildx build --platform linux/arm64 -t myhome-server:deploy .
+
+# 로컬 compose와 같은 이미지 (server/Dockerfile)
 make docker-build
 # TLS 재암호화 프록시 뒤라면:
 docker build --secret id=ca_bundle,src=/path/to/ca.crt -t myhome-server:local server

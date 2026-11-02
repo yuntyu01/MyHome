@@ -1,0 +1,7 @@
+# 빌드에는 server/만 필요하다. .env, .git, android, docs는 컨텍스트에 넣지 않는다.
+*
+!server/
+**/.env*
+server/bin/
+**/*.test
+**/*.out
