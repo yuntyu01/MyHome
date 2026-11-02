@@ -69,13 +69,13 @@ class SummaryWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = SummaryWidget()
 }
 
-// modo 색: 강조 #85ADE2(라이트 글자는 한 단계 진하게), 카드 바탕, 본문·보조 글자
-private val OkColor = ColorProvider(day = Color(0xFF3F78C2), night = Color(0xFF85ADE2))
-private val WarnColor = ColorProvider(day = Color(0xFFC98A00), night = Color(0xFFF5C451))
-private val OverColor = ColorProvider(day = Color(0xFFE5484D), night = Color(0xFFFF6B6B))
-private val WidgetBg = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFF16191F))
-private val TextColor = ColorProvider(day = Color(0xFF15171A), night = Color(0xFFFFFFFF))
-private val SubColor = ColorProvider(day = Color(0xFF7A7F87), night = Color(0xFF929398))
+// 앱과 같은 색: 평소 무채색, 80% 이상·확인 필요 라벤더, 초과 살구, 카드 바탕, 본문·보조 글자
+private val OkColor = ColorProvider(day = Color(0xFF5E5E5E), night = Color(0xFFCFCFCF))
+private val WarnColor = ColorProvider(day = Color(0xFF6F6698), night = Color(0xFFAFA5D4))
+private val OverColor = ColorProvider(day = Color(0xFFA15A36), night = Color(0xFFD89777))
+private val WidgetBg = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFF222222))
+private val TextColor = ColorProvider(day = Color(0xFF171717), night = Color(0xFFFFFFFF))
+private val SubColor = ColorProvider(day = Color(0xFF777777), night = Color(0xFF949494))
 
 private fun colorFor(s: BudgetState) = when (s) {
     BudgetState.OVER -> OverColor
@@ -110,7 +110,7 @@ private fun WidgetContent(context: Context, summary: Summary?) {
         }
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = GlanceModifier.defaultWeight()) {
-                Text("${summary.period.label} 남은 돈", style = TextStyle(color = sub, fontSize = 11.sp))
+                Text("${WidgetModel.monthName(summary.period.label)} 남은 돈", style = TextStyle(color = sub, fontSize = 11.sp))
                 Text(
                     Money.won(summary.totals.remaining),
                     style = TextStyle(

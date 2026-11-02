@@ -51,7 +51,7 @@ fun SectionCard(title: String, modifier: Modifier = Modifier, content: @Composab
 fun StatusRow(label: String, ok: Boolean, detail: String? = null) {
     val m = LocalModo.current
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).clip(CircleShape).background(if (ok) m.accent else m.warn))
+        Box(Modifier.size(10.dp).clip(CircleShape).background(if (ok) m.accent else m.over))
         Spacer(Modifier.width(12.dp))
         Column {
             Text(label, style = MaterialTheme.typography.bodyLarge)

@@ -22,7 +22,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.Money
 import com.yuntyu.myhome.core.WidgetModel
+import com.yuntyu.myhome.core.api.CategoryBudget
 import com.yuntyu.myhome.widget.WidgetRefresher
 import kotlinx.coroutines.launch
 
@@ -64,7 +68,7 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Unit
             val m = LocalModo.current
             // 큰 숫자: 이번 달 남은 돈
             Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
-                Text("${s.period.label} 남은 돈", style = MaterialTheme.typography.titleSmall, color = m.muted)
+                Text("${WidgetModel.monthName(s.period.label)} 남은 돈", style = MaterialTheme.typography.titleSmall, color = m.muted)
                 Text(
                     Money.won(s.totals.remaining),
                     style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
@@ -97,25 +101,25 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Unit
                 StatTile("투자·저축", tileAmount(s.totals.investment), MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
             }
             Text("분류별 남은 돈", style = MaterialTheme.typography.labelLarge, color = m.muted, modifier = Modifier.padding(start = 6.dp, top = 8.dp))
-            val cats = s.categories.filter { it.budget > 0 || it.spent != 0L }
-            if (cats.isEmpty()) Text("웹에서 예산을 설정하면 여기에 보여요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
-            for (c in cats) {
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(c.name, Modifier.weight(1f))
-                        Text(Money.won(c.remaining), fontWeight = FontWeight.Bold, color = if (c.remaining < 0) m.over else MaterialTheme.colorScheme.onSurface)
-                    }
-                    if (c.budget > 0) ModoBar(c.ratio, budgetColor(c.ratio), Modifier.padding(top = 10.dp))
-                    Text(
-                        "지출 ${Money.grouped(c.spent)}" + (if (c.budget > 0) " · 예산 ${Money.grouped(c.budget)}" else " · 예산 없음"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = m.muted,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
+            val cats = WidgetModel.homeCategories(s)
+            if (cats.top.isEmpty() && cats.rest.isEmpty()) Text("웹에서 예산을 설정하면 여기에 보여요.", style = MaterialTheme.typography.bodySmall, color = m.muted, modifier = Modifier.padding(horizontal = 6.dp))
+            for (c in cats.top) BudgetRow(c)
+            if (cats.rest.isNotEmpty()) {
+                // 펼친 분류가 없으면(기간 시작 직후) 처음부터 펼쳐 둔다
+                var showRest by rememberSaveable { mutableStateOf(false) }
+                val open = showRest || cats.top.isEmpty()
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card)
+                        .clickable { showRest = !open }.padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("나머지 분류 ${cats.rest.size}개", Modifier.weight(1f), color = m.muted)
+                    Text(if (open) "⌄" else "›", color = m.muted)
                 }
+                if (open) for (c in cats.rest) BudgetRow(c)
             }
             SectionCard("최근 거래") {
-                for (t in s.recent) {
+                for (t in s.recent.take(5)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(t.merchant.ifBlank { "(이름 없음)" }, maxLines = 1)
@@ -159,5 +163,24 @@ private fun StatTile(label: String, value: String, color: Color, modifier: Modif
     Column(modifier.clip(RoundedCornerShape(16.dp)).background(m.card).padding(horizontal = 14.dp, vertical = 12.dp)) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = m.muted)
         Text(value, style = MaterialTheme.typography.titleMedium, color = color, maxLines = 1)
+    }
+}
+
+/** 분류 한 줄: 이름, 남은 돈, 막대, 지출·예산. */
+@Composable
+private fun BudgetRow(c: CategoryBudget) {
+    val m = LocalModo.current
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(c.name, Modifier.weight(1f))
+            Text(Money.won(c.remaining), fontWeight = FontWeight.Bold, color = if (c.remaining < 0) m.over else MaterialTheme.colorScheme.onSurface)
+        }
+        if (c.budget > 0) ModoBar(c.ratio, budgetColor(c.ratio), Modifier.padding(top = 10.dp))
+        Text(
+            "지출 ${Money.grouped(c.spent)}" + (if (c.budget > 0) " · 예산 ${Money.grouped(c.budget)}" else " · 예산 없음"),
+            style = MaterialTheme.typography.bodySmall,
+            color = m.muted,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }

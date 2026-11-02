@@ -29,6 +29,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Column
 import com.yuntyu.myhome.MyHomeApp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -139,6 +142,8 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
     ModoBackground {
         Scaffold(
             containerColor = Color.Transparent,
+            // 바탕이 투명하면 Scaffold가 글자색을 정하지 못해 기본값(검정)이 된다. 다크 모드에서도 보이게 직접 준다.
+            contentColor = MaterialTheme.colorScheme.onBackground,
             topBar = {
                 TopAppBar(
                     title = {
@@ -185,26 +190,30 @@ private fun ModoBottomBar(current: Screen, reviewCount: Long, onSelect: (Screen)
     val items = listOf(
         Triple(Screen.HOME, Icons.Filled.Home, "홈"),
         Triple(Screen.TRANSACTIONS, Icons.AutoMirrored.Filled.List, "거래"),
-        Triple(Screen.REVIEW, Icons.Filled.CheckCircle, "확인 필요"),
+        Triple(Screen.REVIEW, Icons.Filled.CheckCircle, "확인"),
         Triple(Screen.SETTINGS, Icons.Filled.Settings, "설정"),
     )
     Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(
-            Modifier.fillMaxWidth().height(60.dp).clip(RoundedCornerShape(30.dp)).background(m.nav).padding(horizontal = 12.dp),
+            Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(32.dp)).background(m.nav).padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             for ((s, icon, label) in items) {
                 val selected = current == s
                 Box(
-                    Modifier.size(width = 64.dp, height = 40.dp).clip(RoundedCornerShape(20.dp))
-                        .background(if (selected) m.pill else Color.Transparent)
+                    Modifier.size(width = 72.dp, height = 52.dp).clip(RoundedCornerShape(26.dp))
+                        .background(if (selected) m.selected else Color.Transparent)
                         .clickable(onClickLabel = label) { onSelect(s) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(icon, contentDescription = label, tint = if (selected) m.accent else m.muted)
+                    val tint = if (selected) m.accent else m.muted
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+                        Text(label, color = tint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, lineHeight = 14.sp)
+                    }
                     if (s == Screen.REVIEW && reviewCount > 0) {
-                        Box(Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 14.dp).size(8.dp).clip(CircleShape).background(m.accent))
+                        Box(Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 20.dp).size(8.dp).clip(CircleShape).background(m.accent))
                     }
                 }
             }

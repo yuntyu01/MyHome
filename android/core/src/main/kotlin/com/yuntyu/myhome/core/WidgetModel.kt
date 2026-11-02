@@ -7,7 +7,7 @@ import com.yuntyu.myhome.core.api.TransactionDto
 /** 위젯 크기별 레이아웃. 작은 크기는 총 남은 돈과 상위 분류 2~3개만 보여준다. */
 enum class WidgetLayout(val categoryCount: Int, val recentCount: Int) {
     SMALL(2, 0),
-    MEDIUM(3, 3),
+    MEDIUM(3, 2), // 세로 2칸(기본 크기)에 잘리지 않고 들어가는 양
     LARGE(5, 4),
     ;
 
@@ -20,6 +20,9 @@ enum class WidgetLayout(val categoryCount: Int, val recentCount: Int) {
         }
     }
 }
+
+/** 앱 홈의 분류: 바로 보이는 것과 접어 둔 것. */
+data class HomeCategories(val top: List<CategoryBudget>, val rest: List<CategoryBudget>)
 
 /** 남은 돈 상태: 위젯·앱 색 표시용 */
 enum class BudgetState { OK, WARN, OVER, NO_BUDGET }
@@ -40,6 +43,30 @@ object WidgetModel {
         s.categories.filter { it.budget > 0 }
             .sortedWith(compareByDescending<CategoryBudget> { it.ratio }.thenByDescending { it.spent })
             .take(n)
+
+    /**
+     * 앱 홈에 보여줄 분류. 웹 홈과 같은 규칙이다: 예산을 넘긴 분류를 많이 넘긴 순으로 맨 위에, 그다음 사용률 높은 순.
+     * 80% 이상 쓴 분류는 항상 보이고, 아직 안 쓴 분류는 항상 접는다. 예산도 지출도 없는 분류는 뺀다.
+     */
+    fun homeCategories(s: Summary, topCount: Int = 5): HomeCategories {
+        val (used, unused) = s.categories
+            .filter { it.budget > 0 || it.spent != 0L || it.settled != 0L }
+            .partition { it.spent != 0L || it.settled != 0L }
+        val sorted = used.sortedWith(
+            compareByDescending<CategoryBudget> { it.remaining < 0 }
+                .thenBy { if (it.remaining < 0) it.remaining else 0L }
+                .thenByDescending { it.ratio },
+        )
+        val (top, rest) = sorted.withIndex().partition { (i, c) -> i < topCount || c.remaining < 0 || c.ratio >= 0.8 }
+        return HomeCategories(top.map { it.value }, rest.map { it.value } + unused)
+    }
+
+    /** 기간 라벨 "2026-10" → 올해면 "10월", 아니면 "2025년 10월". 형식이 다르면 그대로. */
+    fun monthName(label: String, currentYear: Int = java.time.LocalDate.now().year): String {
+        val m = Regex("""^(\d{4})-(\d{2})$""").find(label) ?: return label
+        val (y, mo) = m.destructured
+        return if (y.toInt() == currentYear) "${mo.toInt()}월" else "${y.toInt()}년 ${mo.toInt()}월"
+    }
 
     /** 최근 결제: 나간 돈(지출·송금 등) 위주, 확인 필요 건도 포함. */
     fun recentPayments(s: Summary, n: Int): List<TransactionDto> =

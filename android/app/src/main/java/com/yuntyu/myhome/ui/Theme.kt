@@ -15,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -27,50 +26,56 @@ import com.yuntyu.myhome.R
 
 /*
  * modo 디자인 언어:
- * - 다크: 검정 바탕 + 위쪽 남색 그라데이션, 살짝 비치는 카드(#1A1E25), 강조색 #85ADE2
- * - 라이트: 거의 흰 바탕(#F7F9FC) + 옅은 하늘빛 그라데이션, 흰 카드
+ * - 다크: 차콜 바탕(#151515) + 카드(#222222), 평소 막대·선택 상태는 무채색 #CFCFCF
+ * - 라이트: 밝은 회색 바탕(#F6F6F5) + 흰 카드, 평소 막대·선택 상태는 무채색 #5E5E5E
+ * - 색은 주의가 필요한 금액에만 쓴다. 예산 80% 이상과 확인 필요는 라벤더, 초과는 살구. 빨강·파랑은 쓰지 않는다
  * - 테두리·그림자 없이 바탕색 차이로만 구분, 둥근 모서리(카드 16dp), Pretendard 글꼴
  * 휴대폰 배경화면 색을 따라가는 동적 색(Material You)은 쓰지 않는다(디자인을 고정하기 위해).
  */
 
-/** Material 색 체계에 없는 modo 색(그라데이션, 하단바, 경고색 등). */
+/** Material 색 체계에 없는 색(하단바, 선택 상태, 경고·초과 막대 등). */
 @Immutable
 data class ModoColors(
-    val gradientTop: Color,
-    val gradientMid: Color,
     val bg: Color,
     val card: Color,
     val raised: Color,
     val composer: Color,
     val nav: Color,
     val pill: Color,
+    val selected: Color,
     val accent: Color,
     val accentInk: Color,
     val onAccent: Color,
     val muted: Color,
     val warn: Color,
+    val warnBar: Color,
     val over: Color,
+    val overBar: Color,
     val income: Color,
     val dark: Boolean,
 )
 
-val ModoAccent = Color(0xFF85ADE2)
-
 private val DarkModo = ModoColors(
-    gradientTop = Color(0xFF051324), gradientMid = Color(0xFF020910), bg = Color(0xFF000000),
-    card = Color(0xFF1A1E25), raised = Color(0xFF24282C), composer = Color(0xFF1A1B1F),
-    nav = Color(0xFF161A20), pill = Color(0xFF2C3747),
-    accent = ModoAccent, accentInk = ModoAccent, onAccent = Color(0xFF0B0C0E),
-    muted = Color(0xFF929398), warn = Color(0xFFF5C451), over = Color(0xFFFF6B6B), income = Color(0xFF5FD38D),
+    bg = Color(0xFF151515),
+    card = Color(0xFF222222), raised = Color(0xFF2E2E2E), composer = Color(0xFF2A2A2A),
+    nav = Color(0xFF222222), pill = Color(0xFF333333), selected = Color(0xFF484848),
+    accent = Color(0xFFCFCFCF), accentInk = Color(0xFFCFCFCF), onAccent = Color(0xFF151515),
+    muted = Color(0xFF949494),
+    warn = Color(0xFFAFA5D4), warnBar = Color(0xFFAFA5D4),
+    over = Color(0xFFD89777), overBar = Color(0xFFD89777),
+    income = Color(0xFFCFCFCF),
     dark = true,
 )
 
 private val LightModo = ModoColors(
-    gradientTop = Color(0xFFE6F0FD), gradientMid = Color(0xFFEEF4FD), bg = Color(0xFFF7F9FC),
-    card = Color(0xFFFFFFFF), raised = Color(0xFFE9ECF1), composer = Color(0xFFEEF2F8),
-    nav = Color(0xFFEDF3F8), pill = Color(0xFFDCE8F4),
-    accent = ModoAccent, accentInk = Color(0xFF3F78C2), onAccent = Color(0xFF0B0C0E),
-    muted = Color(0xFF7A7F87), warn = Color(0xFFC98A00), over = Color(0xFFE5484D), income = Color(0xFF2F8F6B),
+    bg = Color(0xFFF6F6F5),
+    card = Color(0xFFFFFFFF), raised = Color(0xFFEAEAE9), composer = Color(0xFFEEEEED),
+    nav = Color(0xFFFFFFFF), pill = Color(0xFFEDEDEC), selected = Color(0xFFDCDCDC),
+    accent = Color(0xFF5E5E5E), accentInk = Color(0xFF5E5E5E), onAccent = Color(0xFFFFFFFF),
+    muted = Color(0xFF777777),
+    warn = Color(0xFF6F6698), warnBar = Color(0xFF8F85B9),
+    over = Color(0xFFA15A36), overBar = Color(0xFFC07B58),
+    income = Color(0xFF5E5E5E),
     dark = false,
 )
 
@@ -84,21 +89,21 @@ private fun scheme(m: ModoColors): ColorScheme = if (m.dark) {
         background = m.bg, onBackground = Color.White,
         surface = m.card, onSurface = Color.White,
         surfaceVariant = m.raised, onSurfaceVariant = m.muted,
-        surfaceContainer = m.card, surfaceContainerHigh = Color(0xFF1F232A), surfaceContainerHighest = m.raised,
-        outline = Color(0xFF5A5E66), outlineVariant = Color(0x14FFFFFF),
+        surfaceContainer = m.card, surfaceContainerHigh = Color(0xFF2A2A2A), surfaceContainerHighest = m.raised,
+        outline = Color(0xFF5C5C5C), outlineVariant = Color(0x14FFFFFF),
         error = m.over,
     )
 } else {
     lightColorScheme(
         // 흰 바탕 위 글자·버튼 대비를 위해 라이트에서는 강조색을 한 단계 진하게 쓴다
-        primary = m.accentInk, onPrimary = Color.White,
-        primaryContainer = m.pill, onPrimaryContainer = Color(0xFF15171A),
-        secondaryContainer = m.pill, onSecondaryContainer = Color(0xFF15171A),
-        background = m.bg, onBackground = Color(0xFF15171A),
-        surface = m.card, onSurface = Color(0xFF15171A),
+        primary = m.accentInk, onPrimary = m.onAccent,
+        primaryContainer = m.pill, onPrimaryContainer = Color(0xFF171717),
+        secondaryContainer = m.pill, onSecondaryContainer = Color(0xFF171717),
+        background = m.bg, onBackground = Color(0xFF171717),
+        surface = m.card, onSurface = Color(0xFF171717),
         surfaceVariant = m.raised, onSurfaceVariant = m.muted,
-        surfaceContainer = m.card, surfaceContainerHigh = Color(0xFFF2F4F7), surfaceContainerHighest = m.raised,
-        outline = Color(0xFFB9BEC6), outlineVariant = Color(0x1415171A),
+        surfaceContainer = m.card, surfaceContainerHigh = Color(0xFFF3F3F2), surfaceContainerHighest = m.raised,
+        outline = Color(0xFFBBBBBB), outlineVariant = Color(0x14000000),
         error = m.over,
     )
 }
@@ -142,22 +147,20 @@ fun MyHomeTheme(content: @Composable () -> Unit) {
     }
 }
 
-/** 화면 바탕: 위쪽 테마색 그라데이션 → 바탕색(다크는 화면 2/3, 라이트는 40% 지점에서 바탕색). */
+/** 화면 바탕: 그라데이션 없는 무채색. */
 @Composable
 fun ModoBackground(content: @Composable () -> Unit) {
     val m = LocalModo.current
-    val stops = if (m.dark) arrayOf(0f to m.gradientTop, 0.32f to m.gradientMid, 0.68f to m.bg)
-    else arrayOf(0f to m.gradientTop, 0.18f to m.gradientMid, 0.42f to m.bg)
-    Box(Modifier.fillMaxSize().background(m.bg).background(Brush.verticalGradient(*stops))) { content() }
+    Box(Modifier.fillMaxSize().background(m.bg)) { content() }
 }
 
-/** 예산 사용률 색: 80% 이상 경고, 100% 초과 빨강, 그 밖은 강조색. */
+/** 예산 막대 색: 평소 무채색, 80% 이상 라벤더, 초과 살구. */
 @Composable
 fun budgetColor(ratio: Double): Color {
     val m = LocalModo.current
     return when {
-        ratio > 1.0 -> m.over
-        ratio >= 0.8 -> m.warn
+        ratio > 1.0 -> m.overBar
+        ratio >= 0.8 -> m.warnBar
         else -> m.accent
     }
 }
