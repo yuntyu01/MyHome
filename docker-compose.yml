@@ -13,7 +13,8 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myhome -d myhome"]
+      # TCP로 확인한다. 초기화 중 임시 서버는 유닉스 소켓만 열어서, 소켓으로 보면 재시작 전에 healthy가 된다.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U myhome -d myhome"]
       interval: 3s
       timeout: 3s
       retries: 20
