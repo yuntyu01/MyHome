@@ -25,14 +25,14 @@
 - 검증: `go test ./...` 통과(정상 저장·중복·인증 실패·검증·폐기 토큰), Docker 이미지 빌드 성공,
   compose에서 실제 토큰 발급 → 201 → 재전송 200(duplicate) → 무토큰 401 확인
 
-### Phase 2: Android v0 수집기 (코드 완성, 앱 빌드 미검증)
+### Phase 2: Android v0 수집기
 - `android/core` (순수 Kotlin): API 클라이언트(OkHttp), 수집 규칙, 중복 키(서버 content_hash와 동일), 서버 주소 검사, 금액 포맷
 - `android/app`: `CaptureService`(NotificationListenerService) → Room 대기열 → `UploadWorker`(WorkManager, 재시도·재부팅 유지) → 성공 시 `cancelNotification`
 - 화면: 홈(상태), 권한 안내(삼성 안내 포함), 최근 알림·수집 대상 선택(실제 패키지명), 설정(서버 URL, 토큰 직접 입력, 자동 삭제), 전송 로그(최근 50건)
 - 토큰 Keystore 암호화 저장, 앱 백업 제외, 테스트 알림 기능
 - `docs/ANDROID_SETUP.md`
 - 검증: `gradle -p core test` 16개 통과(MockWebServer로 Bearer·JSON·재시도 판단 확인, Kotlin↔Go 해시 일치 확인).
-  `./gradlew assembleDebug`는 **실행 못 함**(아래 "막힌 것").
+  `./gradlew assembleDebug`는 당시 환경에서 실행 못 함(아래 "앱 첫 빌드"에서 확인).
 
 ### Phase 3: 서버 해석·분류·예산 코어
 - 마이그레이션: `categories`(기본 분류 seed), `transactions`, `budgets`, `merchant_rules`(seed 약 100개), `settings`
@@ -66,12 +66,12 @@
 - 검증: 웹 핸들러 테스트 6개(전 화면 렌더링·CSP, 확인 필요 분류·학습, 행 갱신·제외, 예산 저장·복사, 관리 폼, CSRF 거부) 통과.
   Playwright로 데스크톱·모바일 × 라이트·다크 24장 캡처 확인: 콘솔 오류 없음, 가로 넘침 없음, htmx 분류·행 갱신·테마 전환 동작
 
-### Phase 6: Android 위젯과 앱 화면 (코드 완성, 앱 빌드 미검증)
+### Phase 6: Android 위젯과 앱 화면
 - core: 요약·거래·분류 모델, API(summary, review, transactions, categories, PATCH), 위젯 크기별 레이아웃·분류 선택·상태색 로직
 - Glance 위젯(작게·중간·크게), 캐시 기반 렌더링, 전송 성공 직후 즉시 갱신 + 30분 주기 갱신, 탭 시 앱/확인 필요 항목으로 이동
 - 앱 화면: 홈(이번 달 요약·분류별 남은 돈·최근 거래), 확인 필요 처리(분류 대화상자·학습), 이번 달 거래, 수집 상태
 - 검증: core 테스트 24개 통과(서버 요약 JSON 해석, 상위 분류, 상태색, 최근 결제 필터, 크기별 레이아웃, 시각 포맷).
-  `assembleDebug`는 Phase 2와 같은 이유로 실행 못 함
+  `assembleDebug`는 당시 Phase 2와 같은 이유로 실행 못 함
 
 ### Phase 7: 마무리
 - 예산 알림: 80% 도달·초과, 무음 채널, 기간·분류·단계별 1회, 설정에서 끄기 (판단 로직은 core에서 테스트)
@@ -89,7 +89,12 @@
 ### 디자인 개편 (modo 스타일, 사용자 요청)
 - 웹: modo 테마 토큰(색·그라데이션·모서리), Pretendard, 큰 제목 + 글자 탭, 휴대폰 폭 알약 하단바와 "더보기" 화면, 거래 목록을 카드형으로, 스위치·알약 버튼
 - 앱: 고정 modo 색 체계(다크·라이트), Pretendard, 그라데이션 바탕, 떠 있는 알약 하단바, 카드형 목록, 위젯 색
-- 검증: 서버 테스트 전부 통과, Playwright로 휴대폰·PC × 다크·라이트 확인(콘솔 오류·가로 넘침 없음, Pretendard 적용 확인). 앱은 여전히 빌드 미검증
+- 검증: 서버 테스트 전부 통과, Playwright로 휴대폰·PC × 다크·라이트 확인(콘솔 오류·가로 넘침 없음, Pretendard 적용 확인). 앱 빌드는 당시 미검증
+
+### 앱 첫 빌드 (2026-11-02)
+- 로컬 WSL에서 `:app:assembleDebug` 성공(코드 수정 없음). 서버 테스트(DB 포함)와 core 테스트도 통과
+- 빌드가 만드는 Room 스키마 `android/app/schemas/`를 저장소에 추가
+- 기기 설치와 실제 동작, 릴리스 빌드는 미검증
 
 ## 남은 것
 
@@ -99,15 +104,14 @@
 
 1. kodeploy 배포와 환경변수 설정 (`docs/DEPLOY.md`)
 2. 카카오 디벨로퍼스 설정 (`docs/KAKAO_SETUP.md`) → `ALLOWED_KAKAO_IDS`에 본인 회원번호
-3. Android Studio로 APK 빌드·설치, 권한 허용 (`docs/ANDROID_SETUP.md`) — **첫 빌드에서 컴파일 오류가 나면 메시지를 그대로 전달**
+3. APK 설치, 권한 허용 (`docs/ANDROID_SETUP.md`) - 기기에서 문제가 나면 메시지를 그대로 전달
 4. 앱 "최근 알림"에서 실제 패키지명 확인 → 수집 대상 체크, 서버 `PARSER_PACKAGES` 설정
 5. 원본 앱(KB Pay, 토스 등) 알림 채널을 무음으로
 6. 1~2주 실사용 후 `myhome export-raw`로 익명화 원문을 뽑아 파서 보정 요청 (`docs/PARSERS.md`)
 
 ## 막힌 것
 
-- **Android 앱 빌드(`assembleDebug`) 검증 불가**: 작업 환경에서 Google Maven과 Android SDK 주소(dl.google.com)가 네트워크 정책으로 막혀 있다. AGP·androidx를 받을 수 없어서 `app` 모듈은 코드만 작성했다. Maven Central은 쓸 수 있어서 `core` 모듈은 빌드·테스트했다.
-  → 사용자 PC(Android Studio)에서 첫 빌드 필요. 컴파일 오류가 나면 그 메시지로 수정 요청.
+- 없음
 
 ## 작업 환경 메모 (이 클라우드 세션 기준)
 
