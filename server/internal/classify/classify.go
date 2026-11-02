@@ -7,13 +7,14 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Rule은 분류 규칙이다.
 type Rule struct {
 	ID          int64
 	Pattern     string
-	MatchType   string // contains, exact, regex
+	MatchType   string // contains, exact, prefix, regex
 	CategoryID  int64
 	Flow        string // "", "out", "in"
 	Priority    int
@@ -63,7 +64,7 @@ func ValidPattern(matchType, pattern string) bool {
 		return false
 	}
 	switch matchType {
-	case "contains", "exact":
+	case "contains", "exact", "prefix":
 		return true
 	case "regex":
 		_, err := regexp.Compile("(?i)" + pattern)
@@ -83,11 +84,27 @@ func (r Rule) Matches(merchant, flow string) bool {
 	case "contains":
 		p := Normalize(r.Pattern)
 		return p != "" && strings.Contains(Normalize(merchant), p)
+	case "prefix":
+		return hasNamePrefix(Normalize(merchant), Normalize(r.Pattern))
 	case "regex":
 		re := compiled(r.Pattern)
 		return re != nil && re.MatchString(merchant)
 	}
 	return false
+}
+
+// hasNamePrefix는 name이 prefix로 시작하고 그 뒤가 다른 영문 이름으로 이어지지 않는지 본다.
+// 짧은 영문 상호용이다: CU → "CU 선릉점"은 맞고 "CUBE"는 아니다. KT → "KT 대리점"은 맞고 "KTX", "KT&G"는 아니다.
+func hasNamePrefix(name, prefix string) bool {
+	if prefix == "" || !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	rest := name[len(prefix):]
+	if rest == "" {
+		return true
+	}
+	next, _ := utf8.DecodeRuneInString(rest)
+	return !(next == '&' || next >= 'a' && next <= 'z' || next >= '0' && next <= '9')
 }
 
 // Sort는 적용 순서로 정렬한다: 우선순위 높은 순 → 사용자 규칙 먼저 → 긴 패턴 먼저 → 최신 먼저.

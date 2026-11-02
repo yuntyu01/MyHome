@@ -233,7 +233,7 @@ func leftoverMerchant(body string) string {
 		hasAmount := amountRe.MatchString(line)
 		for _, seg := range splitSegments(line) {
 			s := cleanMerchant(seg)
-			if s == "" {
+			if s == "" || looksLikeSentence(s) {
 				continue
 			}
 			score := len([]rune(s))
@@ -252,6 +252,21 @@ func leftoverMerchant(body string) string {
 		}
 	}
 	return best
+}
+
+// looksLikeSentence는 잡음 단어를 지운 조각이 가맹점이 아니라 안내 문장의 남은 부분인지 본다.
+// 예: "주문하신 상품의 결제가 완료되었습니다" → "주문하신 상품의 가"(조사 "가"만 따로 남음).
+func looksLikeSentence(s string) bool {
+	for _, w := range strings.Fields(s) {
+		if strings.HasSuffix(w, "하신") {
+			return true
+		}
+		switch w {
+		case "가", "이", "은", "는", "을", "를", "의", "에", "로", "와", "과", "도":
+			return true
+		}
+	}
+	return false
 }
 
 func splitSegments(line string) []string {

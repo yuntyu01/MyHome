@@ -111,7 +111,7 @@
       "package": "test.coupang", "title": "쿠팡",
       "text": "주문하신 상품의 결제가 완료되었습니다. 결제금액 23,450원",
       "posted_at": "2026-11-08T22:00:00+09:00",
-      "want": {"source": "generic", "kind": "approval", "amount": 23450}
+      "want": {"source": "generic", "kind": "approval", "amount": 23450, "merchant": "쿠팡"}
     },
     {
       "name": "네이버페이 결제",

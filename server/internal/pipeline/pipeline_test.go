@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -132,6 +133,29 @@ func TestSeedRuleClassification(t *testing.T) {
 	if tx.Direction != "expense" || tx.Flow != "out" || tx.Amount != 12345 || tx.Source != "kb" {
 		t.Errorf("거래 값 이상: %+v", tx)
 	}
+}
+
+// 짧은 영문 상호는 지점명이 붙어도 기본 규칙으로 분류되고, 비슷한 다른 이름은 잡히지 않는다.
+func TestSeedPrefixRules(t *testing.T) {
+	h := newHarness(t)
+	for i, c := range []struct{ merchant, category string }{
+		{"CU 선릉점", "생활"}, {"CU역삼점", "생활"}, {"KT 강남대리점", "주거·통신"}, {"SKT 대리점", "주거·통신"}, {"KTX 서울역", "교통"},
+	} {
+		tx, _ := h.event("test.kb", "KB국민카드", fmt.Sprintf("홍*동님 %d,000원 일시불 %s", i+1, c.merchant), base.Add(time.Duration(i)*time.Hour))
+		h.wantStatus(*tx, "confirmed", c.category)
+	}
+	tx, _ := h.event("test.kb", "KB국민카드", "홍*동님 9,000원 일시불 KT&G 상상마당", base.Add(10*time.Hour))
+	h.wantStatus(*tx, "needs_review", "")
+}
+
+// 본문에 가맹점이 없는 앱 알림은 제목(앱 이름)을 가맹점으로 쓴다.
+func TestAppTitleBecomesMerchant(t *testing.T) {
+	h := newHarness(t)
+	tx, _ := h.event("test.coupang", "쿠팡", "주문하신 상품의 결제가 완료되었습니다. 결제금액 23,450원", base)
+	if tx.Merchant != "쿠팡" {
+		t.Errorf("가맹점 = %q, want 쿠팡", tx.Merchant)
+	}
+	h.wantStatus(*tx, "confirmed", "쇼핑")
 }
 
 func TestInstallmentRecordsFullAmount(t *testing.T) {

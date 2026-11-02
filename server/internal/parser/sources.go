@@ -16,8 +16,19 @@ func (g Generic) Name() string {
 	}
 	return g.Source
 }
-func (Generic) Detect(Event) bool                { return false }
-func (g Generic) Parse(ev Event) (Result, error) { return parseCommon(g.Name(), ev) }
+func (Generic) Detect(Event) bool { return false }
+
+// Parse는 공통 해석을 쓰되, 본문에 가맹점이 없으면 알림 제목(보통 앱 이름, 예: 쿠팡)을 쓴다.
+func (g Generic) Parse(ev Event) (Result, error) {
+	res, err := parseCommon(g.Name(), ev)
+	if err != nil {
+		return res, err
+	}
+	if res.Merchant == "" {
+		res.Merchant = cleanMerchant(ev.Title)
+	}
+	return res, nil
+}
 
 // ---- KB국민카드 (잠정) ----
 

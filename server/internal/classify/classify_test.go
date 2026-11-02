@@ -86,3 +86,37 @@ func TestValidPattern(t *testing.T) {
 		t.Error("패턴 검사 오류")
 	}
 }
+
+func TestPrefixRule(t *testing.T) {
+	cu := Rule{Pattern: "CU", MatchType: "prefix"}
+	kt := Rule{Pattern: "KT", MatchType: "prefix"}
+	cases := []struct {
+		rule     Rule
+		merchant string
+		want     bool
+	}{
+		{cu, "CU", true},
+		{cu, "CU 선릉점", true},
+		{cu, "CU선릉점", true},
+		{cu, "cu 역삼점", true},
+		{cu, "CU(씨유) 강남", true},
+		{cu, "(주)CU 선릉점", true},
+		{cu, "CUBE", false},
+		{cu, "CU2호점", false},
+		{cu, "맛집CU", false},
+		{kt, "KT", true},
+		{kt, "KT 강남대리점", true},
+		{kt, "주식회사 KT", true},
+		{kt, "KTX 서울역", false},
+		{kt, "KTF대리점", false},
+		{kt, "KT&G 상상마당", false},
+	}
+	for _, c := range cases {
+		if got := c.rule.Matches(c.merchant, "out"); got != c.want {
+			t.Errorf("%s 규칙 %q = %v, want %v", c.rule.Pattern, c.merchant, got, c.want)
+		}
+	}
+	if !ValidPattern("prefix", "CU") {
+		t.Error("prefix는 유효한 방식이어야 함")
+	}
+}

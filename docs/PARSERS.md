@@ -18,7 +18,8 @@ server/internal/parser/
   ```
   PARSER_PACKAGES=kb=<KB Pay 패키지>;toss=<토스 패키지>;kakaopay=<카카오페이 패키지>;coupang=<쿠팡 패키지>
   ```
-  내장 파서 이름(`kb`, `toss`)이 아닌 이름은 범용 파서를 쓰고 그 이름이 거래의 `source`가 된다(대사 도우미에서 출처별 합계로 보인다).
+  내장 파서 이름(`kb`, `toss`)이 아닌 이름은 범용 파서를 쓰고 그 이름이 거래의 `source`가 된다(명세서 대조 화면에서 결제 수단별 합계로 보인다. 화면에 보일 이름은 `web/labels.go`의 `sourceNames`).
+- 범용 파서는 본문에서 가맹점을 못 찾으면 알림 제목(보통 앱 이름, 예: 쿠팡)을 가맹점으로 쓴다.
 - 해석에 실패해도 데이터는 잃지 않는다. 금액을 못 찾으면 `raw_events.parse_error`에 기록하고 거래를 만들지 않는다. 금액만 찾으면 `needs_review` 거래가 된다.
 
 ## 1. 원문 내보내기 (익명화)
