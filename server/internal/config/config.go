@@ -66,7 +66,7 @@ func Load() (Config, error) {
 	var errs []string
 	c := Config{
 		HTTPAddr:             str("HTTP_ADDR", ":8080"),
-		DatabaseURL:          os.Getenv("DATABASE_URL"),
+		DatabaseURL:          normalizeDatabaseURL(os.Getenv("DATABASE_URL")),
 		LogLevel:             str("LOG_LEVEL", "info"),
 		MigrateOnStart:       boolean("MIGRATE_ON_START", true, &errs),
 		MaxBodyBytes:         int64(integer("MAX_BODY_BYTES", 64*1024, &errs)),
@@ -94,6 +94,15 @@ func Load() (Config, error) {
 		return c, fmt.Errorf("환경변수 오류: %s", strings.Join(errs, "; "))
 	}
 	return c, nil
+}
+
+// KoDeploy supplies a SQLAlchemy URL; pgx accepts the equivalent PostgreSQL URL.
+func normalizeDatabaseURL(value string) string {
+	const sqlalchemyPrefix = "postgresql+psycopg2://"
+	if strings.HasPrefix(value, sqlalchemyPrefix) {
+		return "postgresql://" + strings.TrimPrefix(value, sqlalchemyPrefix)
+	}
+	return value
 }
 
 // RequireDB는 DATABASE_URL이 없으면 에러를 반환한다.
@@ -185,3 +194,4 @@ func int64List(key string, errs *[]string) []int64 {
 	}
 	return out
 }
+
