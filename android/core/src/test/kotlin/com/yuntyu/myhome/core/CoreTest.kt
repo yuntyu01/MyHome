@@ -62,6 +62,16 @@ class CaptureRulesTest {
         assertFalse(CaptureRules.shouldCapture(c("own.app", title = "다른 알림"), selected, "own.app"))
     }
 
+    @Test fun listsAnyAppButNotSummaryOrOwn() {
+        // 고르기 전 앱도 목록에 보여야 한다
+        assertTrue(CaptureRules.shouldList(c("test.other"), "own.app"))
+        // 안드로이드가 만드는 묶음 요약(제목 없음)은 건수·제목을 망가뜨린다
+        assertFalse(CaptureRules.shouldList(c("test.card", summary = true), "own.app"))
+        assertFalse(CaptureRules.shouldList(c("test.card", ongoing = true), "own.app"))
+        assertFalse(CaptureRules.shouldList(c("own.app"), "own.app"))
+        assertFalse(CaptureRules.shouldList(CaptureRules.Candidate("test.card", false, false, "", "", ""), "own.app"))
+    }
+
     @Test fun skipsEmpty() {
         val empty = CaptureRules.Candidate("test.card", false, false, "", " ", "")
         assertFalse(CaptureRules.shouldCapture(empty, selected, "own.app"))

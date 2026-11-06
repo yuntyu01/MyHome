@@ -66,10 +66,15 @@ abstract class RecentAppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     protected abstract suspend fun upsert(a: RecentApp)
 
+    /**
+     * 알림 한 건을 센다. postedAt은 알림의 게시 시각(StatusBarNotification.postTime).
+     * 안드로이드가 알림을 묶으면서 이미 받은 알림을 다시 보내면 게시 시각이 그대로라, 마지막 시각보다 늦지 않으면 세지 않는다.
+     */
     @Transaction
-    open suspend fun record(pkg: String, label: String, title: String, now: Long) {
+    open suspend fun record(pkg: String, label: String, title: String, postedAt: Long) {
         val prev = get(pkg)
-        upsert(RecentApp(pkg, label, title.take(60), now, (prev?.count ?: 0) + 1))
+        if (prev != null && postedAt <= prev.lastSeenAt) return
+        upsert(RecentApp(pkg, label, title.take(60), postedAt, (prev?.count ?: 0) + 1))
     }
 
     @Query("SELECT * FROM recent_apps ORDER BY lastSeenAt DESC LIMIT 200")

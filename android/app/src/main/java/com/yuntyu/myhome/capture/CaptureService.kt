@@ -50,13 +50,13 @@ class CaptureService : NotificationListenerService() {
         val pkg = sbn.packageName
         val now = System.currentTimeMillis()
 
+        val candidate = CaptureRules.Candidate(pkg, sbn.isOngoing, isSummary, title, text, bigText)
         scope.launch {
             // 최근 알림 목록: 패키지 선택 화면용 메타데이터(앱 이름, 제목 앞부분)만 기기에 남긴다.
-            if (pkg != packageName && !sbn.isOngoing) {
-                app.db.recentApps().record(pkg, appLabel(pkg), title, now)
+            if (CaptureRules.shouldList(candidate, packageName)) {
+                app.db.recentApps().record(pkg, appLabel(pkg), title, sbn.postTime)
             }
 
-            val candidate = CaptureRules.Candidate(pkg, sbn.isOngoing, isSummary, title, text, bigText)
             if (!CaptureRules.shouldCapture(candidate, app.settings.selectedPackages, packageName)) return@launch
 
             val inserted = app.db.pendingEvents().insert(

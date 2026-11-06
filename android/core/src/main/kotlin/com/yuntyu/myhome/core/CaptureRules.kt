@@ -17,6 +17,15 @@ object CaptureRules {
         val bigText: String,
     )
 
+    /**
+     * "최근 알림" 목록에 남길지. 고르기 전의 앱도 보여야 하므로 선택 여부는 보지 않는다.
+     * 묶음 요약은 안드로이드가 알림이 쌓이면 제목 없이 따로 만드는 알림이라, 넣으면 건수가 늘고 마지막 제목이 빈칸이 된다.
+     */
+    fun shouldList(c: Candidate, ownPackage: String): Boolean {
+        if (c.packageName == ownPackage || c.isOngoing || c.isGroupSummary) return false
+        return !(c.title.isBlank() && c.text.isBlank() && c.bigText.isBlank())
+    }
+
     fun shouldCapture(c: Candidate, selectedPackages: Set<String>, ownPackage: String): Boolean {
         // 진행 중 알림(음악, 다운로드 등)과 묶음 요약 알림은 결제 정보가 아니다.
         if (c.isOngoing || c.isGroupSummary) return false
