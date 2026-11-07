@@ -44,7 +44,7 @@ type Web struct {
 }
 
 // pageNames는 layout과 함께 파싱할 페이지 템플릿 목록이다.
-var pageNames = []string{"dashboard", "transactions", "review", "budgets", "analytics", "admin", "report", "reconcile", "more"}
+var pageNames = []string{"dashboard", "transactions", "review", "budgets", "analytics", "admin", "report", "reconcile", "more", "invest", "invest_value"}
 
 // New는 템플릿을 파싱해서 Web을 만든다.
 func New(a *api.API, authn *auth.Authenticator, devices *auth.Handlers, logger *slog.Logger, devLogin bool) (*Web, error) {
@@ -92,6 +92,13 @@ func (wb *Web) Register(mux *http.ServeMux) {
 	h("GET /report", wb.report)
 	h("GET /reconcile", wb.reconcile)
 	h("GET /more", wb.more)
+	// 투자: 읽기 전용(DB만 읽는다). POST 라우트를 만들지 않는다
+	h("GET /invest", wb.invest)
+	h("GET /invest/value", wb.investValue)
+	// 앱 투자 탭: 기기 토큰(또는 웹 세션)으로 같은 값을 JSON으로 읽는다. 이것도 GET만 있다
+	api := func(pattern string, fn http.HandlerFunc) { mux.Handle(pattern, wb.Auth.RequireAPI(fn)) }
+	api("GET /v1/invest", wb.apiInvest)
+	api("GET /v1/invest/value", wb.apiInvestValue)
 }
 
 func cacheStatic(next http.Handler) http.Handler {
@@ -204,7 +211,7 @@ var funcs = template.FuncMap{
 	"pct":     func(f float64) string { return strconv.Itoa(int(math.Round(f*100))) + "%" },
 	"barW":    func(f float64) string { return strconv.Itoa(int(math.Max(0, math.Min(100, f*100)))) },
 	"barCls":  barClass,
-	"dt":      func(t time.Time) string { return t.In(period.KST).Format("01/02 15:04") },
+	"dt":      shortTime,
 	"day":     func(t time.Time) string { return t.In(period.KST).Format("2006-01-02") },
 	"dtLocal": func(t time.Time) string { return t.In(period.KST).Format("2006-01-02T15:04") },
 	"deref": func(p *string) string {
@@ -268,6 +275,9 @@ var funcs = template.FuncMap{
 		return txRowData{T: t, Cats: c, CSRF: csrf}
 	},
 }
+
+// shortTime은 KST "01/02 15:04"다.
+func shortTime(t time.Time) string { return t.In(period.KST).Format("01/02 15:04") }
 
 func group(n int64) string {
 	neg := n < 0

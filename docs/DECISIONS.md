@@ -171,3 +171,26 @@
 - **배포 이미지는 `$BUILDPLATFORM`에서 크로스 컴파일** — KoDeploy 클러스터가 OCI ARM이다. 빌더 아키텍처와 달라도 에뮬레이션 없이 빌드된다 — 루트 `Dockerfile`의 `FROM --platform`, `TARGETARCH`.
 - **배포 Dockerfile에는 `# syntax=`와 캐시 마운트를 쓰지 않음** — 프런트엔드 이미지를 받다가 Docker Hub 요청 제한에 걸릴 일을 줄이고, 다른 사용자와 빌더를 공유할 경우 모듈 캐시가 오염될 위험을 피한다. 그만큼 빌드는 느리다 — 루트 `Dockerfile`.
 - **배포 이미지도 `scratch` 유지** — 위 런타임 이미지 결정과 같다. KoDeploy 터미널이 셸을 요구하는지 확인하지 못했다. 필요하면 `FROM alpine:3`으로 교체 — `docs/DEPLOY.md`.
+
+## 자동매매 (TQ 이식, 2026-11-06)
+
+- **TQ(Python)를 Go로 옮겨 같은 바이너리의 `myhome invest` 서브커맨드로** — 언어·DB·배포를 가계부와 하나로. 신호·계좌·주문·장부는 TQ와 같은 동작이고, 336행 판정 픽스처와 핵심 매매 시나리오 테스트를 그대로 옮겼다 — `server/internal/invest/`.
+- **격리는 프로세스·OS 사용자·DB 역할로** (CLAUDE.md 「나중에」의 "가계부 서버에 매매 키를 두지 않는다"를 이렇게 지킨다) — 웹(`myhome serve`, 사용자 `myhome-web`)에는 토스 키가 없고 `invest_*`는 읽기만 한다. 매매(`myhome invest`, 사용자 `myhome-trader`)만 키를 갖는다. 같은 VM이라 루트 권한을 뺏기면 둘 다 노출된다 — 더 떼려면 매매를 별도 VM으로 옮기고 웹이 조회 API로 읽게 한다 — `deploy/home/`.
+- **실행 위치는 OCI E2.1.Micro + 예약 공인 IP** (kodeploy 아님) — 토스는 등록한 IP에서만 호출을 받는다. 클러스터 NAT IP는 모든 테넌트가 같이 써서 허용목록이 의미가 없다. 예약 IP라 인스턴스를 다시 만들어도 유지된다 — kodeploy 저장소 `terraform/oci-infra/home.tf`.
+- **예약 실행은 systemd timer** — kodeploy에는 사용자 CronJob이 없고, TQ의 명령 단위 구조(refresh·judge·trade·status)를 그대로 옮길 수 있다. 같은 유닛은 겹쳐 돌지 않고, 서로 다른 명령·손으로 친 명령은 advisory lock(7240002, 가계부 처리 잠금과 분리)이 막는다 — `deploy/home/systemd/`, `invest/store.Lock`.
+- **판정 타이머에 1일을 넣음** (TQ는 25~31일) — 판정이 뉴욕 자정을 넘기면 다음 날 만회하는데, 월말이 31일이면 만회 날이 1일이다. 판정할 날인지는 `JudgmentDay`가 정한다 — 타이머만 바꾸면 된다.
+- **금액·가격은 float64 / double precision** — 원 단위 bigint 규칙은 가계부 거래에만. TQ 산술과 비트 단위로 같아야 이식 대조(판정 336행, 원금 장부)가 성립한다 — `invest/account.go`, `00005_invest.sql`.
+- **position·orders·pending은 jsonb 단일 문서 + 변경 이력 테이블** — TQ의 `state/*.json` 모양 그대로라 마이그레이션이 손실 없고, git log가 하던 감사 추적은 `invest_state_history`가 한다. 원금·이탈·적립·앱 밖 매수는 추가 전용 테이블 — 정정은 지우지 않고 `superseded_at`.
+- **336행 픽스처를 실행 관문으로도** — TQ는 정기 작업 앞에 회귀 테스트를 돌렸다. 여기서는 judge·trade·execute가 DB 가격으로 직접 대조하고 어긋나면 멈춘다(마스터 오염 방어) — `invest.CheckFixture`.
+- **시세는 야후 chart API를 표준 라이브러리로 직접 호출** — yfinance에 해당하는 Go 라이브러리가 없고, 토스 시세 API에는 신호 입력(S&P500·NDX)이 없다. 원종가(`quote.close`)와 거래소 시간대 날짜를 쓴다. 2026-11-06 실측 대조에서 SPX·ETF 오차 0, NDX 1.4e-7 — `invest/yahoo`.
+- **토스 클라이언트는 표준 라이브러리만** — 토큰은 클라이언트당 1개만 유효해 0600 파일로 캐시해 재사용한다. 주문 POST는 재시도하지 않고, 결정적 `clientOrderId`가 이중 주문을 막는다 — `invest/toss`.
+- **웹은 토스를 부르지 않는다** — 토큰이 1개뿐이라 두 프로세스가 각자 받으면 서로를 무효화한다. 화면의 보유 현황은 매매 작업이 DB에 남긴 상태를 보여준다.
+- **실패 메일만 + 외부 하트비트** — TQ §7.0 그대로 정상 흐름은 화면이 말한다. `status`가 성공하면 `INVEST_HEARTBEAT_URL`에 신호를 보내 VM 자체의 죽음은 외부가 잡는다 — `invest/run/alert.go`.
+- **버린 것** — X·Threads 공개 기록과 차트 발행(pipeline/, x/), KIS 어댑터(교훈만 주석으로), Cloudflare Worker 뷰어와 GitHub Actions 우회책(러너 IP 게이트, workflow_run). **보관한 것** — 백테스트·마스터·환율 원본 xlsx를 참고용으로 `docs/tq/`에. 백테스트 결과는 화면에 넣지 않는다(TQ 규칙: 평균 하나로 판단하게 만든다).
+- **마이그레이션은 `myhome invest import-tq` 1회** — 빈 DB에만 쓰고, 쓰기 전에 336행 대조와 원금 장부 대조, 쓴 뒤에 다시 읽어 원본 대조. 가격은 `scripts/tq_export.py`로 parquet → CSV.
+
+## 하단바와 투자 칸 (사용자 요청, 2026-11-08)
+
+- **홈은 예산 요약 그대로, 투자는 칸을 따로** — 이 앱은 알림으로 모아 분류하고 돈을 아껴 쓰려고 만든다. 홈은 남은 돈·분류별 막대·확인 필요·최근 거래를 유지하고, 자동매매는 가계부와 섞지 않고 투자 칸 하나로 뺐다.
+- **하단바 5칸: 앱은 홈·거래·확인·투자·설정, 휴대폰 웹은 홈·거래·확인·투자·더보기** — 6칸이면 한 칸이 너무 좁다. 웹의 분석은 가끔 보는 화면이라 더보기 맨 위로 옮겼다(분석 화면에서는 더보기 칸이 선택됨). 앱 칸은 고정 폭 대신 똑같이 나눈다 — 웹 `layout.html`의 `bottom-nav`, `more.html`, 앱 `ModoBottomBar`.
+- **앱 투자 칸은 `GET /v1/invest`·`/v1/invest/value`를 읽기만** — 웹 투자 화면과 같은 함수(`loadInvestStatus`·`loadInvestValue`)의 값을 JSON으로 준다. 기기 토큰으로 읽을 수 있게 됐지만 쓰기 라우트는 없고, 토스도 부르지 않는다(위 「웹은 토스를 부르지 않는다」와 같음). 첫 화면에는 시장 숫자가 없고 '평가 보기'에만 있다 — `web/invest.go`의 `apiInvest`, 앱 `InvestScreen.kt`.

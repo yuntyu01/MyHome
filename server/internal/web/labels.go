@@ -66,6 +66,19 @@ func shortDate(s string) string {
 	return fmt.Sprintf("%d월 %d일", t.Month(), t.Day())
 }
 
+// dayNameAt은 "2026-10-15"를 "10월 15일"로, 올해가 아니면 "2025년 10월 15일"로 바꾼다.
+// 기준일처럼 연도가 헷갈리면 안 되는 날짜에 쓴다.
+func dayNameAt(s string, now time.Time) string {
+	t, err := time.ParseInLocation("2006-01-02", s, period.KST)
+	if err != nil {
+		return s
+	}
+	if t.Year() == now.In(period.KST).Year() {
+		return fmt.Sprintf("%d월 %d일", t.Month(), t.Day())
+	}
+	return fmt.Sprintf("%d년 %d월 %d일", t.Year(), t.Month(), t.Day())
+}
+
 // monthRange는 시작일이 1일이 아닐 때 기간을 함께 보여주는 글자다. 1일이면 달 이름으로 충분하다.
 func monthRange(p period.Period, startDay int) string {
 	if period.ClampStartDay(startDay) == 1 {

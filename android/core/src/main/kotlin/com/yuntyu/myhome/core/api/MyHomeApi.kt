@@ -27,6 +27,12 @@ class MyHomeApi(
     /** 이번 기간 요약(위젯·홈). recent는 최근 거래 개수. */
     fun summary(recent: Int = 4): ApiResult<Summary> = call("GET", "/v1/summary?recent=$recent", null, Summary.serializer())
 
+    /** 투자 탭 첫 화면(자동매매 상태, 읽기 전용) */
+    fun invest(): ApiResult<InvestStatus> = call("GET", "/v1/invest", null, InvestStatus.serializer())
+
+    /** 투자 평가 화면(평가액·원금·원금 내역, 읽기 전용) */
+    fun investValue(): ApiResult<InvestValue> = call("GET", "/v1/invest/value", null, InvestValue.serializer())
+
     /** 확인 필요 거래 목록 */
     fun reviewQueue(): ApiResult<TransactionList> = call("GET", "/v1/review", null, TransactionList.serializer())
 

@@ -1,0 +1,11 @@
+# 매주 월요일 02:23 UTC. 실행일 당일은 아직 기회가 남아 오경보를 내지 않는다.
+[Unit]
+Description=myhome 자동매매 — deadman 타이머
+
+[Timer]
+OnCalendar=Mon *-*-* 02:23:00 UTC
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

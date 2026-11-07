@@ -1,0 +1,33 @@
+{{define "content"}}{{with .Data}}
+{{if not .Migrated}}
+<div class="card empty">아직 옮기지 않았어요.<div class="muted small"><code>myhome invest import-tq</code>로 TQ 상태를 옮기면 여기에 보여요.</div></div>
+{{else}}
+{{if .PriceStale}}<div class="flash err" role="alert">가격 갱신이 멈췄어요 (마지막 {{if .LastPriceDay}}{{.LastPriceLabel}}{{else}}기록 없음{{end}})</div>{{end}}
+
+<section class="hero">
+  <div class="label">보유</div>
+  <div class="amount">{{if .Shares}}{{.Symbol}} {{.Shares}}주{{else}}보유 없음{{end}}</div>
+  <div class="sub">{{if .Problems}}<span class="neg">확인할 문제 {{.Problems}}건</span>{{else}}문제 없음{{end}}</div>
+</section>
+
+<div class="section-title">이번 달</div>
+<div class="group">{{template "invest-row" .Month}}</div>
+
+<div class="section-title">일정</div>
+<div class="group">{{range .Schedule}}{{template "invest-row" .}}{{end}}</div>
+
+<div class="section-title">점검</div>
+<div class="group">{{range .Checks}}{{template "invest-row" .}}{{end}}</div>
+
+<div class="section-title">평가</div>
+<div class="group">
+  <a class="item" href="/invest/value"><div class="grow"><div class="title">평가 보기</div><div class="meta">세후 평가액 · 원금 · 원금 내역</div></div>{{template "ic-chev"}}</a>
+</div>
+<p class="muted small note">읽기만 하는 화면이에요. 날짜는 뉴욕 기준이고, 실행 시각은 한국 시간이에요.</p>
+{{end}}
+{{end}}{{end}}
+
+{{define "invest-row"}}<div class="item">
+    <div class="grow"><div class="title">{{.Title}}</div>{{if .Meta}}<div class="meta">{{.Meta}}</div>{{end}}</div>
+    <span class="amount{{if .Bad}} neg{{end}}">{{.Value}}</span>
+  </div>{{end}}

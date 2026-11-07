@@ -1,0 +1,10 @@
+[Unit]
+Description=myhome 자동매매 — 주간 가격 갱신 타이머
+
+[Timer]
+OnCalendar=Fri *-*-* 22:43:00 UTC
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

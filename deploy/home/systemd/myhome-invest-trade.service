@@ -1,0 +1,21 @@
+# 자동 매매 한 단계. 매일 불러도 안전하다(멱등) — 미체결이 있으면 체결만 확인하고 새 주문을 내지 않는다.
+[Unit]
+Description=myhome 자동매매 — 주문·체결 확인
+After=network-online.target postgresql.service
+Wants=network-online.target
+OnFailure=myhome-alert@%n.service
+
+[Service]
+Type=oneshot
+User=myhome-trader
+EnvironmentFile=/etc/myhome/trader.env
+# 토스 토큰 캐시 — 클라이언트당 유효 토큰이 1개라 실행마다 새로 받지 않는다
+StateDirectory=myhome-trader
+StateDirectoryMode=0700
+Environment=TOSS_TOKEN_FILE=/var/lib/myhome-trader/toss-token.json
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+TimeoutStartSec=30min
+ExecStart=/opt/myhome/myhome invest trade

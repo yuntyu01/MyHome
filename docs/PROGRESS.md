@@ -104,6 +104,11 @@
 - 2026-11-06 에뮬레이터에서 새 색(무채색·라벤더·살구)을 앱 홈과 위젯, 다크·라이트로 확인. 테스트 알림으로 최근 알림 목록 → 앱 선택 → 서버 저장·해석 → 알림 삭제까지 확인, 선택 전 알림은 보내지 않는 것도 확인
 - 그때 찾아 고침: 최근 알림 목록이 안드로이드의 묶음 요약 알림까지 세서 건수가 늘고 마지막 제목이 빈칸이 됨, 묶을 때 다시 보내진 알림을 두 번 셈. core 테스트 33개 통과
 
+### 하단바와 투자 칸 (2026-11-08, 사용자 요청)
+- 앱 하단바 홈·거래·확인·투자·설정, 휴대폰 웹 하단바 홈·거래·확인·투자·더보기(분석은 더보기로)
+- 앱 투자 칸과 평가 화면: 서버 `GET /v1/invest`, `/v1/invest/value`(읽기 전용)
+- 검증: 서버 테스트(DB 포함, 자동매매 포함) 통과, 새 테스트 2개(앱 투자 조회·하단바 5칸), core 테스트 35개 통과, APK 빌드. 데모 DB에 합성 투자 상태를 넣고 기기 토큰으로 조회 확인. 에뮬레이터 화면 확인은 못 함(에뮬레이터 부팅이 끝나지 않음)
+
 ## 남은 것
 
 - 없음(Phase 0~7 완료). 실사용 후 파서 보정은 `docs/PARSERS.md` 절차로.
@@ -126,3 +131,21 @@
 - Docker Hub가 429(요청 제한)를 반환해서 `mirror.gcr.io/library/*` 이미지를 받아 표준 이름으로 태그해서 썼다. 사용자 환경에서는 영향 없음.
 - Docker 빌드 시 이 환경에서는 `--network=host --build-arg HTTPS_PROXY=... --secret id=ca_bundle,...`가 필요했다(프록시 때문). 일반 환경에서는 `make docker-build`로 충분.
 - Android SDK 다운로드 주소(dl.google.com)가 막혀 있다. Android 빌드 검증은 Phase 2에서 다시 판단.
+
+## 자동매매 이식 (2026-11-06, 진행 중)
+
+- 완료: `server/internal/invest` — 신호·거래일·계좌·preflight(도메인), 토스·야후 클라이언트, PostgreSQL 저장소(`00005_invest.sql`), 명령(refresh·judge·order·trade·execute·amend·adjust·tax·contribute·deviate·cancel·ledger·status·verify·why·reconcile·alert·import-tq), systemd 유닛·DB 역할(`deploy/home/`)
+- 검증
+  - 판정 픽스처 336행, 계좌 산술(무작위 불변식 포함), 거래일 달력(2010~2026 실데이터 대조), 토스 28+5개, 야후, 매매 시나리오(DB) 통과
+  - 매매 안전장치 4곳을 일부러 망가뜨려 테스트가 잡는지 확인(이중 주문, 매도대금 누락, dry-run 확정, 주문번호 0-패딩)
+  - 실제 TQ 상태로 `import-tq` 후 status·order·trade --dry-run·judge --dry-run·verify·why·tax를 TQ(Python)와 나란히 돌려 출력 일치
+  - 야후 실시세 대조(SPX·ETF 오차 0, NDX 1.4e-7)
+- 미검증: 토스 실서버 호출(모의투자가 없어 첫 주문이 실전), VM 위 systemd 실행, 실패 메일 실제 발송
+
+### 운영 전환 전에 할 것
+
+1. VM 만들기: kodeploy `terraform/oci-infra/home.tf` plan 확인 후 apply (예약 공인 IP 확인)
+2. 토스 WTS → 설정 → Open API에 VM 공인 IP 등록
+3. 주문 없는 읽기 전용 호출로 확인: `myhome invest reconcile` — 확인할 것: 매수가능 금액(USD)에 통합증거금 원화가 반영되는지, 평균 매입가 통화, 종료 주문 조회 날짜 기준, MOC 접수 시간
+4. 전환 시점은 판정 창(25~31일)·실행 창(1~8일)을 피해 9~24일. 그 사이 TQ 실행을 멈추고(토큰이 1개뿐이라 동시 실행 금지) `import-tq`로 옮긴다
+5. 그 달까지는 TQ(손으로 사고 fill.yml로 기록)를 그대로 쓴다

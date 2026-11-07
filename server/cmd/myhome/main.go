@@ -11,6 +11,7 @@
 //	process-pending              처리 안 된 원문 처리
 //	export-raw --from --to       익명화한 원문 내보내기
 //	healthcheck                  로컬 /healthz 확인 (Docker HEALTHCHECK용)
+//	invest <명령>                 자동매매 (TQ 이식). `myhome invest help`
 package main
 
 import (
@@ -46,6 +47,13 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// invest는 종료 코드(0·1·75)가 의미를 가진다 — systemd가 75를 '나중에 다시'로 읽는다
+	if cmd == "invest" {
+		code := investCmd(ctx, cfg, args)
+		stop()
+		os.Exit(code)
+	}
 
 	var err error
 	switch cmd {
@@ -83,7 +91,8 @@ const usage = `사용법: myhome <명령> [옵션]
   reprocess --from D --to D [--apply]   기간 원문 재처리 (기본은 계획만 출력)
   process-pending               처리 안 된 원문 처리
   export-raw --from D --to D [--out F] [--failed]  익명화한 원문 내보내기(JSONL)
-  healthcheck                   /healthz 확인`
+  healthcheck                   /healthz 확인
+  invest <명령>                  자동매매 (myhome invest help)`
 
 func newLogger(level string) *slog.Logger {
 	var lv slog.Level

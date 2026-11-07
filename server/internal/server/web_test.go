@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/yuntyu01/MyHome/server/internal/auth"
 	"github.com/yuntyu01/MyHome/server/internal/config"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
@@ -27,6 +29,7 @@ type webClient struct {
 	h    http.Handler
 	sess *http.Cookie
 	csrf string
+	pool *pgxpool.Pool
 	q    *dbq.Queries
 	proc *pipeline.Processor
 }
@@ -42,7 +45,7 @@ func newWebClient(t *testing.T) *webClient {
 		CookieSecure: true, SessionTTL: time.Hour}
 	h := server.New(server.Deps{Config: cfg, Pool: pool, Logger: logger, Kakao: fakeKakao{}, Processor: proc})
 	rec := webLogin(t, h, "code-allowed")
-	c := &webClient{t: t, h: h, sess: cookie(rec, auth.SessionCookie), q: dbq.New(pool), proc: proc}
+	c := &webClient{t: t, h: h, sess: cookie(rec, auth.SessionCookie), pool: pool, q: dbq.New(pool), proc: proc}
 	page := c.get("/")
 	m := regexp.MustCompile(`name="csrf_token" value="([^"]+)"`).FindStringSubmatch(page.Body.String())
 	if m == nil {
@@ -117,6 +120,7 @@ func TestWebPagesRender(t *testing.T) {
 		"/report":               "월간 리포트",
 		"/reconcile":            "결제 수단별 지출",
 		"/more":                 "명세서 대조",
+		"/invest":               "아직 옮기지 않았어요",
 	} {
 		rec := c.get(path)
 		if rec.Code != 200 {

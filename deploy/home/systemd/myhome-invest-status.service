@@ -1,0 +1,22 @@
+# deadman — 판정이 35일 넘게 없거나 적용월 매수가 없으면 실패로 끝나 알림이 간다.
+# 성공하면 INVEST_HEARTBEAT_URL에 신호를 보낸다. VM이 죽어 신호가 끊기면 외부 서비스가 알린다.
+[Unit]
+Description=myhome 자동매매 — deadman
+After=network-online.target postgresql.service
+Wants=network-online.target
+OnFailure=myhome-alert@%n.service
+
+[Service]
+Type=oneshot
+User=myhome-trader
+EnvironmentFile=/etc/myhome/trader.env
+# 토스 토큰 캐시 — 클라이언트당 유효 토큰이 1개라 실행마다 새로 받지 않는다
+StateDirectory=myhome-trader
+StateDirectoryMode=0700
+Environment=TOSS_TOKEN_FILE=/var/lib/myhome-trader/toss-token.json
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+TimeoutStartSec=5min
+ExecStart=/opt/myhome/myhome invest status

@@ -1,0 +1,21 @@
+# 주간 가격 갱신 — 화면의 평가금액과 신선도용. 메일은 보내지 않는다(실패 때만).
+[Unit]
+Description=myhome 자동매매 — 주간 가격 갱신
+After=network-online.target postgresql.service
+Wants=network-online.target
+OnFailure=myhome-alert@%n.service
+
+[Service]
+Type=oneshot
+User=myhome-trader
+EnvironmentFile=/etc/myhome/trader.env
+# 토스 토큰 캐시 — 클라이언트당 유효 토큰이 1개라 실행마다 새로 받지 않는다
+StateDirectory=myhome-trader
+StateDirectoryMode=0700
+Environment=TOSS_TOKEN_FILE=/var/lib/myhome-trader/toss-token.json
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+TimeoutStartSec=2h
+ExecStart=/opt/myhome/myhome invest refresh --retries 6 --wait 15m

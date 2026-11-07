@@ -1,0 +1,26 @@
+# 월말 판정: 가격 갱신 → 판정. 매매는 하지 않는다 (판정과 실행은 다른 날 — §1.3).
+# refresh는 야후가 당일 종가를 늦게 줄 때(종료 코드 75) 15분 간격으로 6번까지 다시 받는다.
+#
+# trader.env (0600, 소유자 myhome-trader): DATABASE_URL(매매 역할), TOSS_APP_KEY, TOSS_APP_SECRET, TOSS_ACCOUNT,
+#   MAIL_FROM, MAIL_TO, GMAIL_APP_PASSWORD, INVEST_HEARTBEAT_URL
+[Unit]
+Description=myhome 자동매매 — 월말 판정
+After=network-online.target postgresql.service
+Wants=network-online.target
+OnFailure=myhome-alert@%n.service
+
+[Service]
+Type=oneshot
+User=myhome-trader
+EnvironmentFile=/etc/myhome/trader.env
+# 토스 토큰 캐시 — 클라이언트당 유효 토큰이 1개라 실행마다 새로 받지 않는다
+StateDirectory=myhome-trader
+StateDirectoryMode=0700
+Environment=TOSS_TOKEN_FILE=/var/lib/myhome-trader/toss-token.json
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+TimeoutStartSec=3h
+ExecStart=/opt/myhome/myhome invest refresh --retries 6 --wait 15m
+ExecStart=/opt/myhome/myhome invest judge

@@ -34,6 +34,87 @@ type Device struct {
 	KakaoID    *int64     `json:"kakao_id"`
 }
 
+type InvestAdjustment struct {
+	ID        int64     `json:"id"`
+	OnDay     time.Time `json:"on_day"`
+	Symbol    string    `json:"symbol"`
+	Shares    int32     `json:"shares"`
+	PaidKrw   float64   `json:"paid_krw"`
+	Reason    string    `json:"reason"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type InvestContribution struct {
+	EffectiveFrom string    `json:"effective_from"`
+	Amount        int64     `json:"amount"`
+	Reason        string    `json:"reason"`
+	RecordedOn    time.Time `json:"recorded_on"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type InvestDeviation struct {
+	ID           int64     `json:"id"`
+	Kind         *string   `json:"kind"`
+	Ym           string    `json:"ym"`
+	OccurredOn   time.Time `json:"occurred_on"`
+	SignalTarget string    `json:"signal_target"`
+	ActualTarget *string   `json:"actual_target"`
+	Reason       string    `json:"reason"`
+	LockedUntil  time.Time `json:"locked_until"`
+	ResurfaceOn  time.Time `json:"resurface_on"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type InvestLedger struct {
+	ID           int64      `json:"id"`
+	OnDay        time.Time  `json:"on_day"`
+	Ym           string     `json:"ym"`
+	AmountKrw    float64    `json:"amount_krw"`
+	Source       string     `json:"source"`
+	Symbol       *string    `json:"symbol"`
+	Shares       *int32     `json:"shares"`
+	Note         string     `json:"note"`
+	SupersededAt *time.Time `json:"superseded_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+type InvestPrice struct {
+	Day       time.Time `json:"day"`
+	Spx       float64   `json:"spx"`
+	Ndx       float64   `json:"ndx"`
+	Qqq       *float64  `json:"qqq"`
+	Qqqm      *float64  `json:"qqqm"`
+	Qld       *float64  `json:"qld"`
+	Tqqq      *float64  `json:"tqqq"`
+	Usdkrw    *float64  `json:"usdkrw"`
+	UsdkrwMkt *float64  `json:"usdkrw_mkt"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type InvestRun struct {
+	ID         int64      `json:"id"`
+	Cmd        string     `json:"cmd"`
+	Args       string     `json:"args"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+	ExitCode   *int32     `json:"exit_code"`
+	Output     string     `json:"output"`
+}
+
+type InvestState struct {
+	Key       string    `json:"key"`
+	Doc       []byte    `json:"doc"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type InvestStateHistory struct {
+	ID        int64     `json:"id"`
+	Key       string    `json:"key"`
+	Cmd       string    `json:"cmd"`
+	Doc       []byte    `json:"doc"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type MerchantRule struct {
 	ID          int64     `json:"id"`
 	Pattern     string    `json:"pattern"`

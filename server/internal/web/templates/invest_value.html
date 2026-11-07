@@ -1,0 +1,41 @@
+{{define "content"}}{{with .Data}}
+{{if not .Migrated}}
+<div class="card empty">아직 옮기지 않았어요.<div class="muted small"><code>myhome invest import-tq</code>로 TQ 상태를 옮기면 여기에 보여요.</div></div>
+{{else}}
+{{if .PriceStale}}<div class="flash err" role="alert">가격 갱신이 멈췄어요 (마지막 {{if .LastPriceDay}}{{.LastPriceLabel}}{{else}}기록 없음{{end}})</div>{{end}}
+
+<div class="section-title row-between"><span>{{if .Shares}}{{.Symbol}} {{.Shares}}주{{else}}보유 없음{{end}}</span><a href="/invest">투자 상태로</a></div>
+<section class="hero">
+  <div class="label">세후 평가액</div>
+  {{if .CanValue}}
+  <div class="amount {{if lt .NetKRW 0}}neg{{end}}">{{won .NetKRW}}</div>
+  <div class="sub">{{.Basis}}</div>
+  {{else}}
+  <div class="amount muted">—</div>
+  <div class="sub"><span class="neg">{{.Why}}</span></div>
+  {{end}}
+</section>
+
+<section class="cards">
+  <div class="card stat"><span class="label">누적 원금</span><span class="value">{{won .ContributedKRW}}</span></div>
+  <div class="card stat"><span class="label">세후 손익</span>{{if .CanValue}}<span class="value {{if lt .GainKRW 0}}neg{{end}}">{{plus .GainKRW}}원</span>{{if .GainPct}}<span class="sub">{{.GainPct}}</span>{{end}}{{else}}<span class="value muted">—</span>{{end}}</div>
+  <div class="card stat"><span class="label">미납 세금</span><span class="value">{{won .TaxKRW}}</span><span class="sub">평가액에서 뺐어요</span></div>
+  <div class="card stat"><span class="label">현금</span><span class="value">{{.CashUSD}}</span><span class="sub">다음 달로 이월</span></div>
+</section>
+
+<section class="card">
+  <h2>원금 내역</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>날짜</th><th>적용월</th><th class="num">금액</th><th>구분</th><th>수량</th><th>메모</th></tr></thead>
+    <tbody>
+    {{range .Ledger}}<tr><td class="nowrap">{{.On}}</td><td class="nowrap">{{.YM}}</td><td class="num">{{num .Amount}}</td><td class="nowrap">{{.Source}}</td><td class="nowrap">{{.Shares}}</td><td>{{.Note}}</td></tr>
+    {{else}}<tr><td colspan="6" class="muted">원금 내역이 없어요.</td></tr>{{end}}
+    </tbody>
+    <tfoot><tr><th colspan="2">합계 {{len .Ledger}}건</th><th class="num">{{won .LedgerSum}}</th><th colspan="3">{{if .LedgerBad}}<span class="neg">누적 원금과 {{num .LedgerGap}}원 어긋남</span>{{else}}누적 원금과 일치{{end}}</th></tr></tfoot>
+  </table>
+  </div>
+  <p class="muted small">날짜는 뉴욕 기준이고, 금액은 원 단위로 반올림해서 보여줘요.</p>
+</section>
+{{end}}
+{{end}}{{end}}

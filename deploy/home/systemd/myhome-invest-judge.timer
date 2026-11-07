@@ -1,0 +1,13 @@
+# 25~31일과 1일 매일 22:37 UTC (뉴욕 장 마감 뒤). 판정할 날인지는 judge가 판단한다 —
+# 판정일은 달력의 말일이 아니라 마지막 거래일이고(§1.4), 뉴욕 자정을 넘긴 실행은 다음 날 만회한다.
+# 1일을 넣은 것은 그 만회를 위해서다 (TQ는 GitHub cron 한계로 25~31일만 돌았다).
+[Unit]
+Description=myhome 자동매매 — 월말 판정 타이머
+
+[Timer]
+OnCalendar=*-*-25..31,01 22:37:00 UTC
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

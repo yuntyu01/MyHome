@@ -1,0 +1,12 @@
+# 1~8일 매일 15:17 UTC — 미국 장중(11:17 EDT / 10:17 EST). MOC는 장 마감 전에 접수돼야 한다.
+# 적용월 첫 거래일이 기본이고, 체결이 늦어도 적용월 안이면 이어서 진행한다.
+[Unit]
+Description=myhome 자동매매 — 주문 타이머
+
+[Timer]
+OnCalendar=*-*-01..08 15:17:00 UTC
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

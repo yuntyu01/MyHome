@@ -6,55 +6,61 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.collectAsState
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.Column
-import com.yuntyu.myhome.MyHomeApp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.yuntyu.myhome.MyHomeApp
 
 /** 앱 화면 목록. 단순한 상태 기반 내비게이션(라이브러리 없음). */
 enum class Screen(val title: String) {
@@ -66,17 +72,20 @@ enum class Screen(val title: String) {
     APPS("최근 알림 · 수집 대상"),
     SETTINGS("설정"),
     LOGS("전송 로그"),
+    INVEST("투자"),
+    INVEST_VALUE("평가"),
     ;
 
     /** 하단바에 있는 첫 화면들 */
     val topLevel: Boolean
-        get() = this == HOME || this == TRANSACTIONS || this == REVIEW || this == SETTINGS
+        get() = this == HOME || this == TRANSACTIONS || this == REVIEW || this == INVEST || this == SETTINGS
 
     /** 뒤로 가기 대상 */
     val parent: Screen?
         get() = when (this) {
             HOME -> null
             PERMISSIONS, APPS, LOGS -> STATUS
+            INVEST_VALUE -> INVEST
             else -> HOME
         }
 }
@@ -178,6 +187,8 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                 Screen.APPS -> AppsScreen(mod)
                 Screen.SETTINGS -> SettingsScreen(mod)
                 Screen.LOGS -> LogScreen(mod)
+                Screen.INVEST -> InvestScreen(mod, resumeTick, onNavigate = { screen = it })
+                Screen.INVEST_VALUE -> InvestValueScreen(mod)
             }
         }
     }
@@ -191,18 +202,20 @@ private fun ModoBottomBar(current: Screen, reviewCount: Long, onSelect: (Screen)
         Triple(Screen.HOME, Icons.Filled.Home, "홈"),
         Triple(Screen.TRANSACTIONS, Icons.AutoMirrored.Filled.List, "거래"),
         Triple(Screen.REVIEW, Icons.Filled.CheckCircle, "확인"),
+        Triple(Screen.INVEST, InvestIcon, "투자"),
         Triple(Screen.SETTINGS, Icons.Filled.Settings, "설정"),
     )
     Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(
-            Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(32.dp)).background(m.nav).padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(32.dp)).background(m.nav).padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             for ((s, icon, label) in items) {
                 val selected = current == s
                 Box(
-                    Modifier.size(width = 72.dp, height = 52.dp).clip(RoundedCornerShape(26.dp))
+                    // 5칸이라 고정 폭(72dp)이면 좁은 폰에서 넘친다. 칸을 똑같이 나눈다
+                    Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(26.dp))
                         .background(if (selected) m.selected else Color.Transparent)
                         .clickable(onClickLabel = label) { onSelect(s) },
                     contentAlignment = Alignment.Center,
@@ -213,10 +226,20 @@ private fun ModoBottomBar(current: Screen, reviewCount: Long, onSelect: (Screen)
                         Text(label, color = tint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, lineHeight = 14.sp)
                     }
                     if (s == Screen.REVIEW && reviewCount > 0) {
-                        Box(Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 20.dp).size(8.dp).clip(CircleShape).background(m.accent))
+                        Box(Modifier.align(Alignment.TopCenter).offset(x = 12.dp, y = 6.dp).size(8.dp).clip(CircleShape).background(m.accent))
                     }
                 }
             }
         }
     }
+}
+
+/** 투자 아이콘: 웹 하단바와 같은 오르는 꺾은선. material-icons-core에 없어서 직접 그린다. */
+private val InvestIcon: ImageVector by lazy {
+    ImageVector.Builder(name = "Invest", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
+        path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
+            moveTo(4f, 17f); lineTo(9f, 12f); lineTo(13f, 16f); lineTo(20f, 8f)
+            moveTo(15f, 8f); lineTo(20f, 8f); lineTo(20f, 13f)
+        }
+    }.build()
 }

@@ -186,6 +186,7 @@ code { background: var(--raised); padding: 0.05em 0.35em; border-radius: 6px; fo
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .muted { color: var(--muted); }
 .small { font-size: 0.82rem; }
+.note { margin: 10px 6px; }
 .nowrap { white-space: nowrap; }
 .neg { color: var(--over); }
 .in { color: var(--in); }
