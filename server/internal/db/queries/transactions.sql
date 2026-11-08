@@ -43,7 +43,7 @@ WHERE id = $1
 RETURNING *;
 
 -- name: FindDedupeCandidate :one
--- 다른 앱(패키지)에서 같은 방향·같은 금액이 시간 창 안에 들어온 거래. 가장 가까운 것 하나.
+-- 다른 앱(패키지)에서 같은 방향·같은 금액·맞는 종류(@kinds)가 시간 창 안에 들어온 거래. 가장 가까운 것 하나.
 SELECT t.*
 FROM transactions t
          JOIN raw_events r ON r.id = t.raw_event_id
@@ -51,6 +51,7 @@ WHERE t.id <> @exclude_id
   AND r.source_package <> @source_package
   AND t.flow = @flow
   AND t.amount = @amount
+  AND t.kind = ANY (@kinds::text[])
   AND t.occurred_at BETWEEN @window_from AND @window_to
   AND t.merged_into IS NULL
   AND t.exclusion_reason IS DISTINCT FROM 'duplicate'
@@ -61,6 +62,40 @@ WHERE t.id <> @exclude_id
                     AND dr.source_package = @source_package)
 ORDER BY abs(extract(epoch FROM (t.occurred_at - @occurred_at::timestamptz))), t.id
 LIMIT 1;
+
+-- name: FindRepostOriginal :one
+-- 같은 앱이 같은 알림(제목·본문 동일)을 다시 올린 경우 앞서 처리된 원문의 거래. 가장 먼저 게시된 것 하나.
+SELECT t.*
+FROM raw_events r
+         JOIN transactions t ON t.raw_event_id = r.id
+WHERE r.id <> @raw_event_id
+  AND r.source_package = @source_package
+  AND r.title = @title
+  AND r.text = @text
+  AND r.big_text = @big_text
+  AND r.posted_at BETWEEN @window_from AND @window_to
+ORDER BY r.posted_at, r.id, t.id
+LIMIT 1;
+
+-- name: FindCancelDuplicates :many
+-- 다른 앱에서 먼저 들어온 같은 금액의 취소(같은 환불을 두 앱이 알린 것) 후보. 가까운 것부터.
+-- 이 앱의 취소가 이미 합쳐진 건은 뺀다(취소 두 건이 각각 짝을 찾게).
+SELECT t.*
+FROM transactions t
+         JOIN raw_events r ON r.id = t.raw_event_id
+WHERE r.source_package <> @source_package
+  AND t.kind = 'cancel'
+  AND t.flow = 'in'
+  AND t.amount = @amount
+  AND t.occurred_at BETWEEN @window_from AND @window_to
+  AND t.merged_into IS NULL
+  AND NOT EXISTS (SELECT 1
+                  FROM transactions d
+                           JOIN raw_events dr ON dr.id = d.raw_event_id
+                  WHERE d.merged_into = t.id
+                    AND dr.source_package = @source_package)
+ORDER BY abs(extract(epoch FROM (t.occurred_at - @occurred_at::timestamptz))), t.id
+LIMIT 20;
 
 -- name: FindCancelCandidates :many
 -- 취소 알림의 원거래 후보: 취소 금액 이상인 최근 지출(아직 전액 취소되지 않은 것).

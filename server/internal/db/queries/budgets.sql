@@ -17,3 +17,14 @@ SELECT @to_period::date, category_id, amount
 FROM budgets
 WHERE period_start = @from_period::date
 ON CONFLICT (period_start, category_id) DO NOTHING;
+
+-- name: HasBudgets :one
+SELECT EXISTS (SELECT 1 FROM budgets WHERE period_start = $1);
+
+-- name: LatestBudgetPeriodBefore :one
+-- 이 기간보다 앞서 예산이 있는 가장 최근 기간. 없으면 결과 없음.
+SELECT period_start
+FROM budgets
+WHERE period_start < $1
+ORDER BY period_start DESC
+LIMIT 1;

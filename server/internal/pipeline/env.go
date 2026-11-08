@@ -19,6 +19,7 @@ const (
 	ReviewUnknownKind    = "unknown_kind"     // 승인/입금 등 종류를 모름
 	ReviewCancelNoMatch  = "cancel_unmatched" // 취소의 원거래를 못 찾음
 	ReviewCancelPartial  = "cancel_partial"   // 부분 취소인데 원거래가 미분류
+	ReviewForeign        = "foreign_currency" // 외화만 있어서 원화 금액을 모름(메모에 외화 금액)
 )
 
 // 제외 사유

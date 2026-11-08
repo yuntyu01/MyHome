@@ -295,6 +295,84 @@ func (q *Queries) FindCancelCandidates(ctx context.Context, arg FindCancelCandid
 	return items, nil
 }
 
+const findCancelDuplicates = `-- name: FindCancelDuplicates :many
+SELECT t.id, t.raw_event_id, t.occurred_at, t.amount, t.flow, t.merchant, t.memo, t.direction, t.category_id, t.settle_category_id, t.status, t.exclusion_reason, t.review_reason, t.merged_into, t.cancels_id, t.source, t.kind, t.installment_months, t.balance, t.manually_edited, t.created_at, t.updated_at
+FROM transactions t
+         JOIN raw_events r ON r.id = t.raw_event_id
+WHERE r.source_package <> $1
+  AND t.kind = 'cancel'
+  AND t.flow = 'in'
+  AND t.amount = $2
+  AND t.occurred_at BETWEEN $3 AND $4
+  AND t.merged_into IS NULL
+  AND NOT EXISTS (SELECT 1
+                  FROM transactions d
+                           JOIN raw_events dr ON dr.id = d.raw_event_id
+                  WHERE d.merged_into = t.id
+                    AND dr.source_package = $1)
+ORDER BY abs(extract(epoch FROM (t.occurred_at - $5::timestamptz))), t.id
+LIMIT 20
+`
+
+type FindCancelDuplicatesParams struct {
+	SourcePackage string    `json:"source_package"`
+	Amount        int64     `json:"amount"`
+	WindowFrom    time.Time `json:"window_from"`
+	WindowTo      time.Time `json:"window_to"`
+	OccurredAt    time.Time `json:"occurred_at"`
+}
+
+// 다른 앱에서 먼저 들어온 같은 금액의 취소(같은 환불을 두 앱이 알린 것) 후보. 가까운 것부터.
+// 이 앱의 취소가 이미 합쳐진 건은 뺀다(취소 두 건이 각각 짝을 찾게).
+func (q *Queries) FindCancelDuplicates(ctx context.Context, arg FindCancelDuplicatesParams) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, findCancelDuplicates,
+		arg.SourcePackage,
+		arg.Amount,
+		arg.WindowFrom,
+		arg.WindowTo,
+		arg.OccurredAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Transaction{}
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.RawEventID,
+			&i.OccurredAt,
+			&i.Amount,
+			&i.Flow,
+			&i.Merchant,
+			&i.Memo,
+			&i.Direction,
+			&i.CategoryID,
+			&i.SettleCategoryID,
+			&i.Status,
+			&i.ExclusionReason,
+			&i.ReviewReason,
+			&i.MergedInto,
+			&i.CancelsID,
+			&i.Source,
+			&i.Kind,
+			&i.InstallmentMonths,
+			&i.Balance,
+			&i.ManuallyEdited,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findDedupeCandidate = `-- name: FindDedupeCandidate :one
 SELECT t.id, t.raw_event_id, t.occurred_at, t.amount, t.flow, t.merchant, t.memo, t.direction, t.category_id, t.settle_category_id, t.status, t.exclusion_reason, t.review_reason, t.merged_into, t.cancels_id, t.source, t.kind, t.installment_months, t.balance, t.manually_edited, t.created_at, t.updated_at
 FROM transactions t
@@ -303,7 +381,8 @@ WHERE t.id <> $1
   AND r.source_package <> $2
   AND t.flow = $3
   AND t.amount = $4
-  AND t.occurred_at BETWEEN $5 AND $6
+  AND t.kind = ANY ($5::text[])
+  AND t.occurred_at BETWEEN $6 AND $7
   AND t.merged_into IS NULL
   AND t.exclusion_reason IS DISTINCT FROM 'duplicate'
   AND NOT EXISTS (SELECT 1
@@ -311,7 +390,7 @@ WHERE t.id <> $1
                            JOIN raw_events dr ON dr.id = d.raw_event_id
                   WHERE d.merged_into = t.id
                     AND dr.source_package = $2)
-ORDER BY abs(extract(epoch FROM (t.occurred_at - $7::timestamptz))), t.id
+ORDER BY abs(extract(epoch FROM (t.occurred_at - $8::timestamptz))), t.id
 LIMIT 1
 `
 
@@ -320,21 +399,86 @@ type FindDedupeCandidateParams struct {
 	SourcePackage string    `json:"source_package"`
 	Flow          string    `json:"flow"`
 	Amount        int64     `json:"amount"`
+	Kinds         []string  `json:"kinds"`
 	WindowFrom    time.Time `json:"window_from"`
 	WindowTo      time.Time `json:"window_to"`
 	OccurredAt    time.Time `json:"occurred_at"`
 }
 
-// 다른 앱(패키지)에서 같은 방향·같은 금액이 시간 창 안에 들어온 거래. 가장 가까운 것 하나.
+// 다른 앱(패키지)에서 같은 방향·같은 금액·맞는 종류(@kinds)가 시간 창 안에 들어온 거래. 가장 가까운 것 하나.
 func (q *Queries) FindDedupeCandidate(ctx context.Context, arg FindDedupeCandidateParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, findDedupeCandidate,
 		arg.ExcludeID,
 		arg.SourcePackage,
 		arg.Flow,
 		arg.Amount,
+		arg.Kinds,
 		arg.WindowFrom,
 		arg.WindowTo,
 		arg.OccurredAt,
+	)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.RawEventID,
+		&i.OccurredAt,
+		&i.Amount,
+		&i.Flow,
+		&i.Merchant,
+		&i.Memo,
+		&i.Direction,
+		&i.CategoryID,
+		&i.SettleCategoryID,
+		&i.Status,
+		&i.ExclusionReason,
+		&i.ReviewReason,
+		&i.MergedInto,
+		&i.CancelsID,
+		&i.Source,
+		&i.Kind,
+		&i.InstallmentMonths,
+		&i.Balance,
+		&i.ManuallyEdited,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const findRepostOriginal = `-- name: FindRepostOriginal :one
+SELECT t.id, t.raw_event_id, t.occurred_at, t.amount, t.flow, t.merchant, t.memo, t.direction, t.category_id, t.settle_category_id, t.status, t.exclusion_reason, t.review_reason, t.merged_into, t.cancels_id, t.source, t.kind, t.installment_months, t.balance, t.manually_edited, t.created_at, t.updated_at
+FROM raw_events r
+         JOIN transactions t ON t.raw_event_id = r.id
+WHERE r.id <> $1
+  AND r.source_package = $2
+  AND r.title = $3
+  AND r.text = $4
+  AND r.big_text = $5
+  AND r.posted_at BETWEEN $6 AND $7
+ORDER BY r.posted_at, r.id, t.id
+LIMIT 1
+`
+
+type FindRepostOriginalParams struct {
+	RawEventID    int64     `json:"raw_event_id"`
+	SourcePackage string    `json:"source_package"`
+	Title         string    `json:"title"`
+	Text          string    `json:"text"`
+	BigText       string    `json:"big_text"`
+	WindowFrom    time.Time `json:"window_from"`
+	WindowTo      time.Time `json:"window_to"`
+}
+
+// 같은 앱이 같은 알림(제목·본문 동일)을 다시 올린 경우 앞서 처리된 원문의 거래. 가장 먼저 게시된 것 하나.
+func (q *Queries) FindRepostOriginal(ctx context.Context, arg FindRepostOriginalParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, findRepostOriginal,
+		arg.RawEventID,
+		arg.SourcePackage,
+		arg.Title,
+		arg.Text,
+		arg.BigText,
+		arg.WindowFrom,
+		arg.WindowTo,
 	)
 	var i Transaction
 	err := row.Scan(

@@ -23,8 +23,9 @@ FOR UPDATE;
 
 -- name: MarkRawEventProcessed :exec
 UPDATE raw_events
-SET processed_at = now(),
-    parse_error  = sqlc.narg(parse_error)
+SET processed_at  = now(),
+    parse_error   = sqlc.narg(parse_error),
+    ignore_reason = sqlc.narg(ignore_reason)
 WHERE id = $1;
 
 -- name: ListFailedRawEvents :many
@@ -56,6 +57,14 @@ LIMIT $1;
 
 -- name: ResetRawEventProcessing :exec
 UPDATE raw_events
-SET processed_at = NULL,
-    parse_error  = NULL
+SET processed_at  = NULL,
+    parse_error   = NULL,
+    ignore_reason = NULL
 WHERE id = ANY (@ids::bigint[]);
+
+-- name: CountAttentionRawEvents :one
+-- 확인이 필요한 원문: 해석 실패, 또는 받은 지 오래됐는데 아직 처리되지 않은 것(처리 오류). @since 이후 받은 것만.
+SELECT count(*)
+FROM raw_events
+WHERE received_at >= @since
+  AND (parse_error IS NOT NULL OR (processed_at IS NULL AND received_at < @stale_before));

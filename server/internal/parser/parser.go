@@ -71,6 +71,8 @@ type Result struct {
 	OccurredAt  time.Time
 	Balance     *int64
 	Installment int // 할부 개월 수(일시불 0)
+	// Foreign은 원화 금액 없이 외화로만 온 승인·취소의 금액 표시(예: "USD 12.34")다. 이때 Amount는 0이다.
+	Foreign string
 }
 
 // ErrNoAmount는 금액을 찾지 못했을 때 반환한다. 원문은 보존되고 parse_error로 남는다.

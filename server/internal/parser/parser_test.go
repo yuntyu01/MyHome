@@ -23,6 +23,8 @@ type fixture struct {
 	PostedAt string `json:"posted_at"`
 	Want     struct {
 		Error       bool    `json:"error"`
+		Ignored     string  `json:"ignored"` // 무시 사유(광고·증권·안내)
+		Foreign     string  `json:"foreign"`
 		Source      string  `json:"source"`
 		Kind        Kind    `json:"kind"`
 		Amount      int64   `json:"amount"`
@@ -70,6 +72,13 @@ func TestSyntheticFixtures(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, err := reg.Parse(Event{Package: c.Package, Title: c.Title, Text: c.Text, BigText: c.BigText, PostedAt: posted})
+			if c.Want.Ignored != "" {
+				var ie *IgnoredError
+				if !errors.As(err, &ie) || ie.Reason != c.Want.Ignored {
+					t.Fatalf("무시(%s)를 기대했지만 err=%v, got=%+v", c.Want.Ignored, err, got)
+				}
+				return
+			}
 			if c.Want.Error {
 				if !errors.Is(err, ErrNoAmount) {
 					t.Fatalf("해석 실패를 기대했지만 err=%v, got=%+v", err, got)
@@ -93,6 +102,9 @@ func TestSyntheticFixtures(t *testing.T) {
 			}
 			if c.Want.Balance != nil && (got.Balance == nil || *got.Balance != *c.Want.Balance) {
 				t.Errorf("balance = %v, want %d", got.Balance, *c.Want.Balance)
+			}
+			if got.Foreign != c.Want.Foreign {
+				t.Errorf("foreign = %q, want %q", got.Foreign, c.Want.Foreign)
 			}
 			if got.Installment != c.Want.Installment {
 				t.Errorf("installment = %d, want %d", got.Installment, c.Want.Installment)
@@ -136,5 +148,23 @@ func TestRegistryMapping(t *testing.T) {
 	}
 	if _, err := NewRegistry("noequals"); err == nil {
 		t.Error("형식 오류를 잡아야 함")
+	}
+}
+
+// PARSER_IGNORE_PATTERNS 문구는 결제 문구가 있어도 무시한다. 합성 문구다.
+func TestIgnoreExtraPatterns(t *testing.T) {
+	reg, _ := NewRegistry("")
+	ev := Event{Package: "test.toss", Title: "토스", Text: "테스트 리워드 300원 지급 완료"}
+	if _, err := reg.Parse(ev); errors.Is(err, ErrIgnored) {
+		t.Fatal("설정 전에는 무시하면 안 됨")
+	}
+	reg.SetIgnorePatterns(" 리워드 ; ;테스트 퀴즈")
+	_, err := reg.Parse(ev)
+	var ie *IgnoredError
+	if !errors.As(err, &ie) || ie.Reason != IgnoreCustom {
+		t.Fatalf("추가 문구로 무시해야 함: %v", err)
+	}
+	if got := ParseIgnorePatterns(" a ;; b;"); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("ParseIgnorePatterns = %q", got)
 	}
 }
