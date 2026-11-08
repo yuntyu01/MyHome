@@ -30,8 +30,9 @@ data class EventResponse(
     val result: JsonElement? = null,
 )
 
+/** 오류 본문 {"error": 메시지, "code": 코드}. code는 건강 API처럼 붙이는 경로만 있다. */
 @Serializable
-data class ErrorResponse(val error: String = "")
+data class ErrorResponse(val error: String = "", val code: String? = null)
 
 /** POST /v1/auth/exchange 요청: 브라우저 로그인 뒤 받은 1회용 코드와 PKCE verifier로 기기 토큰을 받는다. */
 @Serializable

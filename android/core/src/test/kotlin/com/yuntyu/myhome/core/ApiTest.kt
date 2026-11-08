@@ -68,6 +68,20 @@ class ApiTest {
         assertEquals(UploadDecision.REJECTED, a.postEvent(payload).toUploadDecision())
     }
 
+    // 건강 API 오류 본문의 code(예: AI 크레딧 없음)를 앱이 구분할 수 있게 넘긴다. 헬스 출석은 도착 시각을 같이 보낸다
+    @Test fun healthErrorCodeAndGymCheckInTime() {
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"error":"AI 크레딧이 없어요 - 직접 입력해 주세요","code":"AI_NO_CREDIT"}"""))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"date":"2026-11-09","verifiedBy":"geofence"}"""))
+        val a = api()
+        val r = a.analyzeMeal(listOf(byteArrayOf(1))) as ApiResult.HttpError
+        assertEquals("AI_NO_CREDIT", r.errorCode)
+        assertEquals("AI 크레딧이 없어요 - 직접 입력해 주세요", r.message)
+        server.takeRequest()
+        assertTrue(a.gymCheckIn("2026-11-09", "geofence", "2026-11-09T10:00:00Z") is ApiResult.Ok)
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body, body.contains("\"checkInAt\":\"2026-11-09T10:00:00Z\""))
+    }
+
     @Test fun networkErrorRetries() {
         val dead = MyHomeApi({ "http://127.0.0.1:1" }, { "t" })
         assertEquals(UploadDecision.RETRY, dead.postEvent(payload).toUploadDecision())

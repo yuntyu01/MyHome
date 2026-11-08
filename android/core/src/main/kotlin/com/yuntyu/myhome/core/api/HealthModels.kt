@@ -203,7 +203,7 @@ data class Recommendation(
 )
 
 @Serializable
-data class GymCheckIn(val date: String, val verifiedBy: String)
+data class GymCheckIn(val date: String, val verifiedBy: String, val checkInAt: String? = null)
 
 @Serializable
 data class RestRequest(val date: String)

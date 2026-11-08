@@ -5,7 +5,8 @@ import java.io.IOException
 /** HTTP 호출 결과. 예외 대신 값으로 다뤄서 WorkManager 재시도 판단을 단순하게 한다. */
 sealed interface ApiResult<out T> {
     data class Ok<T>(val value: T, val code: Int) : ApiResult<T>
-    data class HttpError(val code: Int, val message: String) : ApiResult<Nothing>
+    /** errorCode는 오류 본문의 "code"(예: AI_NO_CREDIT), 없으면 null. */
+    data class HttpError(val code: Int, val message: String, val errorCode: String? = null) : ApiResult<Nothing>
     data class NetworkError(val cause: IOException) : ApiResult<Nothing>
 
     /** 설정 누락(서버 주소·토큰 없음). 네트워크를 타지 않는다. */

@@ -11,7 +11,7 @@ import kotlinx.serialization.builtins.serializer
 import java.time.LocalDate
 
 /**
- * 건강 알림을 서버 없이 다시 예약할 수 있게 폰에 남겨 두는 값: 끼니·헬스·취침 일정, 기록한 끼니, 사진 보관 기간.
+ * 건강 알림을 서버 없이 다시 예약할 수 있게 폰에 남겨 두는 값: 끼니·헬스·취침 일정, 기록한 끼니, 헬스 한 날, 사진 보관 기간.
  * 서버가 진짜 값이고, 이 사본은 설정·오늘 화면을 받을 때마다 갱신한다(알림 수신기는 네트워크를 쓰지 않는다).
  */
 class HealthLocal(context: Context) {
@@ -68,6 +68,21 @@ class HealthLocal(context: Context) {
         saveLogged(if (on) logged + k else logged - k)
     }
 
+    /** 헬스를 인증했거나 휴식권을 쓴 날("yyyy-MM-dd"). 그날은 헬스 알림을 울리지 않는다. 최근 2주만 남긴다. */
+    val gymDone: Set<String>
+        get() = prefs.getString(KEY_GYM_DONE, null)
+            ?.let { runCatching { MyHomeJson.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull() }
+            ?.toSet() ?: emptySet()
+
+    /** 그날 헬스 기록이 있는지(서버 값이나 방금 보낸 결과)를 맞춘다. */
+    fun setGymDone(day: String, done: Boolean) {
+        val cur = gymDone
+        val cutoff = LocalDate.now().minusDays(14).toString()
+        val next = (if (done) cur + day else cur - day).filter { it >= cutoff }
+        if (next.toSet() == cur) return
+        prefs.edit().putString(KEY_GYM_DONE, MyHomeJson.encodeToString(ListSerializer(String.serializer()), next)).apply()
+    }
+
     /** 폰에 끼니 사진을 둘 기간(일). 0이면 계속. */
     var photoKeepDays: Int
         get() = prefs.getInt(KEY_PHOTO_KEEP, 0)
@@ -83,5 +98,6 @@ class HealthLocal(context: Context) {
         const val KEY_LOGGED = "logged"
         const val KEY_PHOTO_KEEP = "photo_keep_days"
         const val KEY_SCHEDULED_AT = "scheduled_at"
+        const val KEY_GYM_DONE = "gym_done"
     }
 }

@@ -101,8 +101,8 @@ class MyHomeApi(
                         ApiResult.HttpError(resp.code, "응답 해석 실패: ${e.message}")
                     }
                 } else {
-                    val msg = runCatching { MyHomeJson.decodeFromString(ErrorResponse.serializer(), text).error }.getOrDefault(text)
-                    ApiResult.HttpError(resp.code, msg)
+                    val err = runCatching { MyHomeJson.decodeFromString(ErrorResponse.serializer(), text) }.getOrNull()
+                    ApiResult.HttpError(resp.code, err?.error ?: text, err?.code)
                 }
             }
         } catch (e: IOException) {
@@ -137,8 +137,9 @@ class MyHomeApi(
     fun deleteMeal(date: String, index: Int): ApiResult<JsonElement> =
         call("DELETE", "/v1/health/meals?date=$date&index=$index", null, JsonElement.serializer())
 
-    fun gymCheckIn(date: String, verifiedBy: String): ApiResult<JsonElement> =
-        call("POST", "/v1/health/gym/check-in", MyHomeJson.encodeToString(GymCheckIn.serializer(), GymCheckIn(date, verifiedBy)), JsonElement.serializer())
+    /** checkInAt은 실제로 도착한 시각(ISO-8601). 나중에 다시 보낼 때 보낸 시각이 아니라 도착 시각으로 남게. */
+    fun gymCheckIn(date: String, verifiedBy: String, checkInAt: String? = null): ApiResult<JsonElement> =
+        call("POST", "/v1/health/gym/check-in", MyHomeJson.encodeToString(GymCheckIn.serializer(), GymCheckIn(date, verifiedBy, checkInAt)), JsonElement.serializer())
 
     fun restSummary(): ApiResult<RestSummary> = call("GET", "/v1/health/rest", null, RestSummary.serializer())
 
@@ -191,7 +192,8 @@ class MyHomeApi(
     fun analyzeMeal(photos: List<ByteArray>): ApiResult<FoodResult> {
         val form = MultipartBody.Builder().setType(MultipartBody.FORM)
         photos.forEachIndexed { i, b -> form.addFormDataPart("photo", "meal$i.jpg", b.toRequestBody(JPEG)) }
-        val slow = client.newBuilder().readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
+        // 서버는 Gemini를 두 번까지 부르고 55초 안에 답한다
+        val slow = client.newBuilder().readTimeout(70, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
         return send("POST", "/v1/health/meals/analyze", form.build(), FoodResult.serializer(), true, slow)
     }
 
