@@ -156,6 +156,11 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// 서버가 어떤 이유로 끝나든 작업을 멈추고, pool.Close보다 먼저 끝나기를 기다린다(defer는 뒤에서부터)
 	defer func() { stopWorker(); <-workerDone }()
 
+	// 수집 때 처리에 실패한 원문(응답은 201)을 10분마다 다시 처리한다. 위 작업과 같이 멈춘다.
+	pendingDone := make(chan struct{})
+	go func() { defer close(pendingDone); proc.RunPending(workerCtx, 10*time.Minute, 1000) }()
+	defer func() { stopWorker(); <-pendingDone }()
+
 	handler := server.New(server.Deps{Config: cfg, Pool: pool, Logger: logger, Processor: proc})
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

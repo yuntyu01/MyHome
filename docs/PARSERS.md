@@ -14,6 +14,7 @@ server/internal/parser/
 ```
 
 - 파서 선택 순서: `PARSER_PACKAGES` 매핑 → 내용 감지(`Detect`) → 범용 파서
+- 그 전에 결제가 아닌 알림(광고·혜택, 증권 체결·시세, 안내·예정)은 `ignore.go`가 거르고 `raw_events.ignore_reason`만 남긴다(해석 실패 아님). 새로 거를 문구는 `PARSER_IGNORE_PATTERNS`("문구1;문구2")로 더하고 재처리한다
 - **패키지명은 코드에 없다.** 앱 "최근 알림" 화면에서 실제 패키지명을 확인해서 환경변수에 넣는다:
   ```
   PARSER_PACKAGES=kb=<KB Pay 패키지>;toss=<토스 패키지>;kakaopay=<카카오페이 패키지>;coupang=<쿠팡 패키지>

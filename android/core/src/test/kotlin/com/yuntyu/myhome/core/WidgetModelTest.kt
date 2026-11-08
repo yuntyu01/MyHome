@@ -23,7 +23,7 @@ class WidgetModelTest {
            {"id":30,"occurred_at":"2026-11-01T23:25:00+09:00","amount":25000,"flow":"out","merchant":"합성송금","direction":"expense","status":"needs_review","review_reason":"transfer","source":"toss"},
            {"id":29,"occurred_at":"2026-11-01T09:00:00+09:00","amount":3200000,"flow":"in","merchant":"급여","direction":"income","status":"confirmed","source":"toss"}
          ],
-         "needs_review":2,"generated_at":"2026-11-02T02:30:00+09:00"}
+         "needs_review":2,"failed_events":3,"generated_at":"2026-11-02T02:30:00+09:00"}
     """.trimIndent()
 
     private val summary = MyHomeJson.decodeFromString(Summary.serializer(), json)
@@ -33,7 +33,13 @@ class WidgetModelTest {
         assertEquals(741400L, summary.totals.remaining)
         assertEquals(4, summary.categories.size)
         assertEquals(2L, summary.needsReview)
+        assertEquals(3L, summary.failedEvents)
         assertEquals("생활", summary.recent[0].category)
+    }
+
+    @Test fun failedEventsDefaultsToZeroForOldServer() {
+        val old = MyHomeJson.decodeFromString(Summary.serializer(), json.replace("\"failed_events\":3,", ""))
+        assertEquals(0L, old.failedEvents)
     }
 
     @Test fun topCategoriesByUsage() {

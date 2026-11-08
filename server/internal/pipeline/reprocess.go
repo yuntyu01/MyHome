@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -19,6 +20,7 @@ type ReprocessReport struct {
 	DeletedDerived int  `json:"deleted_derived"` // 지우고 다시 만든(만들) 자동 거래 수
 	Created        int  `json:"created"`         // 새로 만든 거래 수
 	ParseErrors    int  `json:"parse_errors"`    // 해석 실패 원문 수
+	Ignored        int  `json:"ignored"`         // 결제 알림이 아니라서 무시한 원문 수
 }
 
 // Reprocess는 [from, to) 기간의 원문을 다시 처리한다. 원문(raw_events)은 지우지 않는다.
@@ -136,6 +138,9 @@ func (p *Processor) Reprocess(ctx context.Context, from, to time.Time, apply boo
 			if res.ParseError != "" {
 				rep.ParseErrors++
 			}
+			if res.Ignored != "" {
+				rep.Ignored++
+			}
 		}
 		rep.Applied = true
 		return nil
@@ -143,20 +148,52 @@ func (p *Processor) Reprocess(ctx context.Context, from, to time.Time, apply boo
 	return rep, err
 }
 
-// ProcessPending은 아직 처리되지 않은 원문(서버가 처리 도중 죽은 경우 등)을 처리한다.
+// ProcessPending은 아직 처리되지 않은 원문(서버가 처리 도중 죽었거나 처리 오류가 난 경우)을 처리한다.
+// 한 건이 실패해도 나머지는 계속 처리하고, 실패 건수와 첫 오류를 돌려준다.
 func (p *Processor) ProcessPending(ctx context.Context, limit int) (int, error) {
 	raws, err := dbq.New(p.Pool).ListUnprocessedRawEvents(ctx, int32(limit))
 	if err != nil {
 		return 0, err
 	}
-	n := 0
+	n, failed := 0, 0
+	var first error
 	for _, r := range raws {
+		if ctx.Err() != nil {
+			return n, ctx.Err()
+		}
 		if _, err := p.ProcessRawEvent(ctx, r.ID); err != nil {
-			return n, err
+			failed++
+			if first == nil {
+				first = fmt.Errorf("원문 #%d: %w", r.ID, err)
+			}
+			continue
 		}
 		n++
 	}
+	if first != nil {
+		return n, fmt.Errorf("미처리 원문 %d건 실패: %w", failed, first)
+	}
 	return n, nil
+}
+
+// RunPending은 every마다 미처리 원문을 다시 처리한다. 수집 때 처리에 실패한 원문(응답은 201)이
+// 서버를 다시 띄울 때까지 남지 않게 한다. ctx가 끝나면 돌아온다.
+func (p *Processor) RunPending(ctx context.Context, every time.Duration, limit int) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		n, err := p.ProcessPending(ctx, limit)
+		if err != nil && ctx.Err() == nil {
+			p.log().Warn("미처리 원문 재처리 실패", "processed", n, "err", err)
+		} else if n > 0 {
+			p.log().Info("미처리 원문 재처리", "count", n)
+		}
+	}
 }
 
 func keys[V any](m map[int64]V) []int64 {

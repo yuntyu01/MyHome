@@ -10,6 +10,7 @@ type Registry struct {
 	byPackage map[string]Parser
 	detectors []Parser
 	fallback  Parser
+	ignore    Ignorer
 }
 
 // Builtin은 내장 파서 목록이다. 새 소스를 추가하려면 Parser를 구현하고 여기에 넣는다.
@@ -62,5 +63,13 @@ func (r *Registry) For(ev Event) Parser {
 	return r.fallback
 }
 
-// Parse는 알맞은 파서로 해석한다.
-func (r *Registry) Parse(ev Event) (Result, error) { return r.For(ev).Parse(ev) }
+// SetIgnorePatterns는 내장 무시 규칙에 더할 문구를 정한다(환경변수 PARSER_IGNORE_PATTERNS, ";" 구분).
+func (r *Registry) SetIgnorePatterns(spec string) { r.ignore.extra = ParseIgnorePatterns(spec) }
+
+// Parse는 결제 알림이 아니면 *IgnoredError(ErrIgnored)를, 아니면 알맞은 파서의 해석 결과를 돌려준다.
+func (r *Registry) Parse(ev Event) (Result, error) {
+	if reason, ok := r.ignore.Match(ev); ok {
+		return Result{}, &IgnoredError{Reason: reason}
+	}
+	return r.For(ev).Parse(ev)
+}

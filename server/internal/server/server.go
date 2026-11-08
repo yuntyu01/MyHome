@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -42,7 +43,12 @@ func New(d Deps) http.Handler {
 	q := dbq.New(d.Pool)
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /healthz", httpx.Healthz)
+	// DB까지 확인한다(2초 한도). 풀이 없으면(테스트 등) 프로세스만 본다.
+	var ping func(context.Context) error
+	if d.Pool != nil {
+		ping = d.Pool.Ping
+	}
+	mux.HandleFunc("GET /healthz", httpx.Healthz(ping))
 
 	ing := &ingest.Handler{Pool: d.Pool, Logger: d.Logger}
 	if d.Processor != nil {

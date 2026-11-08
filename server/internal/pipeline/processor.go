@@ -23,6 +23,12 @@ const TestTitleMarker = "[MyHome 테스트]"
 // cancelLookback은 취소 알림의 원거래를 찾을 기간이다.
 const cancelLookback = 120 * 24 * time.Hour
 
+// repostWindow 안에 같은 앱이 같은 알림(제목·본문 동일)을 또 올리면 앞의 것과 같은 건으로 본다.
+const repostWindow = 10 * time.Minute
+
+// cancelDupWindow 안에 다른 앱이 같은 금액의 취소를 알리면 같은 환불로 본다(KB·토스가 각각 알림).
+const cancelDupWindow = 24 * time.Hour
+
 // Processor는 원문을 거래로 만든다.
 type Processor struct {
 	Pool     *pgxpool.Pool
@@ -38,6 +44,7 @@ type Result struct {
 	RawEventID  int64               `json:"raw_event_id"`
 	Test        bool                `json:"test,omitempty"`
 	ParseError  string              `json:"parse_error,omitempty"`
+	Ignored     string              `json:"ignored,omitempty"` // 결제 알림이 아니라서 무시한 사유
 	Transaction *TransactionSummary `json:"transaction,omitempty"`
 }
 
@@ -101,6 +108,9 @@ func existingResult(ctx context.Context, q *dbq.Queries, raw dbq.RawEvent) Resul
 	if raw.ParseError != nil {
 		res.ParseError = *raw.ParseError
 	}
+	if raw.IgnoreReason != nil {
+		res.Ignored = *raw.IgnoreReason
+	}
 	if txs, err := q.ListTransactionsByRawEvent(ctx, &raw.ID); err == nil && len(txs) > 0 {
 		res.Transaction = summarize(txs[0])
 	}
@@ -119,6 +129,12 @@ func (p *Processor) processLocked(ctx context.Context, q *dbq.Queries, e *env, r
 	// 1. 파싱
 	ev := parser.Event{Package: raw.SourcePackage, Title: raw.Title, Text: raw.Text, BigText: raw.BigText, PostedAt: raw.PostedAt}
 	pr, perr := p.Registry.Parse(ev)
+	var ign *parser.IgnoredError
+	if errors.As(perr, &ign) {
+		// 광고·증권·안내 알림: 거래를 만들지 않고 무시 사유만 남긴다(해석 실패로 세지 않음).
+		res.Ignored = ign.Reason
+		return res, q.MarkRawEventProcessed(ctx, dbq.MarkRawEventProcessedParams{ID: raw.ID, IgnoreReason: &ign.Reason})
+	}
 	if perr != nil {
 		// 금액을 못 뽑으면 거래를 만들지 않는다. 원문은 그대로 남고 재처리할 수 있다.
 		msg := perr.Error()
@@ -139,12 +155,28 @@ func (p *Processor) processLocked(ctx context.Context, q *dbq.Queries, e *env, r
 		InstallmentMonths: int32(pr.Installment), // 할부도 승인 시점에 전액 기록
 		Balance:           pr.Balance,
 	}
+	if pr.Foreign != "" {
+		t.Memo = "외화 " + pr.Foreign
+	}
 	body := ev.Body()
 
 	var after func(created dbq.Transaction) error // 거래를 넣은 뒤 할 일(원거래 취소 표시 등)
 	ownCat, isOwn := e.ownAccount(pr.Kind, body)
+	// 같은 앱이 같은 알림을 다시 올린 것인지 먼저 본다(이체·취소도 두 번 세지 않게).
+	orig, isRepost, err := p.findRepost(ctx, q, raw)
+	if err != nil {
+		return res, err
+	}
 
 	switch {
+	case isRepost:
+		markDuplicate(&t, orig)
+	case pr.Amount == 0 && pr.Foreign != "":
+		// 외화만 있는 승인·취소: 원화 금액을 지어내지 않는다. 분류는 제안만 하고 금액은 사용자가 넣는다.
+		t.Direction, t.Status, t.ReviewReason = "expense", "needs_review", reason(ReviewForeign)
+		if cl := e.classify(pr.Merchant, pr.Kind, flow); pr.Kind == parser.KindApproval && cl.categoryID != nil {
+			t.CategoryID, t.Direction = cl.categoryID, cl.direction
+		}
 	// 2. 예외 규칙
 	case e.isCardPayment(pr.Kind, body):
 		t.Direction, t.Status, t.ExclusionReason = "transfer", "excluded", reason(ExcludeCardPayment)
@@ -159,9 +191,15 @@ func (p *Processor) processLocked(ctx context.Context, q *dbq.Queries, e *env, r
 		if err != nil {
 			return res, err
 		}
+		if !found && pr.Kind == parser.KindCancel {
+			// 다른 앱이 먼저 알린 같은 환불이면 또 상계하지 않는다(다른 결제에서 한 번 더 빠지는 것 방지).
+			dup, found, err = p.findCancelDuplicate(ctx, q, e, raw, t)
+			if err != nil {
+				return res, err
+			}
+		}
 		if found {
-			t.Direction, t.CategoryID, t.Status = dup.Direction, dup.CategoryID, "excluded"
-			t.ExclusionReason, t.MergedInto = reason(ExcludeDuplicate), &dup.ID
+			markDuplicate(&t, dup)
 			after = func(dbq.Transaction) error { return p.mergeMerchant(ctx, q, e, dup, pr.Merchant) }
 			break
 		}
@@ -203,6 +241,77 @@ func (p *Processor) log() *slog.Logger {
 	return p.Logger
 }
 
+// markDuplicate는 거래를 dup(또는 dup이 이미 합쳐진 대표 거래)에 합친 중복으로 표시한다.
+func markDuplicate(t *dbq.InsertTransactionParams, dup dbq.Transaction) {
+	root := dup.ID
+	if dup.MergedInto != nil {
+		root = *dup.MergedInto
+	}
+	t.Direction, t.CategoryID, t.Status = dup.Direction, dup.CategoryID, "excluded"
+	t.ExclusionReason, t.MergedInto, t.ReviewReason = reason(ExcludeDuplicate), &root, nil
+}
+
+// findRepost는 같은 앱이 같은 알림을 repostWindow 안에 다시 올린 경우 앞서 만든 거래를 찾는다.
+// 게시 시각(postTime)만 달라서 원문 해시로는 걸러지지 않는 경우다.
+func (p *Processor) findRepost(ctx context.Context, q *dbq.Queries, raw dbq.RawEvent) (dbq.Transaction, bool, error) {
+	orig, err := q.FindRepostOriginal(ctx, dbq.FindRepostOriginalParams{
+		RawEventID: raw.ID, SourcePackage: raw.SourcePackage, Title: raw.Title, Text: raw.Text, BigText: raw.BigText,
+		WindowFrom: raw.PostedAt.Add(-repostWindow), WindowTo: raw.PostedAt.Add(repostWindow),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return dbq.Transaction{}, false, nil
+	}
+	return orig, err == nil, err
+}
+
+// dedupeKinds는 중복으로 합칠 수 있는 종류다. 승인(충전)은 승인끼리, 송금·출금은 그끼리, 취소는 취소끼리 합친다.
+// 종류를 모르는 건(unknown)은 내용으로 가릴 수 없어서 같은 방향이면 합친다.
+func dedupeKinds(k parser.Kind) []string {
+	s := func(ks ...parser.Kind) []string {
+		out := []string{string(parser.KindUnknown)}
+		for _, x := range ks {
+			out = append(out, string(x))
+		}
+		return out
+	}
+	switch k {
+	case parser.KindApproval, parser.KindCharge:
+		return s(parser.KindApproval, parser.KindCharge)
+	case parser.KindTransferOut, parser.KindWithdrawal:
+		return s(parser.KindTransferOut, parser.KindWithdrawal)
+	case parser.KindCancel, parser.KindDeposit:
+		return s(k)
+	}
+	return s(parser.KindApproval, parser.KindCharge, parser.KindTransferOut, parser.KindWithdrawal, parser.KindCancel, parser.KindDeposit)
+}
+
+// findCancelDuplicate는 다른 앱이 cancelDupWindow 안에 먼저 알린 같은 금액·같은(또는 비교 못 하는) 가맹점의 취소를 찾는다.
+func (p *Processor) findCancelDuplicate(ctx context.Context, q *dbq.Queries, e *env, raw dbq.RawEvent, t dbq.InsertTransactionParams) (dbq.Transaction, bool, error) {
+	cands, err := q.FindCancelDuplicates(ctx, dbq.FindCancelDuplicatesParams{
+		SourcePackage: raw.SourcePackage, Amount: t.Amount,
+		WindowFrom: t.OccurredAt.Add(-cancelDupWindow), WindowTo: t.OccurredAt.Add(cancelDupWindow), OccurredAt: t.OccurredAt,
+	})
+	if err != nil {
+		return dbq.Transaction{}, false, err
+	}
+	for _, c := range cands {
+		if compatibleMerchant(c.Merchant, t.Merchant, e.cfg.ReviewMerchantPatterns) {
+			return c, true, nil
+		}
+	}
+	return dbq.Transaction{}, false, nil
+}
+
+// compatibleMerchant: 이름이 비슷하거나, 한쪽이 비었거나 결제대행사 이름뿐이라 비교할 수 없으면 같은 가게로 본다.
+func compatibleMerchant(a, b string, gateways []string) bool {
+	if classify.SimilarMerchant(a, b) {
+		return true
+	}
+	ra, ga := classify.StripGateway(a, gateways)
+	rb, gb := classify.StripGateway(b, gateways)
+	return (ga && ra == "") || (gb && rb == "")
+}
+
 // findDuplicate는 다른 앱에서 온 같은 거래(토스페이+KB 등)를 찾는다.
 func (p *Processor) findDuplicate(ctx context.Context, q *dbq.Queries, e *env, raw dbq.RawEvent, t dbq.InsertTransactionParams) (dbq.Transaction, bool, error) {
 	if e.cfg.DedupeWindow <= 0 {
@@ -213,6 +322,7 @@ func (p *Processor) findDuplicate(ctx context.Context, q *dbq.Queries, e *env, r
 		SourcePackage: raw.SourcePackage,
 		Flow:          t.Flow,
 		Amount:        t.Amount,
+		Kinds:         dedupeKinds(parser.Kind(t.Kind)),
 		WindowFrom:    t.OccurredAt.Add(-e.cfg.DedupeWindow),
 		WindowTo:      t.OccurredAt.Add(e.cfg.DedupeWindow),
 		OccurredAt:    t.OccurredAt,

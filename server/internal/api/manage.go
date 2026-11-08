@@ -137,6 +137,10 @@ func (a *API) getBudgets(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	if err := a.EnsureBudgets(r.Context(), p); err != nil {
+		a.fail(w, err)
+		return
+	}
 	rows, err := a.q().ListBudgets(r.Context(), p.StartDate())
 	if err != nil {
 		a.fail(w, err)

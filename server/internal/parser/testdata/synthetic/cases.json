@@ -121,11 +121,11 @@
       "want": {"source": "generic", "kind": "approval", "amount": 18000, "merchant": "교보문고"}
     },
     {
-      "name": "금액 없음 (광고성) → 해석 실패",
+      "name": "금액 없음 (광고성) → 무시",
       "package": "test.toss", "title": "토스",
       "text": "이번 주 혜택을 확인해 보세요",
       "posted_at": "2026-11-09T15:00:00+09:00",
-      "want": {"error": true}
+      "want": {"ignored": "ad"}
     },
     {
       "name": "잔액만 있는 알림 → 해석 실패",
@@ -141,6 +141,132 @@
       "big_text": "12,000원 승인\n일시불 맥도날드 강남역점\n누적 50,000원",
       "posted_at": "2026-11-10T12:00:00+09:00",
       "want": {"source": "kb", "kind": "approval", "amount": 12000, "merchant": "맥도날드 강남역점"}
+    },
+    {
+      "name": "광고: 결제하면 적립 → 무시",
+      "package": "test.toss", "title": "토스",
+      "text": "테스트카페에서 결제하면 1,000원 적립해드려요",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"ignored": "ad"}
+    },
+    {
+      "name": "광고: 할인 쿠폰 받으세요 → 무시",
+      "package": "test.kbpay", "title": "KB Pay",
+      "text": "이번 주말 최대 5,000원 할인 쿠폰 받으세요",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"ignored": "ad"}
+    },
+    {
+      "name": "광고: (광고) 표시 → 무시",
+      "package": "test.toss", "title": "토스",
+      "text": "(광고) 결제 완료 고객 대상 테스트마트 20% 할인",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"ignored": "ad"}
+    },
+    {
+      "name": "혜택: 만보기 → 무시",
+      "package": "test.toss", "title": "토스",
+      "text": "만보기 100원 받았어요",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"ignored": "ad"}
+    },
+    {
+      "name": "증권: 주식 체결 → 무시",
+      "package": "test.toss", "title": "토스증권",
+      "text": "테스트전자 1주를 71,000원에 구매했어요",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"ignored": "securities"}
+    },
+    {
+      "name": "증권: 시세 알림 → 무시",
+      "package": "test.toss", "title": "토스",
+      "text": "테스트전자 3.2% 올랐어요 · 72,300원",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"ignored": "securities"}
+    },
+    {
+      "name": "안내: 취소 방법 → 무시",
+      "package": "test.toss", "title": "토스",
+      "text": "카드 결제 12,500원 취소는 앱에서 할 수 있어요",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"ignored": "notice"}
+    },
+    {
+      "name": "안내: 결제 예정 금액 → 무시",
+      "package": "test.kb", "title": "KB국민카드",
+      "text": "결제예정금액 450,000원 (11/25 출금 예정)",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"ignored": "notice"}
+    },
+    {
+      "name": "실제 결제 + 혜택 문구",
+      "package": "test.toss", "title": "토스페이",
+      "text": "12,500원 결제 완료 | 테스트카페 강남점\n할인 혜택 1,000원 적용",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"source": "toss", "kind": "approval", "amount": 12500}
+    },
+    {
+      "name": "실제 결제 + 안내 문구",
+      "package": "test.toss", "title": "토스페이",
+      "text": "테스트카페 역삼점에서 5,600원 결제했어요. 영수증은 앱에서 볼 수 있어요",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"source": "toss", "kind": "approval", "amount": 5600, "merchant": "테스트카페 역삼점"}
+    },
+    {
+      "name": "KB 승인 + 쿠폰 할인 표시",
+      "package": "test.kb", "title": "KB국민카드",
+      "text": "홍*동님 11/08 14:23 9,000원 일시불 테스트마트 (쿠폰 할인 적용)",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 9000}
+    },
+    {
+      "name": "KB 승인 여러 줄 + 누적",
+      "package": "test.kb", "title": "KB국민카드",
+      "text": "KB국민카드1*2*승인\n홍*동님\n12,500원 일시불\n11/08 14:23\n테스트카페강남점\n누적1,234,560원",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 12500, "merchant": "테스트카페강남점", "occurred_at": "2026-11-08T14:23:00+09:00"}
+    },
+    {
+      "name": "KB 주유 충전소 승인은 충전 아님",
+      "package": "test.kb", "title": "KB국민카드",
+      "text": "KB국민카드 승인 12,500원 일시불 11/08 14:23 테스트주유 충전소",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 12500, "merchant": "테스트주유 충전소"}
+    },
+    {
+      "name": "토스 송금은 그대로",
+      "package": "test.toss", "title": "토스",
+      "text": "홍길동님에게 10,000원 보냈어요",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"source": "toss", "kind": "transfer_out", "amount": 10000, "merchant": "홍길동"}
+    },
+    {
+      "name": "토스뱅크 이자 입금",
+      "package": "test.toss", "title": "토스뱅크",
+      "text": "이자 1,234원이 들어왔어요",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"source": "toss", "kind": "deposit", "amount": 1234}
+    },
+    {
+      "name": "외화 승인 (원화 금액 없음) → 금액 0, 외화 표시",
+      "package": "test.kb", "title": "KB국민카드",
+      "text": "KB국민카드 승인 USD 12.34 TESTSHOP",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"source": "kb", "kind": "approval", "amount": 0, "foreign": "USD 12.34", "merchant": "TESTSHOP"}
+    },
+    {
+      "name": "외화 결제 (금액 뒤 통화)",
+      "package": "test.toss", "title": "토스페이",
+      "text": "30.00 USD 결제 완료 | TESTAPP.COM",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"source": "toss", "kind": "approval", "amount": 0, "foreign": "30.00 USD"}
+    },
+    {
+      "name": "외화 입금 → 해석 실패",
+      "package": "test.toss", "title": "토스뱅크",
+      "text": "USD 12.34 입금",
+      "posted_at": "2026-11-08T14:23:30+09:00",
+      "want": {"error": true}
     }
   ]
 }

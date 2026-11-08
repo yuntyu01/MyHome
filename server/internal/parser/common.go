@@ -83,6 +83,7 @@ func balanceAmount(hits []amountHit) *int64 {
 
 // detectKind는 일반적인 문구로 종류를 판단한다. 순서가 중요하다(취소 > 충전 > 입금 > 송금 > 출금 > 승인).
 func detectKind(body string) Kind {
+	body = strings.ReplaceAll(body, "충전소", "") // 주유·전기차 충전소는 가맹점 이름이다
 	switch {
 	case containsAny(body, "취소", "환불"):
 		return KindCancel
@@ -283,9 +284,11 @@ func cleanMerchant(s string) string {
 	s = cardNumRe.ReplaceAllString(s, " ")
 	s = dateTimeRe.ReplaceAllString(s, " ")
 	s = installTokRe.ReplaceAllString(s, " ")
+	s = strings.ReplaceAll(s, "충전소", "\x00") // 잡음 단어 "충전"이 가맹점 이름(…충전소)을 깨지 않게
 	for _, w := range noiseWords {
 		s = strings.ReplaceAll(s, w, " ")
 	}
+	s = strings.ReplaceAll(s, "\x00", "충전소")
 	s = strings.Trim(spacesRe.ReplaceAllString(s, " "), " .,:：-~!()")
 	if !hasLetter(s) || len([]rune(s)) < 2 {
 		return ""
@@ -317,8 +320,17 @@ func parseCommon(source string, ev Event) (Result, error) {
 		Installment: installment(body),
 	}
 	if !ok {
+		// 원화 금액이 없는 외화 승인·취소는 금액을 지어내지 않고 외화 표시만 남긴다(확인 필요로 간다).
+		if loc := foreignRe.FindStringIndex(body); loc != nil && (kind == KindApproval || kind == KindCancel) {
+			res.Foreign = spacesRe.ReplaceAllString(strings.TrimSpace(body[loc[0]:loc[1]]), " ")
+			res.Merchant = guessMerchant(body[:loc[0]]+" "+body[loc[1]:], kind)
+			return res, nil
+		}
 		return res, ErrNoAmount
 	}
 	res.Merchant = guessMerchant(body, kind)
 	return res, nil
 }
+
+// foreignRe는 간단한 외화 금액 표시다: "USD 12.34", "$12.34", "12.34 USD", "1,200엔".
+var foreignRe = regexp.MustCompile(`(?:\b(?:USD|EUR|JPY|CNY|GBP|HKD|SGD|AUD|CAD|CHF|TWD|THB|VND|PHP)|US\$|[$€£¥])\s?[0-9][0-9,]*(?:\.[0-9]{1,2})?|[0-9][0-9,]*(?:\.[0-9]{1,2})?\s?(?:(?:USD|EUR|JPY|CNY|GBP|HKD|SGD|AUD|CAD|CHF|TWD|THB|VND|PHP)\b|달러|유로|엔|위안|파운드)`)

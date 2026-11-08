@@ -11,6 +11,8 @@ data class Summary(
     val categories: List<CategoryBudget> = emptyList(),
     val recent: List<TransactionDto> = emptyList(),
     @SerialName("needs_review") val needsReview: Long = 0,
+    /** 최근 7일 동안 서버가 읽지 못했거나 처리하지 못한 알림 수(웹 관리 > 읽지 못한 알림) */
+    @SerialName("failed_events") val failedEvents: Long = 0,
     @SerialName("generated_at") val generatedAt: String = "",
 )
 

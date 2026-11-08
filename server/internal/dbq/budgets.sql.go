@@ -32,6 +32,33 @@ func (q *Queries) CopyBudgets(ctx context.Context, arg CopyBudgetsParams) (int64
 	return result.RowsAffected(), nil
 }
 
+const hasBudgets = `-- name: HasBudgets :one
+SELECT EXISTS (SELECT 1 FROM budgets WHERE period_start = $1)
+`
+
+func (q *Queries) HasBudgets(ctx context.Context, periodStart time.Time) (bool, error) {
+	row := q.db.QueryRow(ctx, hasBudgets, periodStart)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const latestBudgetPeriodBefore = `-- name: LatestBudgetPeriodBefore :one
+SELECT period_start
+FROM budgets
+WHERE period_start < $1
+ORDER BY period_start DESC
+LIMIT 1
+`
+
+// 이 기간보다 앞서 예산이 있는 가장 최근 기간. 없으면 결과 없음.
+func (q *Queries) LatestBudgetPeriodBefore(ctx context.Context, periodStart time.Time) (time.Time, error) {
+	row := q.db.QueryRow(ctx, latestBudgetPeriodBefore, periodStart)
+	var period_start time.Time
+	err := row.Scan(&period_start)
+	return period_start, err
+}
+
 const listBudgets = `-- name: ListBudgets :many
 SELECT b.period_start, b.category_id, b.amount, c.name AS category_name
 FROM budgets b

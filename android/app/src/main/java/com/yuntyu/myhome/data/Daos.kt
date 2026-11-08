@@ -13,8 +13,9 @@ interface PendingEventDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(e: PendingEvent): Long
 
-    @Query("SELECT * FROM pending_events WHERE state = 'PENDING' ORDER BY postedAt, id LIMIT :limit")
-    suspend fun nextBatch(limit: Int): List<PendingEvent>
+    /** skip: 이번 전송에서 건너뛴(계속 실패하는) 항목. 대기열에는 남는다. */
+    @Query("SELECT * FROM pending_events WHERE state = 'PENDING' AND id NOT IN (:skip) ORDER BY postedAt, id LIMIT :limit")
+    suspend fun nextBatch(limit: Int, skip: List<Long> = emptyList()): List<PendingEvent>
 
     @Query("DELETE FROM pending_events WHERE id = :id")
     suspend fun delete(id: Long)

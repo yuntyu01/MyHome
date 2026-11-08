@@ -10,8 +10,28 @@ import (
 	"time"
 )
 
+const countAttentionRawEvents = `-- name: CountAttentionRawEvents :one
+SELECT count(*)
+FROM raw_events
+WHERE received_at >= $1
+  AND (parse_error IS NOT NULL OR (processed_at IS NULL AND received_at < $2))
+`
+
+type CountAttentionRawEventsParams struct {
+	Since       time.Time `json:"since"`
+	StaleBefore time.Time `json:"stale_before"`
+}
+
+// 확인이 필요한 원문: 해석 실패, 또는 받은 지 오래됐는데 아직 처리되지 않은 것(처리 오류). @since 이후 받은 것만.
+func (q *Queries) CountAttentionRawEvents(ctx context.Context, arg CountAttentionRawEventsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAttentionRawEvents, arg.Since, arg.StaleBefore)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getRawEvent = `-- name: GetRawEvent :one
-SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error, ignore_reason
 FROM raw_events
 WHERE id = $1
 `
@@ -31,12 +51,13 @@ func (q *Queries) GetRawEvent(ctx context.Context, id int64) (RawEvent, error) {
 		&i.ContentHash,
 		&i.ProcessedAt,
 		&i.ParseError,
+		&i.IgnoreReason,
 	)
 	return i, err
 }
 
 const getRawEventByHash = `-- name: GetRawEventByHash :one
-SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error, ignore_reason
 FROM raw_events
 WHERE content_hash = $1
 `
@@ -56,12 +77,13 @@ func (q *Queries) GetRawEventByHash(ctx context.Context, contentHash string) (Ra
 		&i.ContentHash,
 		&i.ProcessedAt,
 		&i.ParseError,
+		&i.IgnoreReason,
 	)
 	return i, err
 }
 
 const getRawEventForUpdate = `-- name: GetRawEventForUpdate :one
-SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error, ignore_reason
 FROM raw_events
 WHERE id = $1
 FOR UPDATE
@@ -82,6 +104,7 @@ func (q *Queries) GetRawEventForUpdate(ctx context.Context, id int64) (RawEvent,
 		&i.ContentHash,
 		&i.ProcessedAt,
 		&i.ParseError,
+		&i.IgnoreReason,
 	)
 	return i, err
 }
@@ -90,7 +113,7 @@ const insertRawEvent = `-- name: InsertRawEvent :one
 INSERT INTO raw_events (device_id, source_package, title, text, big_text, posted_at, content_hash)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (content_hash) DO NOTHING
-RETURNING id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+RETURNING id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error, ignore_reason
 `
 
 type InsertRawEventParams struct {
@@ -127,12 +150,13 @@ func (q *Queries) InsertRawEvent(ctx context.Context, arg InsertRawEventParams) 
 		&i.ContentHash,
 		&i.ProcessedAt,
 		&i.ParseError,
+		&i.IgnoreReason,
 	)
 	return i, err
 }
 
 const listFailedRawEvents = `-- name: ListFailedRawEvents :many
-SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error, ignore_reason
 FROM raw_events
 WHERE parse_error IS NOT NULL
 ORDER BY posted_at DESC
@@ -160,6 +184,7 @@ func (q *Queries) ListFailedRawEvents(ctx context.Context, limit int32) ([]RawEv
 			&i.ContentHash,
 			&i.ProcessedAt,
 			&i.ParseError,
+			&i.IgnoreReason,
 		); err != nil {
 			return nil, err
 		}
@@ -172,7 +197,7 @@ func (q *Queries) ListFailedRawEvents(ctx context.Context, limit int32) ([]RawEv
 }
 
 const listRawEvents = `-- name: ListRawEvents :many
-SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error, ignore_reason
 FROM raw_events
 ORDER BY posted_at DESC
 LIMIT $1
@@ -199,6 +224,7 @@ func (q *Queries) ListRawEvents(ctx context.Context, limit int32) ([]RawEvent, e
 			&i.ContentHash,
 			&i.ProcessedAt,
 			&i.ParseError,
+			&i.IgnoreReason,
 		); err != nil {
 			return nil, err
 		}
@@ -211,7 +237,7 @@ func (q *Queries) ListRawEvents(ctx context.Context, limit int32) ([]RawEvent, e
 }
 
 const listRawEventsInRange = `-- name: ListRawEventsInRange :many
-SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error, ignore_reason
 FROM raw_events
 WHERE posted_at >= $1
   AND posted_at < $2
@@ -244,6 +270,7 @@ func (q *Queries) ListRawEventsInRange(ctx context.Context, arg ListRawEventsInR
 			&i.ContentHash,
 			&i.ProcessedAt,
 			&i.ParseError,
+			&i.IgnoreReason,
 		); err != nil {
 			return nil, err
 		}
@@ -256,7 +283,7 @@ func (q *Queries) ListRawEventsInRange(ctx context.Context, arg ListRawEventsInR
 }
 
 const listUnprocessedRawEvents = `-- name: ListUnprocessedRawEvents :many
-SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error
+SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error, ignore_reason
 FROM raw_events
 WHERE processed_at IS NULL
 ORDER BY posted_at, id
@@ -284,6 +311,7 @@ func (q *Queries) ListUnprocessedRawEvents(ctx context.Context, limit int32) ([]
 			&i.ContentHash,
 			&i.ProcessedAt,
 			&i.ParseError,
+			&i.IgnoreReason,
 		); err != nil {
 			return nil, err
 		}
@@ -297,25 +325,28 @@ func (q *Queries) ListUnprocessedRawEvents(ctx context.Context, limit int32) ([]
 
 const markRawEventProcessed = `-- name: MarkRawEventProcessed :exec
 UPDATE raw_events
-SET processed_at = now(),
-    parse_error  = $2
+SET processed_at  = now(),
+    parse_error   = $2,
+    ignore_reason = $3
 WHERE id = $1
 `
 
 type MarkRawEventProcessedParams struct {
-	ID         int64   `json:"id"`
-	ParseError *string `json:"parse_error"`
+	ID           int64   `json:"id"`
+	ParseError   *string `json:"parse_error"`
+	IgnoreReason *string `json:"ignore_reason"`
 }
 
 func (q *Queries) MarkRawEventProcessed(ctx context.Context, arg MarkRawEventProcessedParams) error {
-	_, err := q.db.Exec(ctx, markRawEventProcessed, arg.ID, arg.ParseError)
+	_, err := q.db.Exec(ctx, markRawEventProcessed, arg.ID, arg.ParseError, arg.IgnoreReason)
 	return err
 }
 
 const resetRawEventProcessing = `-- name: ResetRawEventProcessing :exec
 UPDATE raw_events
-SET processed_at = NULL,
-    parse_error  = NULL
+SET processed_at  = NULL,
+    parse_error   = NULL,
+    ignore_reason = NULL
 WHERE id = ANY ($1::bigint[])
 `
 

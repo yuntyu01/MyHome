@@ -51,6 +51,7 @@ private val reviewReasonLabels = mapOf(
     "no_merchant" to "가맹점 이름 없음", "no_rule" to "처음 보는 가맹점", "payment_gateway" to "결제대행사로 찍힘",
     "transfer" to "송금", "deposit" to "어떤 입금인지 확인", "unknown_kind" to "어떤 거래인지 모름",
     "cancel_unmatched" to "원래 결제를 못 찾은 취소", "cancel_partial" to "부분 취소",
+    "foreign_currency" to "외화 결제(금액은 웹에서 입력)",
 )
 
 /** 확인 필요 처리: 항목을 탭해서 분류를 고른다. 위젯에서 특정 항목을 탭하면 openTxId로 바로 연다. */

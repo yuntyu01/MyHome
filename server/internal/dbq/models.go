@@ -227,6 +227,7 @@ type RawEvent struct {
 	ContentHash   string     `json:"content_hash"`
 	ProcessedAt   *time.Time `json:"processed_at"`
 	ParseError    *string    `json:"parse_error"`
+	IgnoreReason  *string    `json:"ignore_reason"`
 }
 
 type RestCouponUse struct {

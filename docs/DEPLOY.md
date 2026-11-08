@@ -20,7 +20,7 @@
 | 저장소 | 이 저장소. 루트의 `Dockerfile`을 쓴다 |
 | 빌드 컨텍스트 | 저장소 루트 (`.dockerignore`가 `server/`만 남긴다) |
 | 앱 포트 | `8080` (다른 포트만 허용되면 `HTTP_ADDR=:<포트>`) |
-| 헬스체크 | `GET /healthz` → 200 |
+| 헬스체크 | `GET /healthz` → 200 (DB까지 확인, 2초 안에 안 닿으면 503) |
 | 실행 명령 | 기본값(`/myhome serve`) |
 
 `server/Dockerfile`은 로컬 compose용이다. 배포에는 쓰지 않는다.
@@ -54,6 +54,7 @@
 | `RATE_LIMIT_BURST` | `30` | 순간 허용량 (IP별은 2배) |
 | `CLI_TOKEN_ISSUE_ENABLED` | `true` | `false`면 CLI 비상 토큰 발급 금지 |
 | `PARSER_PACKAGES` | (빈 값) | 패키지명 → 파서 매핑. `docs/PARSERS.md` |
+| `PARSER_IGNORE_PATTERNS` | (빈 값) | 결제 알림이 아니라서 무시할 문구를 더한다("문구1;문구2", 정규식 아님). 내장 광고·증권 규칙 외 |
 | `APP_ENV` | `production` | `development`면 Access 없이 시작할 수 있고 개발용 로그인 허용 |
 | `COOKIE_SECURE` | `true` | 세션 쿠키 Secure 속성. https 운영에서는 반드시 true |
 | `SESSION_TTL` | `720h` | 서버 세션(CSRF용) 유지 기간. 웹 로그인 유지는 Access 세션 시간이 정한다 |
