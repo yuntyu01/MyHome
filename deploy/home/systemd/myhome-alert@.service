@@ -1,15 +1,13 @@
-# 실패 알림. 실패한 유닛의 OnFailure=가 부른다 (%i = 실패한 유닛 이름).
+# 자동매매 실패 알림. 실패한 invest 유닛의 OnFailure=가 부른다 (%i = 실패한 유닛 이름).
+# 메일 대신 invest_alerts에 한 줄을 쓰고, 앱이 주기 작업에서 읽어 폰 알림을 띄운다(토스를 부르지 않는다).
 [Unit]
-Description=myhome 자동매매 — 실패 알림 (%i)
+Description=myhome 자동매매 실패 알림 (%i)
+After=postgresql.service
 
 [Service]
 Type=oneshot
 User=myhome-trader
 EnvironmentFile=/etc/myhome/trader.env
-# 토스 토큰 캐시 — 클라이언트당 유효 토큰이 1개라 실행마다 새로 받지 않는다
-StateDirectory=myhome-trader
-StateDirectoryMode=0700
-Environment=TOSS_TOKEN_FILE=/var/lib/myhome-trader/toss-token.json
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

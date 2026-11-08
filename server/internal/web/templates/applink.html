@@ -1,0 +1,21 @@
+{{define "applink"}}<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="0;url={{.AppURL}}">
+<title>앱 연결 · MyHome 가계부</title>
+<link rel="stylesheet" href="/static/app.css?v={{.AssetVer}}">
+<script src="/static/theme.js?v={{.AssetVer}}"></script>
+</head>
+<body class="login-page">
+<main class="login-box">
+  <h1>앱 연결</h1>
+  <p class="muted">{{.Email}} 계정으로 앱을 연결해요.</p>
+  <div class="card">
+    <a class="btn wide" href="{{.AppURL}}">앱으로 돌아가기</a>
+    <p class="muted small" style="margin:14px 0 0">앱이 저절로 열리지 않으면 위 버튼을 누르세요. 이 연결은 5분 동안 한 번만 쓸 수 있어요.</p>
+  </div>
+</main>
+</body>
+</html>{{end}}

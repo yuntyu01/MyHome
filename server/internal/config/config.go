@@ -31,34 +31,83 @@ type Config struct {
 	// AppEnv: production(기본) 또는 development
 	AppEnv string
 
-	// 카카오 로그인. 키가 없으면 카카오 로그인 경로는 503을 반환한다.
-	KakaoRestAPIKey   string
-	KakaoClientSecret string
-	KakaoRedirectURI  string
-	KakaoAppID        int64 // 설정하면 앱 로그인 토큰이 이 앱에서 발급됐는지 확인한다
-	KakaoAuthBase     string
-	KakaoAPIBase      string
-	AllowedKakaoIDs   []int64
+	// 웹 로그인: Cloudflare Access(구글). 웹 화면은 Access가 막고, 서버도 Access JWT를 직접 검증한다(안전망).
+	// 앱 API(/v1/*)는 Access를 거치지 않고 기기 토큰으로 인증한다.
+	CFAccessTeamDomain string   // "<팀>.cloudflareaccess.com" (https:// 없이 저장)
+	CFAccessAUD        string   // Access 애플리케이션의 Audience(AUD) 태그
+	AllowedEmails      []string // 허용할 구글 이메일(소문자로 저장, 비교도 소문자)
 
 	CookieSecure bool
 	SessionTTL   time.Duration
-	// DevLoginKakaoID는 APP_ENV=development일 때만 쓰는 로컬 개발용 로그인 우회다.
-	DevLoginKakaoID int64
+	// DevLoginEmail은 APP_ENV=development이고 Access를 설정하지 않았을 때만 쓰는 로컬 개발용 로그인 우회다.
+	DevLoginEmail string
+
+	// Obsolete는 설정돼 있지만 더 이상 쓰지 않는 환경변수 이름이다(값은 담지 않는다). serve가 경고로 남긴다.
+	Obsolete []string
+
+	// 건강(핏두잉 이식). 끼니 사진 분석: AIProvider는 mock | gemini.
+	// 비우면 GEMINI_API_KEY가 있을 때 gemini, 없으면 mock(키 없이 고정 결과)이다.
+	AIProvider   string
+	GeminiAPIKey string
+	GeminiModel  string
+	// AIClassify는 가계부 AI 분류 추천(AI_CLASSIFY=on|off, 기본 on)이다. 켜져 있으면 serve가 규칙 없는 지출의 가맹점 이름을
+	// AIProvider로 물어 추천을 붙인다(gemini는 같은 키, mock은 낱말 표로 늘 같은 답). off면 묻지도 보여주지도 않는다.
+	AIClassify bool
+	// 바코드 → 제품 영양성분(식품안전나라 + 공공데이터포털). 둘 다 있어야 켜진다.
+	FoodSafetyAPIKey string
+	DataGoKrAPIKey   string
 }
 
-// KakaoConfigured는 웹 카카오 로그인에 필요한 값이 모두 있는지 반환한다.
-func (c Config) KakaoConfigured() bool {
-	return c.KakaoRestAPIKey != "" && c.KakaoRedirectURI != ""
+// DefaultGeminiModel은 GEMINI_MODEL 기본값이다(핏두잉과 같다. ai.DefaultModel과 맞춘다).
+const DefaultGeminiModel = "gemini-3.5-flash-lite"
+
+// AccessConfigured는 Cloudflare Access JWT 검증에 필요한 값(팀 도메인, AUD)이 있는지 반환한다.
+func (c Config) AccessConfigured() bool {
+	return c.CFAccessTeamDomain != "" && c.CFAccessAUD != ""
 }
 
-// IsAllowedKakaoID는 회원번호가 허용 목록에 있는지 반환한다.
-func (c Config) IsAllowedKakaoID(id int64) bool {
-	for _, a := range c.AllowedKakaoIDs {
-		if a == id {
+// IsAllowedEmail은 이메일이 허용 목록에 있는지 대소문자 없이 비교한다.
+func (c Config) IsAllowedEmail(email string) bool {
+	e := normalizeEmail(email)
+	if e == "" {
+		return false
+	}
+	for _, a := range c.AllowedEmails {
+		if a == e {
 			return true
 		}
 	}
 	return false
+}
+
+// ValidateServe는 웹 서버(serve)에만 필요한 설정을 검사한다. 운영(APP_ENV가 development가 아님)에서는
+// Cloudflare Access 설정(팀 도메인, AUD, 허용 이메일)이 하나라도 없으면 시작하지 않는다.
+// invest·migrate 같은 다른 명령은 웹 로그인 설정이 없어도 돈다.
+func (c Config) ValidateServe() error {
+	if c.AppEnv == "development" {
+		return nil
+	}
+	var missing []string
+	if c.CFAccessTeamDomain == "" {
+		missing = append(missing, "CF_ACCESS_TEAM_DOMAIN")
+	}
+	if c.CFAccessAUD == "" {
+		missing = append(missing, "CF_ACCESS_AUD")
+	}
+	if len(c.AllowedEmails) == 0 {
+		missing = append(missing, "ALLOWED_EMAILS")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("운영 모드(APP_ENV=%s)에서는 Cloudflare Access 설정이 필요합니다. 없는 값: %s (docs/ACCESS_SETUP.md)",
+			c.AppEnv, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// obsoleteKeys는 카카오 로그인을 없애면서(2026-11-08) 더 이상 읽지 않는 환경변수다.
+var obsoleteKeys = []string{
+	"KAKAO_REST_API_KEY", "KAKAO_CLIENT_SECRET", "KAKAO_REDIRECT_URI", "KAKAO_APP_ID",
+	"KAKAO_AUTH_BASE", "KAKAO_API_BASE", "ALLOWED_KAKAO_IDS", "DEV_LOGIN_KAKAO_ID",
 }
 
 // Load는 환경변수에서 설정을 읽는다.
@@ -76,19 +125,40 @@ func Load() (Config, error) {
 		CLITokenIssueEnabled: boolean("CLI_TOKEN_ISSUE_ENABLED", true, &errs),
 		ParserPackages:       os.Getenv("PARSER_PACKAGES"),
 		AppEnv:               str("APP_ENV", "production"),
-		KakaoRestAPIKey:      os.Getenv("KAKAO_REST_API_KEY"),
-		KakaoClientSecret:    os.Getenv("KAKAO_CLIENT_SECRET"),
-		KakaoRedirectURI:     os.Getenv("KAKAO_REDIRECT_URI"),
-		KakaoAppID:           int64(integer("KAKAO_APP_ID", 0, &errs)),
-		KakaoAuthBase:        str("KAKAO_AUTH_BASE", "https://kauth.kakao.com"),
-		KakaoAPIBase:         str("KAKAO_API_BASE", "https://kapi.kakao.com"),
-		AllowedKakaoIDs:      int64List("ALLOWED_KAKAO_IDS", &errs),
+		CFAccessAUD:          strings.TrimSpace(os.Getenv("CF_ACCESS_AUD")),
+		AllowedEmails:        emailList("ALLOWED_EMAILS", &errs),
 		CookieSecure:         boolean("COOKIE_SECURE", true, &errs),
 		SessionTTL:           duration("SESSION_TTL", 30*24*time.Hour, &errs),
-		DevLoginKakaoID:      int64(integer("DEV_LOGIN_KAKAO_ID", 0, &errs)),
+		DevLoginEmail:        normalizeEmail(os.Getenv("DEV_LOGIN_EMAIL")),
+		AIProvider:           strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER"))),
+		GeminiAPIKey:         strings.TrimSpace(os.Getenv("GEMINI_API_KEY")),
+		GeminiModel:          str("GEMINI_MODEL", DefaultGeminiModel),
+		AIClassify:           onOff("AI_CLASSIFY", true, &errs),
+		FoodSafetyAPIKey:     strings.TrimSpace(os.Getenv("FOODSAFETY_API_KEY")),
+		DataGoKrAPIKey:       strings.TrimSpace(os.Getenv("DATA_GO_KR_API_KEY")),
 	}
-	if c.DevLoginKakaoID != 0 && c.AppEnv != "development" {
-		errs = append(errs, "DEV_LOGIN_KAKAO_ID는 APP_ENV=development에서만 쓸 수 있습니다")
+	c.CFAccessTeamDomain = teamDomain("CF_ACCESS_TEAM_DOMAIN", &errs)
+	for _, k := range obsoleteKeys {
+		if os.Getenv(k) != "" {
+			c.Obsolete = append(c.Obsolete, k)
+		}
+	}
+	switch c.AIProvider {
+	case "":
+		c.AIProvider = "mock"
+		if c.GeminiAPIKey != "" {
+			c.AIProvider = "gemini"
+		}
+	case "mock":
+	case "gemini":
+		if c.GeminiAPIKey == "" {
+			errs = append(errs, "AI_PROVIDER=gemini에는 GEMINI_API_KEY가 필요합니다")
+		}
+	default:
+		errs = append(errs, "AI_PROVIDER는 mock 또는 gemini여야 합니다")
+	}
+	if c.DevLoginEmail != "" && c.AppEnv != "development" {
+		errs = append(errs, "DEV_LOGIN_EMAIL은 APP_ENV=development에서만 쓸 수 있습니다")
 	}
 	if len(errs) > 0 {
 		return c, fmt.Errorf("환경변수 오류: %s", strings.Join(errs, "; "))
@@ -131,6 +201,20 @@ func boolean(key string, def bool, errs *[]string) bool {
 		return def
 	}
 	return b
+}
+
+// onOff는 on/off(true/false, 1/0도 받음) 스위치를 읽는다.
+func onOff(key string, def bool, errs *[]string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "":
+		return def
+	case "on", "true", "1":
+		return true
+	case "off", "false", "0":
+		return false
+	}
+	*errs = append(*errs, key+"는 on 또는 off여야 합니다")
+	return def
 }
 
 func integer(key string, def int, errs *[]string) int {
@@ -182,16 +266,38 @@ func list(key string) []string {
 	return out
 }
 
-func int64List(key string, errs *[]string) []int64 {
-	var out []int64
+func normalizeEmail(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// emailList는 쉼표로 구분한 이메일 목록을 소문자로 읽는다.
+func emailList(key string, errs *[]string) []string {
+	var out []string
 	for _, s := range list(key) {
-		n, err := strconv.ParseInt(s, 10, 64)
-		if err != nil {
-			*errs = append(*errs, key+"는 쉼표로 구분한 숫자여야 합니다")
+		e := normalizeEmail(s)
+		if strings.Count(e, "@") != 1 || strings.HasPrefix(e, "@") || strings.HasSuffix(e, "@") || strings.ContainsAny(e, " \t<>") {
+			*errs = append(*errs, key+"는 쉼표로 구분한 이메일 주소여야 합니다")
 			return nil
 		}
-		out = append(out, n)
+		out = append(out, e)
 	}
 	return out
 }
 
+// teamDomain은 Access 팀 도메인을 "<팀>.cloudflareaccess.com" 모양으로 읽는다. https://와 끝의 /는 떼어 준다.
+func teamDomain(key string, errs *[]string) string {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	v = strings.TrimSuffix(strings.TrimPrefix(v, "https://"), "/")
+	if v == "" {
+		return ""
+	}
+	for _, r := range v {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '.') {
+			*errs = append(*errs, key+"는 <팀>.cloudflareaccess.com 형식이어야 합니다")
+			return ""
+		}
+	}
+	if !strings.Contains(v, ".") || strings.HasPrefix(v, ".") || strings.HasSuffix(v, ".") {
+		*errs = append(*errs, key+"는 <팀>.cloudflareaccess.com 형식이어야 합니다")
+		return ""
+	}
+	return v
+}

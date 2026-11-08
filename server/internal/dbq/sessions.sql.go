@@ -11,14 +11,14 @@ import (
 )
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO sessions (id_hash, kakao_id, csrf_token, expires_at)
+INSERT INTO sessions (id_hash, email, csrf_token, expires_at)
 VALUES ($1, $2, $3, $4)
-RETURNING id_hash, kakao_id, csrf_token, created_at, expires_at, last_seen_at
+RETURNING id_hash, csrf_token, created_at, expires_at, last_seen_at, email
 `
 
 type CreateSessionParams struct {
 	IDHash    []byte    `json:"id_hash"`
-	KakaoID   int64     `json:"kakao_id"`
+	Email     string    `json:"email"`
 	CsrfToken string    `json:"csrf_token"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
@@ -26,18 +26,18 @@ type CreateSessionParams struct {
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
 	row := q.db.QueryRow(ctx, createSession,
 		arg.IDHash,
-		arg.KakaoID,
+		arg.Email,
 		arg.CsrfToken,
 		arg.ExpiresAt,
 	)
 	var i Session
 	err := row.Scan(
 		&i.IDHash,
-		&i.KakaoID,
 		&i.CsrfToken,
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.LastSeenAt,
+		&i.Email,
 	)
 	return i, err
 }
@@ -69,7 +69,7 @@ func (q *Queries) DeleteSession(ctx context.Context, idHash []byte) error {
 }
 
 const getActiveSession = `-- name: GetActiveSession :one
-SELECT id_hash, kakao_id, csrf_token, created_at, expires_at, last_seen_at
+SELECT id_hash, csrf_token, created_at, expires_at, last_seen_at, email
 FROM sessions
 WHERE id_hash = $1
   AND expires_at > now()
@@ -80,11 +80,11 @@ func (q *Queries) GetActiveSession(ctx context.Context, idHash []byte) (Session,
 	var i Session
 	err := row.Scan(
 		&i.IDHash,
-		&i.KakaoID,
 		&i.CsrfToken,
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.LastSeenAt,
+		&i.Email,
 	)
 	return i, err
 }

@@ -152,7 +152,7 @@
     <tbody>
     {{range .Devices}}
       <tr>
-        <td>{{.Name}} {{if .ViaKakao}}<span class="pill">카카오</span>{{else}}<span class="pill muted">직접 발급</span>{{end}}</td>
+        <td>{{.Name}} {{if eq .Via "app_link"}}<span class="pill" title="{{.Email}}">앱 연결</span>{{else if eq .Via "kakao"}}<span class="pill muted">카카오(예전)</span>{{else}}<span class="pill muted">직접 발급</span>{{end}}</td>
         <td class="nowrap">{{dt .CreatedAt}}</td>
         <td class="nowrap">{{with .LastSeenAt}}{{dt .}}{{else}}-{{end}}</td>
         <td>{{if .RevokedAt}}<span class="pill muted">해제됨</span>{{else}}<span class="pill ok">사용 중</span>{{end}}</td>

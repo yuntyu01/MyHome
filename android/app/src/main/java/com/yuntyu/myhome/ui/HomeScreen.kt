@@ -58,7 +58,7 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Unit
     ) {
         if (!hasToken || app.settings.serverUrl == null) {
             SectionCard("시작하기") {
-                Text("서버 주소를 저장하고 카카오로 로그인(또는 토큰 입력)하세요.")
+                Text("설정에서 '브라우저에서 연결하기'를 눌러 이메일 코드로 한 번 로그인하세요.")
                 Button(onClick = { onNavigate(Screen.SETTINGS) }) { Text("설정 열기") }
                 FilledTonalButton(onClick = { onNavigate(Screen.STATUS) }) { Text("수집 상태·권한") }
             }

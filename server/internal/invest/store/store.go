@@ -585,3 +585,15 @@ func (s *Store) GetRun(ctx context.Context, id int64) (dbq.InvestRun, error) {
 func (s *Store) LastFailedRun(ctx context.Context, cmd string) (dbq.InvestRun, error) {
 	return s.q.LastFailedInvestRun(ctx, cmd)
 }
+
+// ── 실패 알림 ────────────────────────────────────────────────────────
+
+// AddAlert는 실패 알림 한 줄을 남긴다. 앱이 GET /v1/invest/alerts로 읽어 폰 알림을 띄운다.
+func (s *Store) AddAlert(ctx context.Context, p dbq.InsertInvestAlertParams) (dbq.InvestAlert, error) {
+	return s.q.InsertInvestAlert(ctx, p)
+}
+
+// AlertsAfter는 afterID 다음의 알림이다. since보다 오래된 것과 max를 넘는 것은 뺀다.
+func (s *Store) AlertsAfter(ctx context.Context, afterID int64, since time.Time, max int) ([]dbq.InvestAlert, error) {
+	return s.q.ListInvestAlertsAfter(ctx, dbq.ListInvestAlertsAfterParams{AfterID: afterID, Since: since, MaxRows: int32(max)})
+}

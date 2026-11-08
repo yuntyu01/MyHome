@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/yuntyu01/MyHome/server/internal/auth"
+	"github.com/yuntyu01/MyHome/server/internal/auth/accesstest"
 	"github.com/yuntyu01/MyHome/server/internal/config"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
 	"github.com/yuntyu01/MyHome/server/internal/parser"
@@ -26,7 +27,8 @@ import (
 
 type webClient struct {
 	t    *testing.T
-	h    http.Handler
+	h    http.Handler // 모든 요청에 Access JWT(owner)를 붙인다(Cloudflare Access를 거친 브라우저처럼)
+	raw  http.Handler // JWT를 붙이지 않는 원래 서버
 	sess *http.Cookie
 	csrf string
 	pool *pgxpool.Pool
@@ -34,22 +36,42 @@ type webClient struct {
 	proc *pipeline.Processor
 }
 
-// newWebClient는 로그인된 웹 세션을 가진 클라이언트를 만든다.
-func newWebClient(t *testing.T) *webClient {
+// withJWT는 요청에 Access JWT 헤더가 없으면 붙인다.
+func withJWT(h http.Handler, jwt string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(auth.AccessHeader) == "" {
+			r.Header.Set(auth.AccessHeader, jwt)
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// newWebClient는 Access(가짜 키 서버)로 로그인한 웹 세션을 가진 클라이언트를 만든다.
+func newWebClient(t *testing.T) *webClient { t.Helper(); return newWebClientWith(t, nil) }
+
+// newWebClientWith는 설정을 고친 서버로 웹 클라이언트를 만든다(mutate가 nil이면 기본).
+func newWebClientWith(t *testing.T, mutate func(*config.Config)) *webClient {
 	t.Helper()
 	pool := testdb.New(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	reg, _ := parser.NewRegistry("kb=test.kb;toss=test.toss")
 	proc := &pipeline.Processor{Pool: pool, Registry: reg, Logger: logger}
-	cfg := config.Config{MaxBodyBytes: 64 * 1024, RateLimitRPS: 1000, RateLimitBurst: 1000, AllowedKakaoIDs: []int64{allowedID},
-		CookieSecure: true, SessionTTL: time.Hour}
-	h := server.New(server.Deps{Config: cfg, Pool: pool, Logger: logger, Kakao: fakeKakao{}, Processor: proc})
-	rec := webLogin(t, h, "code-allowed")
-	c := &webClient{t: t, h: h, sess: cookie(rec, auth.SessionCookie), pool: pool, q: dbq.New(pool), proc: proc}
+	acc := accesstest.New(t)
+	cfg := config.Config{MaxBodyBytes: 64 * 1024, RateLimitRPS: 1000, RateLimitBurst: 1000, AllowedEmails: []string{ownerEmail},
+		CFAccessTeamDomain: accesstest.Team, CFAccessAUD: accesstest.AUD, CookieSecure: true, SessionTTL: time.Hour, AppEnv: "production"}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	raw := server.New(server.Deps{Config: cfg, Pool: pool, Logger: logger, Processor: proc, Access: acc.Verifier(cfg.IsAllowedEmail)})
+	c := &webClient{t: t, h: withJWT(raw, accesstest.Token(ownerEmail)), raw: raw, pool: pool, q: dbq.New(pool), proc: proc}
 	page := c.get("/")
+	if page.Code != http.StatusOK {
+		t.Fatalf("첫 화면 status %d", page.Code)
+	}
+	c.sess = cookie(page, auth.SessionCookie)
 	m := regexp.MustCompile(`name="csrf_token" value="([^"]+)"`).FindStringSubmatch(page.Body.String())
-	if m == nil {
-		t.Fatal("CSRF 토큰 없음")
+	if c.sess == nil || m == nil {
+		t.Fatal("세션 쿠키나 CSRF 토큰 없음")
 	}
 	c.csrf = m[1]
 	return c
@@ -57,7 +79,9 @@ func newWebClient(t *testing.T) *webClient {
 
 func (c *webClient) get(path string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest("GET", path, nil)
-	req.AddCookie(c.sess)
+	if c.sess != nil {
+		req.AddCookie(c.sess)
+	}
 	return serve(c.h, req)
 }
 
@@ -137,7 +161,8 @@ func TestWebPagesRender(t *testing.T) {
 	if rec := serve(c.h, httptest.NewRequest("GET", "/static/vendor/htmx-2.0.11.min.js", nil)); rec.Code != 200 {
 		t.Errorf("정적 파일 status %d", rec.Code)
 	}
-	if rec := serve(c.h, httptest.NewRequest("GET", "/login", nil)); rec.Code != 200 || !strings.Contains(rec.Body.String(), "카카오로 로그인") {
+	if rec := serve(c.h, httptest.NewRequest("GET", "/login", nil)); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Cloudflare Access") ||
+		strings.Contains(rec.Body.String(), "카카오") {
 		t.Errorf("로그인 화면 status %d", rec.Code)
 	}
 }

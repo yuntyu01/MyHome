@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+type AppLinkCode struct {
+	CodeHash  []byte     `json:"code_hash"`
+	Challenge string     `json:"challenge"`
+	Email     string     `json:"email"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at"`
+}
+
 type Budget struct {
 	PeriodStart time.Time `json:"period_start"`
 	CategoryID  int64     `json:"category_id"`
@@ -32,6 +41,28 @@ type Device struct {
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	RevokedAt  *time.Time `json:"revoked_at"`
 	KakaoID    *int64     `json:"kakao_id"`
+	Email      *string    `json:"email"`
+}
+
+type GymLog struct {
+	GymDate    time.Time  `json:"gym_date"`
+	CheckInAt  *time.Time `json:"check_in_at"`
+	VerifiedBy string     `json:"verified_by"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+type HealthSetting struct {
+	ID        int32     `json:"id"`
+	Doc       []byte    `json:"doc"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type HealthTargetHistory struct {
+	FromDate time.Time `json:"from_date"`
+	Kcal     int32     `json:"kcal"`
+	Carbs    int32     `json:"carbs"`
+	Protein  int32     `json:"protein"`
+	Fat      int32     `json:"fat"`
 }
 
 type InvestAdjustment struct {
@@ -42,6 +73,17 @@ type InvestAdjustment struct {
 	PaidKrw   float64   `json:"paid_krw"`
 	Reason    string    `json:"reason"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type InvestAlert struct {
+	ID        int64     `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	Unit      string    `json:"unit"`
+	Cmd       string    `json:"cmd"`
+	RunID     *int64    `json:"run_id"`
+	ExitCode  *int32    `json:"exit_code"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
 }
 
 type InvestContribution struct {
@@ -115,6 +157,35 @@ type InvestStateHistory struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type MealItem struct {
+	MealLogID int64    `json:"meal_log_id"`
+	Position  int32    `json:"position"`
+	Name      string   `json:"name"`
+	Amount    string   `json:"amount"`
+	Kcal      *int32   `json:"kcal"`
+	Carbs     *int32   `json:"carbs"`
+	Protein   *int32   `json:"protein"`
+	Fat       *int32   `json:"fat"`
+	Portion   *float64 `json:"portion"`
+}
+
+type MealLog struct {
+	ID         int64     `json:"id"`
+	MealDate   time.Time `json:"meal_date"`
+	MealIndex  int32     `json:"meal_index"`
+	Deadline   string    `json:"deadline"`
+	Barcode    *string   `json:"barcode"`
+	Kcal       int32     `json:"kcal"`
+	Carbs      int32     `json:"carbs"`
+	Protein    int32     `json:"protein"`
+	Fat        int32     `json:"fat"`
+	Confidence float64   `json:"confidence"`
+	Portion    float64   `json:"portion"`
+	SharedMeal bool      `json:"shared_meal"`
+	LoggedAt   time.Time `json:"logged_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type MerchantRule struct {
 	ID          int64     `json:"id"`
 	Pattern     string    `json:"pattern"`
@@ -123,6 +194,14 @@ type MerchantRule struct {
 	Flow        *string   `json:"flow"`
 	Priority    int32     `json:"priority"`
 	CreatedFrom string    `json:"created_from"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type MerchantSuggestion struct {
+	MerchantKey string    `json:"merchant_key"`
+	CategoryID  *int64    `json:"category_id"`
+	Confidence  float64   `json:"confidence"`
+	Model       string    `json:"model"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -140,13 +219,20 @@ type RawEvent struct {
 	ParseError    *string    `json:"parse_error"`
 }
 
+type RestCouponUse struct {
+	ID      int64     `json:"id"`
+	UsedOn  time.Time `json:"used_on"`
+	WeekKey time.Time `json:"week_key"`
+	UsedAt  time.Time `json:"used_at"`
+}
+
 type Session struct {
 	IDHash     []byte    `json:"id_hash"`
-	KakaoID    int64     `json:"kakao_id"`
 	CsrfToken  string    `json:"csrf_token"`
 	CreatedAt  time.Time `json:"created_at"`
 	ExpiresAt  time.Time `json:"expires_at"`
 	LastSeenAt time.Time `json:"last_seen_at"`
+	Email      string    `json:"email"`
 }
 
 type Setting struct {

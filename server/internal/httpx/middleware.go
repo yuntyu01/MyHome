@@ -66,6 +66,21 @@ func LimitBody(maxBytes int64, next http.Handler) http.Handler {
 	})
 }
 
+// LimitBodyRoutes는 LimitBody와 같지만 routes에 있는 요청("METHOD /경로", 경로가 정확히 같을 때)은 그 크기까지
+// 받는다. 사진 업로드 한 경로만 크게 열고 나머지 API는 작은 제한을 유지하려고 쓴다.
+func LimitBodyRoutes(maxBytes int64, routes map[string]int64, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			limit := maxBytes
+			if n, ok := routes[r.Method+" "+r.URL.Path]; ok {
+				limit = n
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RateLimiter는 키(IP 등)별 토큰 버킷 제한기다. 오래 안 쓴 키는 주기적으로 지운다.
 type RateLimiter struct {
 	mu       sync.Mutex

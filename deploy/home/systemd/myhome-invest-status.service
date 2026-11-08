@@ -4,6 +4,7 @@
 Description=myhome 자동매매 — deadman
 After=network-online.target postgresql.service
 Wants=network-online.target
+# 실패하면 앱 알림을 남긴다(myhome-alert@.service → invest_alerts → 앱이 읽어 폰 알림)
 OnFailure=myhome-alert@%n.service
 
 [Service]

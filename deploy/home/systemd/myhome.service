@@ -7,7 +7,7 @@
 #   cp deploy/home/systemd/*.service deploy/home/systemd/*.timer /etc/systemd/system/
 #   systemctl daemon-reload && systemctl enable --now myhome.service
 #
-# web.env: DATABASE_URL(웹 역할 — 매매 테이블은 읽기만), MIGRATE_ON_START=false, KAKAO_* / ALLOWED_KAKAO_IDS, PARSER_PACKAGES …
+# web.env: DATABASE_URL(웹 역할 — 매매 테이블은 읽기만), MIGRATE_ON_START=false, CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD / ALLOWED_EMAILS(docs/ACCESS_SETUP.md), HTTP_ADDR=127.0.0.1:8080(Tunnel), PARSER_PACKAGES …
 # 마이그레이션은 배포 스크립트가 소유자 역할로 따로 돌린다 (deploy/home/postgres-roles.sql)
 [Unit]
 Description=myhome 가계부 웹 서버

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -113,5 +114,44 @@ func TestWebBottomNavFiveTabs(t *testing.T) {
 	nav = regexp.MustCompile(`(?s)<nav class="bottom-nav".*?</nav>`).FindString(c.page("/analytics"))
 	if !strings.Contains(nav, `href="/more" aria-current="page"`) {
 		t.Error("분석 화면에서 더보기가 선택돼야 함")
+	}
+}
+
+// 매매 실패 알림(GET /v1/invest/alerts): 앱은 마지막으로 본 id 다음만 받고, 7일 넘은 것은 받지 않는다.
+func TestAppInvestAlertsAPI(t *testing.T) {
+	c := newWebClient(t)
+	if rec := serve(c.h, httptest.NewRequest("GET", "/v1/invest/alerts", nil)); rec.Code != http.StatusUnauthorized {
+		t.Errorf("인증 없이 status %d, want 401", rec.Code)
+	}
+	ctx := context.Background()
+	if _, err := c.pool.Exec(ctx, `INSERT INTO invest_alerts (unit, cmd, title, body, created_at) VALUES
+		('myhome-invest-trade.service', 'trade', '옛 실패', '8일 전', now() - interval '8 days'),
+		('myhome-invest-trade.service', 'trade', '자동매매 주문 실패 (exit 1)', '✗ 증권사 거부', now() - interval '1 hour'),
+		('myhome-invest-judge.service', 'judge', '자동매매 월말 판정 실패 (exit 75)', '가격 없음', now())`); err != nil {
+		t.Fatal(err)
+	}
+	type resp struct {
+		Alerts []struct {
+			ID    int64  `json:"id"`
+			Title string `json:"title"`
+			Body  string `json:"body"`
+		} `json:"alerts"`
+	}
+	var all resp
+	rec := c.deviceGet("/v1/invest/alerts")
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &all) != nil || len(all.Alerts) != 2 || all.Alerts[0].Body != "✗ 증권사 거부" {
+		t.Fatalf("처음: %d %s", rec.Code, rec.Body.String())
+	}
+	var next resp
+	rec = c.deviceGet("/v1/invest/alerts?after=" + strconv.FormatInt(all.Alerts[0].ID, 10))
+	if json.Unmarshal(rec.Body.Bytes(), &next) != nil || len(next.Alerts) != 1 || !strings.Contains(next.Alerts[0].Title, "월말 판정") {
+		t.Fatalf("after: %s", rec.Body.String())
+	}
+	rec = c.deviceGet("/v1/invest/alerts?after=" + strconv.FormatInt(all.Alerts[1].ID, 10))
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"alerts":[]}` {
+		t.Fatalf("다 본 뒤: %s", rec.Body.String())
+	}
+	if rec := c.deviceGet("/v1/invest/alerts?after=x"); rec.Code != http.StatusBadRequest {
+		t.Errorf("after=x status %d", rec.Code)
 	}
 }

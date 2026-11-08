@@ -33,10 +33,11 @@ data class EventResponse(
 @Serializable
 data class ErrorResponse(val error: String = "")
 
-/** POST /v1/auth/kakao/device 요청: 카카오 SDK가 준 액세스 토큰을 서버가 검증한다. */
+/** POST /v1/auth/exchange 요청: 브라우저 로그인 뒤 받은 1회용 코드와 PKCE verifier로 기기 토큰을 받는다. */
 @Serializable
-data class DeviceLoginRequest(
-    @SerialName("access_token") val accessToken: String,
+data class AppLinkExchange(
+    val code: String,
+    val verifier: String,
     @SerialName("device_name") val deviceName: String,
 )
 

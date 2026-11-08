@@ -2,6 +2,7 @@ package com.yuntyu.myhome.core
 
 import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.core.api.EventPayload
+import com.yuntyu.myhome.core.api.InvestAlerts
 import com.yuntyu.myhome.core.api.InvestStatus
 import com.yuntyu.myhome.core.api.InvestValue
 import com.yuntyu.myhome.core.api.MyHomeApi
@@ -72,22 +73,32 @@ class ApiTest {
         assertEquals(UploadDecision.RETRY, dead.postEvent(payload).toUploadDecision())
     }
 
-    @Test fun kakaoDeviceLoginWithoutDeviceToken() {
+    @Test fun exchangeAppLinkWithoutDeviceToken() {
         token = null // 아직 기기 토큰이 없어도 호출할 수 있어야 한다
         server.enqueue(MockResponse().setResponseCode(201).setBody("""{"token":"mhd_new","device_id":3,"device_name":"galaxy"}"""))
-        val r = api().kakaoDeviceLogin("kakao-at", "galaxy")
+        val r = api().exchangeAppLink("code1", "v".repeat(43), "galaxy")
         assertTrue(r is ApiResult.Ok)
         assertEquals("mhd_new", (r as ApiResult.Ok).value.token)
         val req = server.takeRequest()
-        assertEquals("/v1/auth/kakao/device", req.path)
+        assertEquals("/v1/auth/exchange", req.path)
         assertEquals(null, req.getHeader("Authorization"))
-        assertTrue(req.body.readUtf8().contains("\"access_token\":\"kakao-at\""))
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("\"code\":\"code1\"") && body.contains("\"device_name\":\"galaxy\""))
     }
 
-    @Test fun kakaoNotAllowed() {
-        server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":"kakao account not allowed","kakao_id":9}"""))
-        val r = api().kakaoDeviceLogin("x", "y")
-        assertEquals(403, (r as ApiResult.HttpError).code)
+    @Test fun exchangeRejected() {
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":"invalid code"}"""))
+        val r = api().exchangeAppLink("x", "y", "z")
+        assertEquals(401, (r as ApiResult.HttpError).code)
+    }
+
+    // RFC 7636 부록 B의 예시 값
+    @Test fun pkceChallengeMatchesRfc() {
+        assertEquals("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", AppLinkPkce.challengeOf("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"))
+        val v = AppLinkPkce.newVerifier()
+        assertEquals(43, v.length)
+        assertTrue(v.all { it.isLetterOrDigit() || it == '-' || it == '_' })
+        assertEquals("https://x.test/app/link?challenge=abc&state=s1", AppLinkPkce.linkUrl("https://x.test/", "abc", "s1"))
     }
 
     @Test fun notConfigured() {
@@ -129,10 +140,36 @@ class ApiTest {
         assertEquals("자동매수", v.ledger!!.single().source)
     }
 
+    // 매매 실패 알림: 마지막으로 본 id를 after로 보낸다 (합성 데이터)
+    @Test fun investAlerts() {
+        server.enqueue(MockResponse().setBody(
+            """{"alerts":[{"id":7,"created_at":"2026-11-08T09:17:00+09:00","title":"자동매매 주문 실패 (exit 1)","body":"✗ 합성 거부"}]}""",
+        ))
+        val r = (api().investAlerts(6) as ApiResult.Ok<InvestAlerts>).value
+        assertEquals("/v1/invest/alerts?after=6", server.takeRequest().path)
+        assertEquals(7L, r.alerts.single().id)
+        assertEquals("✗ 합성 거부", r.alerts.single().body)
+    }
+
     // 옮기기 전에는 migrated만 false로 온다(목록은 null)
     @Test fun investNotMigrated() {
         server.enqueue(MockResponse().setBody("""{"migrated":false,"symbol":"","shares":0,"month":{"title":"","meta":"","value":"","bad":false},"schedule":null,"checks":null,"problems":0}"""))
         val s = (api().invest() as ApiResult.Ok<InvestStatus>).value
         assertTrue(!s.migrated && s.schedule == null)
+    }
+
+    // 확인 목록의 AI 추천 (합성 데이터). 추천이 없으면 null
+    @Test fun reviewItemsCarrySuggestion() {
+        server.enqueue(MockResponse().setBody(
+            """{"transactions":[
+              {"id":1,"occurred_at":"2026-11-08T03:00:00Z","amount":8900,"flow":"out","merchant":"합성식당","status":"needs_review","review_reason":"no_rule",
+               "suggestion":{"category_id":3,"category":"식비","confidence":0.82}},
+              {"id":2,"occurred_at":"2026-11-08T04:00:00Z","amount":12000,"flow":"out","merchant":"쿠팡","status":"needs_review","review_reason":"payment_gateway","suggestion":null}
+            ]}""",
+        ))
+        val items = (api().reviewQueue() as ApiResult.Ok).value.transactions
+        assertEquals(3L, items[0].suggestion?.categoryId)
+        assertEquals("식비", items[0].suggestion?.category)
+        assertEquals(null, items[1].suggestion)
     }
 }

@@ -19,27 +19,38 @@ fun buildSetting(key: String, default: String = ""): String =
 
 android {
     namespace = "com.yuntyu.myhome"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.yuntyu.myhome"
+        // Play에서는 예전 핏두잉 앱 자리를 그대로 쓴다(패키지 이름은 바꿀 수 없다). docs/DECISIONS.md 「Play 배포」
+        applicationId = "com.fitdoing.app"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        targetSdk = 36
+        // 2025-01-01부터 흐른 분. 핏두잉이 올린 번호보다 항상 크고, CI가 몇 번 돌든 늘어난다.
+        versionCode = buildSetting("android.versioncode").toIntOrNull()
+            ?: ((System.currentTimeMillis() / 1000 - 1_735_689_600) / 60).toInt()
+        versionName = buildSetting("android.versionname", "0.2.0")
 
         // 기본 서버 주소(선택). 앱 설정 화면에서 바꿀 수 있다.
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"${buildSetting("myhome.serverUrl")}\"")
+    }
 
-        // 카카오 네이티브 앱 키: local.properties의 kakao.nativeAppKey 또는 환경변수 KAKAO_NATIVEAPPKEY.
-        // 비어 있으면 카카오 로그인 버튼이 비활성화되고 "토큰 직접 입력"만 쓸 수 있다.
-        val kakaoKey = buildSetting("kakao.nativeAppKey")
-        buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"$kakaoKey\"")
-        manifestPlaceholders["kakaoScheme"] = if (kakaoKey.isBlank()) "kakaodisabled" else "kakao$kakaoKey"
+    // 업로드 키(핏두잉 것과 같은 키). 값은 local.properties 또는 환경변수(KEYSTORE_FILE·KEYSTORE_PASSWORD·KEY_ALIAS·KEY_PASSWORD)로만 받는다.
+    val keystoreFile = buildSetting("keystore.file")
+    signingConfigs {
+        if (keystoreFile.isNotEmpty()) {
+            create("upload") {
+                storeFile = file(keystoreFile)
+                storePassword = buildSetting("keystore.password")
+                keyAlias = buildSetting("key.alias")
+                keyPassword = buildSetting("key.password")
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (keystoreFile.isNotEmpty()) signingConfig = signingConfigs.getByName("upload")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -89,7 +100,6 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.kakao.user)
 
     testImplementation(libs.junit)
 }

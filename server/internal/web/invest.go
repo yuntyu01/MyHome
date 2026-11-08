@@ -481,3 +481,41 @@ func derefStr(p *string) string {
 	}
 	return *p
 }
+
+const (
+	// investAlertsMaxAge보다 오래된 실패 알림은 앱에 주지 않는다(새로 연결한 기기에 옛 알림을 쏟지 않게).
+	investAlertsMaxAge = 7 * 24 * time.Hour
+	investAlertsMax    = 20
+)
+
+// investAlert는 앱이 폰 알림으로 띄우는 매매 실패 한 건이다.
+type investAlert struct {
+	ID        int64     `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+}
+
+// apiInvestAlerts는 GET /v1/invest/alerts?after=<id>다. after 다음의 실패 알림을 오래된 것부터 준다.
+func (wb *Web) apiInvestAlerts(w http.ResponseWriter, r *http.Request) {
+	var after int64
+	if v := r.URL.Query().Get("after"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			httpx.Error(w, http.StatusBadRequest, "after는 0 이상의 정수")
+			return
+		}
+		after = n
+	}
+	rows, err := store.New(wb.API.Pool, "web").AlertsAfter(r.Context(), after, time.Now().Add(-investAlertsMaxAge), investAlertsMax)
+	if err != nil {
+		wb.Logger.Error("매매 실패 알림 조회 실패", "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	out := make([]investAlert, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, investAlert{ID: a.ID, CreatedAt: a.CreatedAt, Title: a.Title, Body: a.Body})
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"alerts": out})
+}

@@ -12,9 +12,15 @@
   <h1>내 가계부</h1>
   <p class="muted">결제 알림으로 자동으로 쓰는 개인 가계부</p>
   <div class="card">
-    <a class="btn kakao" href="/auth/kakao/login">카카오로 로그인</a>
-    {{if .DevLogin}}<p style="margin:14px 0 0"><a class="btn ghost" href="/auth/dev-login">개발용 로그인</a></p>{{end}}
-    <p class="muted small" style="margin:14px 0 0">등록된 카카오 계정만 들어올 수 있어요.</p>
+    {{if .Access}}
+    <a class="btn wide" href="/">가계부 열기</a>
+    <p class="muted small" style="margin:14px 0 0">구글 계정으로 로그인해요(Cloudflare Access). 등록된 계정만 들어올 수 있어요.</p>
+    {{else if .DevLogin}}
+    <a class="btn wide" href="/auth/dev-login">개발용 로그인</a>
+    <p class="muted small" style="margin:14px 0 0">로컬 개발 모드예요(APP_ENV=development).</p>
+    {{else}}
+    <p class="muted small" style="margin:0">로그인 방법이 설정되지 않았어요. 운영은 Cloudflare Access(CF_ACCESS_*), 로컬 개발은 DEV_LOGIN_EMAIL을 설정하세요.</p>
+    {{end}}
   </div>
 </main>
 </body>

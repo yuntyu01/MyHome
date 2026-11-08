@@ -15,7 +15,7 @@ import (
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
 )
 
-// tokenCmd는 기기 토큰을 관리한다. 카카오 로그인(Phase 4)이 정상 경로이고, 이 명령은 비상용이다.
+// tokenCmd는 기기 토큰을 관리한다. 앱 연결(/app/link, Cloudflare Access 로그인)이 정상 경로이고, 이 명령은 비상용이다.
 func tokenCmd(ctx context.Context, cfg config.Config, args []string, out io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("token issue|list|revoke 중 하나를 지정하세요")

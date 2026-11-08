@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 카메라 앱이 끼니 사진을 써 넣을 곳 (FileProvider). 폰 안에만 있다. -->
+<paths>
+    <files-path name="meal_photos" path="meal_photos/" />
+</paths>

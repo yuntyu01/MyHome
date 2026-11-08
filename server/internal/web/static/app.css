@@ -34,8 +34,6 @@
   --over: #A15A36;
   --over-bar: #C07B58;
   --in: #5E5E5E;
-  --kakao: #FEE500;
-  --kakao-ink: #191600;
   /* 차트 팔레트: 분류를 구분해야 하는 곳에만 쓴다 */
   --c1: #B3A5DC; --c2: #DBA784; --c3: #8FC7A6; --c4: #D8BE8E; --c5: #D9A5C0;
   --c6: #84C4BE; --c7: #ACB67E; --c8: #A8A8A8; --c9: #C8C8C8; --c10: #8E8E8E;
@@ -221,7 +219,7 @@ code { background: var(--raised); padding: 0.05em 0.35em; border-radius: 6px; fo
 .btn:hover { filter: brightness(1.05); text-decoration: none; }
 .btn.ghost { background: var(--raised); color: var(--text); }
 .btn.small { min-height: 32px; padding: 0 12px; font-size: 0.85rem; }
-.btn.kakao { background: var(--kakao); color: var(--kakao-ink); width: 100%; min-height: 52px; font-size: 1rem; }
+.btn.wide { width: 100%; min-height: 52px; font-size: 1rem; }
 .link-btn { background: none; border: 0; color: var(--accent-ink); cursor: pointer; font: inherit; padding: 0.25rem 0.35rem; border-radius: 8px; }
 .link-btn:hover { background: var(--pressed); }
 .link-btn.danger { color: var(--over); }
@@ -339,6 +337,10 @@ td.raw { max-width: 26rem; overflow-wrap: anywhere; font-size: 0.85rem; }
 .btn.cat { background: var(--raised); color: var(--text); min-height: 46px; font-weight: 500; }
 .btn.cat:hover { background: var(--pill); filter: none; }
 .btn.cat.special { background: var(--pill); }
+/* AI 추천: 한 번 누르는 주 버튼(무채색 강조색, 빨강·파랑 없음). 아래 수동 분류는 그대로 */
+.suggest-row { margin: 0 0 14px; text-align: center; }
+.suggest-row .btn.suggest { overflow: hidden; text-overflow: ellipsis; }
+.suggest-row p { margin: 6px 0 0; }
 .remember, label.remember.toggle { display: flex; gap: 8px; align-items: center; justify-content: center; }
 .settle-row { text-align: center; margin-top: 10px; }
 .settle-row label { display: inline-flex; flex-direction: column; gap: 4px; }

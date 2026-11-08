@@ -11,8 +11,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // 카카오 안드로이드 SDK 저장소 (Phase 4)
-        maven { url = uri("https://devrepo.kakao.com/nexus/content/groups/public/") }
     }
 }
 

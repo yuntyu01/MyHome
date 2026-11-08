@@ -2,11 +2,12 @@
 # refresh는 야후가 당일 종가를 늦게 줄 때(종료 코드 75) 15분 간격으로 6번까지 다시 받는다.
 #
 # trader.env (0600, 소유자 myhome-trader): DATABASE_URL(매매 역할), TOSS_APP_KEY, TOSS_APP_SECRET, TOSS_ACCOUNT,
-#   MAIL_FROM, MAIL_TO, GMAIL_APP_PASSWORD, INVEST_HEARTBEAT_URL
+#   INVEST_HEARTBEAT_URL
 [Unit]
 Description=myhome 자동매매 — 월말 판정
 After=network-online.target postgresql.service
 Wants=network-online.target
+# 실패하면 앱 알림을 남긴다(myhome-alert@.service → invest_alerts → 앱이 읽어 폰 알림)
 OnFailure=myhome-alert@%n.service
 
 [Service]

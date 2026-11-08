@@ -2,7 +2,10 @@ package com.yuntyu.myhome.core.api
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
@@ -33,6 +36,10 @@ class MyHomeApi(
     /** 투자 평가 화면(평가액·원금·원금 내역, 읽기 전용) */
     fun investValue(): ApiResult<InvestValue> = call("GET", "/v1/invest/value", null, InvestValue.serializer())
 
+    /** 매매 실패 알림 중 [after] 다음 것(오래된 것부터, 7일 안). 앱 주기 작업이 폰 알림으로 띄운다. */
+    fun investAlerts(after: Long): ApiResult<InvestAlerts> =
+        call("GET", "/v1/invest/alerts?after=$after", null, InvestAlerts.serializer())
+
     /** 확인 필요 거래 목록 */
     fun reviewQueue(): ApiResult<TransactionList> = call("GET", "/v1/review", null, TransactionList.serializer())
 
@@ -46,12 +53,12 @@ class MyHomeApi(
     fun editTransaction(id: Long, edit: TransactionEdit): ApiResult<EditResponse> =
         call("PATCH", "/v1/transactions/$id", MyHomeJson.encodeToString(TransactionEdit.serializer(), edit), EditResponse.serializer())
 
-    /** 카카오 로그인으로 기기 토큰을 받는다. 기기 토큰이 아직 없으므로 인증 없이 호출한다. */
-    fun kakaoDeviceLogin(kakaoAccessToken: String, deviceName: String): ApiResult<DeviceLoginResponse> =
+    /** 브라우저(구글 로그인)에서 받은 1회용 코드를 기기 토큰으로 바꾼다. 기기 토큰이 아직 없으므로 인증 없이 호출한다. */
+    fun exchangeAppLink(code: String, verifier: String, deviceName: String): ApiResult<DeviceLoginResponse> =
         call(
             "POST",
-            "/v1/auth/kakao/device",
-            MyHomeJson.encodeToString(DeviceLoginRequest.serializer(), DeviceLoginRequest(kakaoAccessToken, deviceName)),
+            "/v1/auth/exchange",
+            MyHomeJson.encodeToString(AppLinkExchange.serializer(), AppLinkExchange(code, verifier, deviceName)),
             DeviceLoginResponse.serializer(),
             auth = false,
         )
@@ -63,17 +70,29 @@ class MyHomeApi(
         jsonBody: String?,
         responseSerializer: KSerializer<T>,
         auth: Boolean = true,
+    ): ApiResult<T> = send(method, path, jsonBody?.toRequestBody(JSON), responseSerializer, auth, client)
+
+    private fun <T> send(
+        method: String,
+        path: String,
+        body: RequestBody?,
+        responseSerializer: KSerializer<T>,
+        auth: Boolean,
+        http: OkHttpClient,
     ): ApiResult<T> {
         val base = baseUrl()?.takeIf { it.isNotBlank() } ?: return ApiResult.NotConfigured("서버 주소")
-        val builder = Request.Builder().url(base.trimEnd('/') + path)
+        val builder = try {
+            Request.Builder().url(base.trimEnd('/') + path)
+        } catch (e: IllegalArgumentException) {
+            return ApiResult.NotConfigured("서버 주소 형식")
+        }
         if (auth) {
             val tok = token()?.takeIf { it.isNotBlank() } ?: return ApiResult.NotConfigured("기기 토큰")
             builder.header("Authorization", "Bearer $tok")
         }
-        val body: RequestBody? = jsonBody?.toRequestBody(JSON)
         builder.method(method, body ?: if (method == "POST" || method == "PUT" || method == "PATCH") ByteArray(0).toRequestBody(JSON) else null)
         return try {
-            client.newCall(builder.build()).execute().use { resp ->
+            http.newCall(builder.build()).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (resp.isSuccessful) {
                     try {
@@ -95,8 +114,61 @@ class MyHomeApi(
 
     inline fun <reified T> get(path: String): ApiResult<T> = call("GET", path, null, serializer<T>())
 
+    // ── 건강(핏두잉 이식). 날짜는 "yyyy-MM-dd", 시각은 "HH:mm" ──
+
+    fun healthToday(date: String, now: String): ApiResult<HealthToday> =
+        call("GET", "/v1/health/today?date=$date&now=${q(now)}", null, HealthToday.serializer())
+
+    fun healthWeekly(date: String): ApiResult<HealthWeekly> = call("GET", "/v1/health/weekly?date=$date", null, HealthWeekly.serializer())
+
+    fun healthMonth(month: String): ApiResult<HealthMonth> = call("GET", "/v1/health/records/month?month=$month", null, HealthMonth.serializer())
+
+    fun healthDay(date: String): ApiResult<DayCard> = call("GET", "/v1/health/records/day?date=$date", null, DayCard.serializer())
+
+    fun healthSettings(): ApiResult<HealthSettingsView> = call("GET", "/v1/health/settings", null, HealthSettingsView.serializer())
+
+    /** 받은 설정 원본에 바꾼 필드만 덮어써서 보낸다(모르는 필드를 지우지 않게). */
+    fun putHealthSettings(settings: JsonObject): ApiResult<HealthSettingsView> =
+        call("PUT", "/v1/health/settings", MyHomeJson.encodeToString(JsonObject.serializer(), settings), HealthSettingsView.serializer())
+
+    fun saveMeal(req: MealRequest): ApiResult<JsonElement> =
+        call("POST", "/v1/health/meals", MyHomeJson.encodeToString(MealRequest.serializer(), req), JsonElement.serializer())
+
+    fun deleteMeal(date: String, index: Int): ApiResult<JsonElement> =
+        call("DELETE", "/v1/health/meals?date=$date&index=$index", null, JsonElement.serializer())
+
+    fun gymCheckIn(date: String, verifiedBy: String): ApiResult<JsonElement> =
+        call("POST", "/v1/health/gym/check-in", MyHomeJson.encodeToString(GymCheckIn.serializer(), GymCheckIn(date, verifiedBy)), JsonElement.serializer())
+
+    fun restSummary(): ApiResult<RestSummary> = call("GET", "/v1/health/rest", null, RestSummary.serializer())
+
+    fun useRest(date: String): ApiResult<JsonElement> =
+        call("POST", "/v1/health/rest", MyHomeJson.encodeToString(RestRequest.serializer(), RestRequest(date)), JsonElement.serializer())
+
+    fun recommendTargets(goal: String, weightKg: Double, heightCm: Int, age: Int, sex: String, activity: String, mode: String = "balanced"): ApiResult<Recommendation> =
+        call(
+            "GET",
+            "/v1/health/targets/recommend?goal=${q(goal)}&weightKg=$weightKg&heightCm=$heightCm&age=$age&sex=${q(sex)}&activity=${q(activity)}&mode=${q(mode)}",
+            null,
+            Recommendation.serializer(),
+        )
+
+    /**
+     * 끼니 사진(1~3장, JPEG)을 분석한다. 사진은 서버에 저장되지 않고 AI 분석에만 쓰인다.
+     * AI 호출이 오래 걸릴 수 있어 읽기 제한 시간을 늘린다.
+     */
+    fun analyzeMeal(photos: List<ByteArray>): ApiResult<FoodResult> {
+        val form = MultipartBody.Builder().setType(MultipartBody.FORM)
+        photos.forEachIndexed { i, b -> form.addFormDataPart("photo", "meal$i.jpg", b.toRequestBody(JPEG)) }
+        val slow = client.newBuilder().readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
+        return send("POST", "/v1/health/meals/analyze", form.build(), FoodResult.serializer(), true, slow)
+    }
+
+    private fun q(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
+
     companion object {
         val JSON = "application/json; charset=utf-8".toMediaType()
+        val JPEG = "image/jpeg".toMediaType()
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)

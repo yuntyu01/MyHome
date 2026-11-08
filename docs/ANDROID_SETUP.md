@@ -15,10 +15,10 @@ cd android
 ```properties
 sdk.dir=/path/to/Android/sdk
 # 앱 첫 실행 때 기본으로 들어갈 서버 주소 (설정 화면에서 바꿀 수 있음)
-myhome.serverUrl=https://money.example.com
-# Phase 4: 카카오 네이티브 앱 키 (docs/KAKAO_SETUP.md)
-kakao.nativeAppKey=
+myhome.serverUrl=https://myhome.kodeploy.com
 ```
+
+카카오 SDK와 네이티브 앱 키는 쓰지 않는다(2026-11-08, 로그인을 Cloudflare Access로 바꿈). 예전 `kakao.nativeAppKey` 줄은 지워도 된다.
 
 > 라이브러리 버전은 `android/gradle/libs.versions.toml` 한 곳에 있다. 작업 환경에서 Google Maven을 쓸 수 없어서 앱 모듈은 실제로 빌드해 보지 못했다(`docs/PROGRESS.md` 참고). 첫 빌드에서 버전 문제가 나면 Android Studio의 업그레이드 도우미로 올리면 된다.
 
@@ -48,7 +48,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 앱 홈 → **설정**
 
 1. 서버 주소 입력 → 저장 (**실사용(릴리스) 빌드는 https만**. 개발용 http — 에뮬레이터 `http://10.0.2.2:8080`, 같은 Wi-Fi의 개발 PC `http://192.168.x.x:8080` — 는 **디버그 빌드에서만** 된다)
-2. 토큰: Phase 4 이후에는 **카카오 로그인**. 그 전이나 비상시에는 서버에서 발급한 토큰을 "토큰 직접 입력"에 넣는다.
+2. **브라우저에서 연결하기** → Cloudflare Access 로그인(이메일 코드) → 앱으로 자동 복귀하면 연결 끝(서버 설정은 `docs/ACCESS_SETUP.md`). 저절로 돌아오지 않으면 브라우저 화면의 "앱으로 돌아가기"를 누른다. 연결 코드는 5분 동안 한 번만 쓸 수 있어서, 실패하면 처음부터 다시 누른다.
+3. 비상시(연결이 안 될 때)에는 서버에서 발급한 토큰을 "토큰 직접 입력"에 넣는다.
    ```
    /myhome token issue --name galaxy
    ```
@@ -106,7 +107,7 @@ SELECT id, source_package, title, received_at FROM raw_events ORDER BY id DESC L
 | 증상 | 확인할 것 |
 |---|---|
 | 알림이 안 사라짐 | 설정의 "자동 삭제", 전송 로그 실패 여부, 알림 접근 권한 |
-| 전송 로그에 HTTP 401 | 토큰이 틀렸거나 폐기됨 → 다시 로그인하거나 토큰 재발급 |
+| 전송 로그에 HTTP 401 | 토큰이 틀렸거나 폐기됨 → "브라우저에서 연결하기"로 다시 연결하거나 토큰 재발급 |
 | 한참 뒤에야 전송됨 | 배터리 최적화 예외, 삼성 절전 설정 |
 | 재부팅 후 안 됨 | 알림 접근 권한이 꺼졌는지 확인. 대기열은 재부팅 후에도 유지된다 |
 | "거부됨" 로그 | 서버가 형식 오류로 거부. 원문은 폰에 보관됨 → 서버 수정 후 설정의 "다시 보내기" |

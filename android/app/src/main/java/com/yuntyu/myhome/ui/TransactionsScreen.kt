@@ -1,6 +1,8 @@
 package com.yuntyu.myhome.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -31,7 +33,7 @@ import kotlinx.coroutines.withContext
 
 /** 이번 달 최근 거래(최대 100건). 자세한 수정은 PC 웹에서. */
 @Composable
-fun TransactionsScreen(modifier: Modifier) {
+fun TransactionsScreen(modifier: Modifier, reviewCount: Long = 0, onNavigate: (Screen) -> Unit = {}) {
     var items by remember { mutableStateOf<List<TransactionDto>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
@@ -41,6 +43,16 @@ fun TransactionsScreen(modifier: Modifier) {
         }
     }
     LazyColumn(modifier.fillMaxSize()) {
+        if (reviewCount > 0) item {
+            val m = LocalModo.current
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(m.pill)
+                    .clickable { onNavigate(Screen.REVIEW) }.padding(horizontal = 18.dp, vertical = 14.dp),
+            ) {
+                Text("확인이 필요한 거래 ${reviewCount}건", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                Text("›", color = m.muted)
+            }
+        }
         if (items == null) item { Text(error?.let { "불러오지 못했어요: $it" } ?: "불러오는 중…", Modifier.padding(16.dp)) }
         items(items.orEmpty(), key = { it.id }) { t ->
             val excluded = t.status == "excluded"

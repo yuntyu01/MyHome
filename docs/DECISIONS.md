@@ -72,6 +72,8 @@
 
 ## Phase 4
 
+> 2026-11-08에 카카오 로그인을 없애고 Cloudflare Access + 앱 연결 코드로 바꿨다. 아래는 그때까지의 기록이다. 지금 방식은 맨 아래 「로그인: Cloudflare Access」.
+
 - **카카오 회원번호 확인은 `GET /v1/user/access_token_info` 하나로** — 회원번호(`id`)와 앱 ID(`app_id`)를 같이 준다. 앱 ID 확인으로 다른 카카오 앱에서 받은 토큰을 거부할 수 있다(`KAKAO_APP_ID` 설정 시) — `auth.KakaoHTTP.TokenInfo`. 엔드포인트 주소는 기본값이고 설정으로 바꿀 수 있다(실제 API로 확인 못 함).
 - **카카오 API는 `auth.Kakao` 인터페이스로 분리, 테스트는 가짜 구현** — 키가 없는 환경에서도 로그인 흐름 전체를 테스트하기 위해. 실제 구현의 요청 형식은 httptest 서버로 따로 확인.
 - **웹 세션은 DB 테이블(`sessions`) + 쿠키 원문은 해시만 저장** — 서버 재시작에도 로그인 유지, 쿠키 유출 시 DB만으로는 재사용 불가 — `migrations/00003_sessions.sql`.
@@ -185,7 +187,7 @@
 - **시세는 야후 chart API를 표준 라이브러리로 직접 호출** — yfinance에 해당하는 Go 라이브러리가 없고, 토스 시세 API에는 신호 입력(S&P500·NDX)이 없다. 원종가(`quote.close`)와 거래소 시간대 날짜를 쓴다. 2026-11-06 실측 대조에서 SPX·ETF 오차 0, NDX 1.4e-7 — `invest/yahoo`.
 - **토스 클라이언트는 표준 라이브러리만** — 토큰은 클라이언트당 1개만 유효해 0600 파일로 캐시해 재사용한다. 주문 POST는 재시도하지 않고, 결정적 `clientOrderId`가 이중 주문을 막는다 — `invest/toss`.
 - **웹은 토스를 부르지 않는다** — 토큰이 1개뿐이라 두 프로세스가 각자 받으면 서로를 무효화한다. 화면의 보유 현황은 매매 작업이 DB에 남긴 상태를 보여준다.
-- **실패 메일만 + 외부 하트비트** — TQ §7.0 그대로 정상 흐름은 화면이 말한다. `status`가 성공하면 `INVEST_HEARTBEAT_URL`에 신호를 보내 VM 자체의 죽음은 외부가 잡는다 — `invest/run/alert.go`.
+- **매매 실패는 메일 대신 앱 알림 (사용자 결정, 2026-11-08)** - Gmail 앱 비밀번호를 VM에 두지 않으려고 메일을 뺐다(`MAIL_*`·`GMAIL_APP_PASSWORD`·`SMTP_*` 없음). invest 유닛이 실패하면 `OnFailure=`가 `myhome-alert@.service`(`myhome invest alert --unit`)를 불러 `invest_alerts`에 한 줄을 남기고, 앱이 위젯 갱신 주기(30분·결제 전송 직후)에 `GET /v1/invest/alerts?after=<id>`로 읽어 "자동매매 실패" 채널(소리 있음)로 띄운다. 그래서 알림은 최대 30분쯤 늦을 수 있고, 서버는 7일 안의 것만 준다. 푸시(FCM)는 Firebase 키를 하나 더 두게 돼서 안 썼다. VM 자체가 죽은 것은 `status` 성공 때 보내는 `INVEST_HEARTBEAT_URL` 신호가 끊기는 것으로 외부가 잡는다. 메일을 다시 쓰려면 git 기록에서 메일판 `invest/run/alert.go`를 본다.
 - **버린 것** — X·Threads 공개 기록과 차트 발행(pipeline/, x/), KIS 어댑터(교훈만 주석으로), Cloudflare Worker 뷰어와 GitHub Actions 우회책(러너 IP 게이트, workflow_run). **보관한 것** — 백테스트·마스터·환율 원본 xlsx를 참고용으로 `docs/tq/`에. 백테스트 결과는 화면에 넣지 않는다(TQ 규칙: 평균 하나로 판단하게 만든다).
 - **마이그레이션은 `myhome invest import-tq` 1회** — 빈 DB에만 쓰고, 쓰기 전에 336행 대조와 원금 장부 대조, 쓴 뒤에 다시 읽어 원본 대조. 가격은 `scripts/tq_export.py`로 parquet → CSV.
 
@@ -194,3 +196,85 @@
 - **홈은 예산 요약 그대로, 투자는 칸을 따로** — 이 앱은 알림으로 모아 분류하고 돈을 아껴 쓰려고 만든다. 홈은 남은 돈·분류별 막대·확인 필요·최근 거래를 유지하고, 자동매매는 가계부와 섞지 않고 투자 칸 하나로 뺐다.
 - **하단바 5칸: 앱은 홈·거래·확인·투자·설정, 휴대폰 웹은 홈·거래·확인·투자·더보기** — 6칸이면 한 칸이 너무 좁다. 웹의 분석은 가끔 보는 화면이라 더보기 맨 위로 옮겼다(분석 화면에서는 더보기 칸이 선택됨). 앱 칸은 고정 폭 대신 똑같이 나눈다 — 웹 `layout.html`의 `bottom-nav`, `more.html`, 앱 `ModoBottomBar`.
 - **앱 투자 칸은 `GET /v1/invest`·`/v1/invest/value`를 읽기만** — 웹 투자 화면과 같은 함수(`loadInvestStatus`·`loadInvestValue`)의 값을 JSON으로 준다. 기기 토큰으로 읽을 수 있게 됐지만 쓰기 라우트는 없고, 토스도 부르지 않는다(위 「웹은 토스를 부르지 않는다」와 같음). 첫 화면에는 시장 숫자가 없고 '평가 보기'에만 있다 — `web/invest.go`의 `apiInvest`, 앱 `InvestScreen.kt`.
+
+## 건강 (핏두잉 이식, 2026-11-08)
+
+- **핏두잉 서버의 개인용 부분을 이 서버로 옮김** - 사용자 1명이 가계부와 식단·헬스를 한 서버, 한 앱으로 쓰려고. 원본은 `/root/study/fitdoing/server`(gorm, 다중 사용자)이고 여기서는 pgx·sqlc·goose, `user_id` 없는 표로 다시 썼다. 새 패키지는 `internal/ai`(Gemini), `internal/health`(설정·목표·끼니·헬스·휴식권·화면 계산), `internal/health/foods`(바코드). 장소 검색(`internal/health/places`)은 2026-11-08에 뺐다(아래 「헬스장 위치 기능 제거」). 다시 떼려면 이 패키지들과 `00006_health.sql`을 따로 서비스로 옮기고 `server.New`의 `newHealth` 한 줄을 지운다.
+- **JSON·쿼리 이름은 핏두잉 그대로(camelCase)** - 가계부 API(snake_case)와 다르지만, 앱 쪽이 핏두잉 서버 구조체와 앱 클라이언트를 보고 모델을 만든다. 뺀 필드만 지웠고 이름은 하나도 바꾸지 않았다. 바꾸려면 `internal/health`의 json 태그와 앱 `HealthModels.kt`를 같이 고친다.
+- **오류 본문은 가계부 모양 `{"error": 메시지}`에 핏두잉 코드 `"code"`를 더함** - 앱이 `COUPON_EMPTY`·`PHOTO_TOO_LARGE`·`TARGET_BELOW_MINIMUM` 같은 경우를 상태 코드만으로 구분할 수 없다. 메시지는 핏두잉의 한국어 문구를 그대로 써서 화면에 바로 보여줄 수 있다 - `health/errors.go`.
+- **뺀 것** - 핏두잉의 로그인·회원·기기(가계부 로그인과 기기 토큰을 쓴다), 친구·피드·댓글·공유 페이지, 관리자 화면과 사용자별 AI 모델 지정, 잠금 엔진·강도(mild/normal/spicy)·치팅권·비상 해제·허용 앱·잠금 시간, 닉네임·테마·강조색·그라데이션·친구 공유 기본값, 사진 백업(R2)과 서버 사진 저장, 수면 기록(`sleep_logs`), 앱 동기화·복원(`/api/sync/*`). 음식 선택 방식·알레르기·단식도 뺐다(서버에서 쓰는 곳이 없고 핏두잉도 저장만 했다). 다시 필요하면 핏두잉 저장소에서 해당 패키지를 옮긴다.
+- **응답에서 함께 빠진 필드** - 달력 `locked`·`sleepLocked`·`summary.lockedDays`, 하루 카드 `locked`·`lockCount`, 끼니 `shareFriends`·`cheat`, 끼니 저장 응답 `cheatLeft`, 휴식권 요약 `cheat`·`emergency`, 설정 응답 `pendingMode`·`pendingFrom`. 요청에 이 필드가 와도 무시한다(모르는 필드 무시).
+- **모든 `/v1/health` 경로는 `RequireAPI`(기기 토큰 또는 웹 세션 + CSRF)** - 핏두잉에서 공개였던 목표 추천도 인증 뒤로 옮겼다. 가계부 API와 같은 미들웨어라 기기 폐기도 그대로 먹힌다 - `server.go`.
+- **사진 분석 경로만 본문 16MB** - 전역 `MAX_BODY_BYTES`(64KB)는 그대로 두고 `httpx.LimitBodyRoutes`로 `POST /v1/health/meals/analyze`만 연다. 사진 한 장 5MB, 한 번에 3장(핏두잉 값). 사진은 메모리에서만 읽고 버린다(배포 이미지에는 `/tmp`도 없다). 바꾸려면 `health.MaxPhotoBytes`, `ai.MaxPhotos`.
+- **`AI_PROVIDER` 기본값은 "키가 있으면 gemini, 없으면 mock"** - 핏두잉은 mock이 기본이라 키를 넣고도 `AI_PROVIDER`를 빠뜨리면 가짜 결과가 나왔다. 키 없는 로컬·테스트는 mock으로 그대로 돈다. `gemini`인데 키가 없거나 모르는 값이면 서버가 시작하지 않는다. 모델은 `GEMINI_MODEL` 하나(기본 `gemini-3.5-flash-lite`, 핏두잉 기본값) - `config.go`.
+- **`ai` 패키지는 호출부(`Gemini.GenerateJSON`)와 음식 분석을 나눔** - 다음 단계에서 같은 키로 가계부 가맹점 이름 분류를 붙일 수 있게. 프롬프트 조각(`Text`, `Inline`)과 응답 스키마 도우미(`Object`, `Enum` 등)만 쓰면 된다. 키는 헤더로만 보내고 연결 실패 에러에서 요청 주소를 지운다 - `ai/gemini.go`.
+- **설정은 jsonb 한 행 + 날짜별 목표 표** - 사용자가 1명이고 핏두잉 앱 설정 모양을 그대로 쓰므로, 필드를 더할 때 스키마를 바꾸지 않아도 된다. 날짜별 목표는 날짜로 찾으니 표(`health_target_history`)로 둔다. 표 이름은 가계부 `settings`와 겹치지 않게 `health_` 접두 - `00006_health.sql`.
+- **설정 PUT은 보낸 키만 바꿈(객체 안도 같음), `null`은 지움** - 핏두잉은 설정 전체를 받고 새 필드만 키가 없을 때 보존했다. 여기서는 저장된 값 위에 요청을 풀어서 앱이 일부만 보내도 다른 값이 지워지지 않는다. 핏두잉의 "구버전 앱 보호"(bulk 유지, 오래된 목표 사본 무시)와 강도 하향 지연은 구버전 앱이 없어서 뺐다. 동기화 백업용 `PUT /api/sync/settings`도 없다(서버가 원본) - `health/service.go`의 `PutSettings`.
+- **목표 이력은 서버가 남김** - `targetHistory`를 보내면 그대로 쓰고, 안 보내면 목표가 바뀐 경우 오늘(KST)부터 기록한다(첫 변경이면 예전 목표를 2000-01-01부터). 아직 저장한 적 없는 첫 PUT은 기본 목표를 "예전 목표"로 남기지 않는다. 1200kcal 하한은 PUT에서만 검사하고 끼니 기록·조회는 검사하지 않는다(핏두잉 정책 그대로).
+- **`photoKeepDays`(폰 사진 보관 일수)를 설정에 둠** - 핏두잉에서는 폰에만 있던 값인데, 여기서는 설정이 서버에 있어서 앱을 다시 깔아도 남게 했다. `null`(계속)·30·90·180. 사진 자체는 서버에 없다.
+- **끼니 `id`는 bigserial이지만 JSON에서는 문자열** - 핏두잉은 uuid 문자열이었다. 앱 모델 타입이 바뀌지 않게 문자열로 준다. 같은 날 같은 번호를 다시 저장하면 id가 그대로다.
+- **끼니 `portion`을 빼면 1(한 접시)** - 핏두잉은 필수였다. 앱이 기본값을 생략해도 400이 나지 않게. 값이 있으면 0.25·0.5·1·1.5·2만 받는다. `deadline: ""`도 받는다("기타"는 마감이 없다).
+- **오늘 화면의 기기 시각은 `time`(핏두잉 이름)과 `now` 둘 다 받음** - 지시서와 핏두잉 이름이 달라서 둘 다 연다. 둘 다 있으면 `time`.
+- **휴식권은 같은 날 두 번 차감하지 않고, 이미 인증한 날은 409 `ALREADY_CHECKED_IN`** - 핏두잉은 같은 날 다시 쓰면 또 차감했고, 헬스에 간 날을 휴식으로 덮어 방문 기록이 사라졌다. 쉰 날에 나중에 헬스 인증을 하면 방문으로 바뀌고 휴식권은 돌려주지 않는다(핏두잉과 같음). 차감은 advisory lock 7240003으로 하나씩 한다(가계부 7240001, 자동매매 7240002와 분리) - `health/service.go`의 `UseRest`.
+- **휴식권 경로의 날짜는 생략 가능(오늘 KST)** - `GET /v1/health/rest`는 `?date=`, `POST`는 `?date=` 또는 본문 `{"date"}`. 핏두잉(`/api/coupons`)은 `?date=`가 필수였다. 사용 기록(`uses`)에는 쉰 날 `date`를 더했다. 다른 화면 API의 `date`는 핏두잉처럼 필수다.
+- **헬스장 위치 기능 제거 (사용자 결정, 2026-11-08) - 인증은 사진·휴식권만** - 헬스장 장소 검색(`GET /v1/health/places/search`, `internal/health/places`, `KAKAO_REST_API_KEY`)과 위치 도착 인증을 뺐다. 이제 카카오는 서버 어디에도 없다. 설정의 `gym.name`·`address`·`lat`·`lng`·`radiusM`도 없다. 예전에 저장한 설정 문서에 그 키가 있어도 읽을 때 무시하고 다음 저장 때 빠진다. 예전 앱이 보내도 받기만 하고 저장하지 않는다. `POST /v1/health/gym/check-in`은 `verifiedBy: "photo"`만 받고 `"geofence"`는 400 `INVALID`. 예전 `geofence` 기록은 그대로 읽히고 방문으로 센다(하루 카드 `gymVerifiedBy`에 그대로 나옴). 그래서 DB의 CHECK 제약은 바꾸지 않았다. 다시 필요하면 핏두잉 저장소의 장소 검색을 옮기고 `Gym` 구조체와 검사를 되살린다 - `health/settings.go`, `health/handler.go`의 `checkIn`.
+- **바코드 조회는 키 둘 다 있을 때만, 없으면 503** - 식품안전나라 C005와 공공데이터포털 영양성분DB를 이어 부른다(핏두잉 그대로). 두 API는 키가 요청 주소에 들어가서, 연결 실패 에러에서 주소를 지워 로그에 키가 남지 않게 했다. 식품안전나라 주소가 `http://`인 것도 핏두잉 그대로다(https 지원 여부를 확인하지 못했다) - `health/foods/barcode.go`의 `defaultFoodSafety`.
+
+## 건강 앱 화면 (핏두잉 이식, 2026-11-08)
+
+- **하단바는 홈·거래·건강·투자·설정, 확인 칸은 뺌** - 6칸은 좁다. 확인할 거래가 있으면 거래 칸에 점이 뜨고, 거래 화면 위 띠·홈 카드·위젯에서 확인 화면으로 간다. 되돌리려면 `MainActivity.kt`의 `ModoBottomBar` 목록과 `Screen.topLevel`.
+- **건강 화면은 서버가 만든 값(오늘·주간·하루·달력)을 그대로 그림** - 핏두잉 앱은 폰 DB에서 계산했지만, 여기서는 서버가 진짜 값이라 계산을 한 곳에 둔다. 그래서 네트워크가 없으면 건강 화면이 뜨지 않는다. 끼니 일정·먹은 양·알림 일정 계산만 핏두잉 규칙 그대로 `core/HealthPlan.kt`에 옮겼다(테스트 8개).
+- **끼니 사진은 폰에만, 서버에는 분석할 때만 보냄** - 긴 변 1024px·JPEG 85로 줄여 보낸다. 폰 `filesDir/meal_photos/`에 끼니별로 두고 보관 기간(계속·30·90·180일)이 지나면 지운다 - `health/MealPhotos.kt`.
+- **사진은 시스템 카메라 앱 + 앨범 선택** - CameraX를 더하지 않으려고. 핏두잉은 잠금 우회를 막으려 앱 카메라만 썼는데, 잠금이 없으므로 앨범도 연다. 바코드 촬영은 아직 없다(스캔 라이브러리가 필요해서 보류, 서버 조회는 있음).
+- (2026-11-08 위치 기능 제거로 없어짐, 「건강」의 「헬스장 위치 기능 제거」) **헬스 도착은 버튼을 누를 때 위치를 한 번 읽어 거리만 판단** - 좌표는 서버에 보내지 않고 "위치로 확인"만 보낸다. 거리 ≤ 반경 + 위치 정확도(최대 100m)면 도착. 사진 인증 사진은 보내지도 남기지도 않는다. 지오펜스(백그라운드 위치)는 쓰지 않는다 - `HealthGymScreen.kt`.
+- **알림은 AlarmManager에 다음 것 하나만 걸고, 울리면 그다음을 검** - 이미 찍은 끼니를 빼야 해서 매일 반복 알림을 쓰지 않는다(핏두잉과 같은 이유). 정확한 알람 권한 없이 `setAndAllowWhileIdle`이라 절전 중엔 몇 분 늦을 수 있다. 찍은 끼니는 폰 사본(최근 2주)으로 판단해 알림 수신기가 네트워크를 쓰지 않는다. 재부팅·시각 변경 때 다시 건다 - `health/Reminders.kt`.
+- **설정 저장은 이 화면이 다루는 키만 보냄** - 받은 설정을 통째로 돌려보내면 `targetHistory`도 같이 가서 목표가 바뀐 날이 기록되지 않는다(지난날이 새 목표로 판정됨).
+- **영양 목표는 성별·키·몸무게·나이·활동 4단계로 추천받거나 직접 입력** - 핏두잉의 활동 상세 입력과 비율 직접 설정 화면은 옮기지 않았다. 추천 방식은 감량·유지면 balanced, 린매스업·벌크업이면 training. 1,200kcal 미만은 앱과 서버 둘 다 막는다.
+
+## 로그인: Cloudflare Access (사용자 결정, 2026-11-08)
+
+- **카카오 로그인을 완전히 없애고 웹은 Cloudflare Access로** - 운영은 OCI VM 한 대를 Cloudflare Tunnel 뒤에 둔다(들어오는 포트 없음, `myhome.kodeploy.com`). 로그인 화면·OAuth 콜백·카카오 키를 서버가 들고 있을 필요가 없어진다. 허용 계정은 카카오 회원번호 대신 구글 이메일(`ALLOWED_EMAILS`, 대소문자 무시) - 설정은 `docs/ACCESS_SETUP.md`. 되돌리려면 git 기록에서 `auth/kakao.go`와 마이그레이션 00007 이전 스키마를 본다.
+- **서버도 Access JWT를 직접 검증(안전망)** - Access 애플리케이션이 빠지거나 경로가 잘못돼 요청이 그대로 들어와도 웹 화면을 열지 않게. 모든 웹 화면 요청에 `Cf-Access-Jwt-Assertion`(없으면 `CF_Authorization` 쿠키)이 있어야 하고 RS256 서명, `aud`(문자열·배열 둘 다), `iss = https://<팀>`, `exp`·`nbf`(1분 오차), 허용 이메일을 본다. 키는 `https://<팀>/cdn-cgi/access/certs`에서 받아 캐시하고, 모르는 `kid`면 다시 받되 1분에 한 번(실패 뒤에는 5초), 10초 타임아웃. 표준 라이브러리만 써서 새 의존성이 없다 - `auth/access.go`. 간격은 `AccessVerifier.MinRefetch`.
+- **JWT가 없거나 틀리면 403 안내 화면, 키를 못 받으면 503** - 사용자 잘못과 서버 문제를 나눠 보이게. htmx 요청은 401 + `HX-Redirect: /`(Access 로그인으로 다시). 사유는 서버 로그 `Access JWT 거부`에만 남기고 토큰은 남기지 않는다 - `auth/session.go`의 `accessUser`.
+- **서버 세션은 CSRF용으로 남기고 JWT 이메일에 묶음** - htmx·폼의 CSRF 토큰을 그대로 쓰려고. 첫 요청에 세션을 만들고, 세션 이메일이 JWT 이메일과 다르면 옛 세션을 지우고 새로 만든다. 웹 로그인 유지 시간은 Access 세션 시간이 정한다(서버 세션 `SESSION_TTL`은 CSRF용) - `sessions.email`.
+- **세션 쿠키로 `/v1` API를 부르는 것은 그대로 허용(Access JWT 안 봄)** - 세션은 JWT를 확인한 뒤에만 생기고, `ALLOWED_EMAILS`에서 빠진 이메일의 세션은 무시한다. 웹 화면 안의 JSON 호출이 Access Bypass 경로(`/v1/*`)를 타서 JWT가 없을 수 있기 때문이다 - `Authenticator.session`.
+- **운영에서 Access 설정이 빠지면 `serve`가 시작하지 않음** - `APP_ENV`가 `development`가 아니면 `CF_ACCESS_TEAM_DOMAIN`·`CF_ACCESS_AUD`·`ALLOWED_EMAILS`가 다 있어야 한다. 검사는 `serve`에만 있다: `myhome invest`(trader.env)·`migrate`·`token`은 웹 설정 없이 돈다 - `config.ValidateServe`. 혹시 검사를 건너뛰어도 웹 화면은 503으로 닫힌다.
+- **개발용 로그인은 `APP_ENV=development` + `DEV_LOGIN_EMAIL`(허용 목록 안) + Access 미설정일 때만** - 로컬에서 Cloudflare 없이 웹을 보려고. 운영 설정에 `DEV_LOGIN_EMAIL`을 넣으면 시작을 거부한다. `/login`은 운영에서 "/"로 가는 안내만 한다.
+- **로그아웃은 서버 세션을 지우고 `/cdn-cgi/access/logout`으로** - Access 로그인 상태(Access 쿠키)까지 끊으려고. Access가 없으면 `/login`.
+- **앱 API(`/v1/*`)는 Access Bypass, 기기 토큰은 만료 없이 해제만** - 앱이 Access 로그인 화면을 다룰 수 없다. 서비스 토큰은 지금 쓰지 않는다.
+- **앱 첫 연결은 1회용 코드 + PKCE(S256)** - 앱이 브라우저로 `GET /app/link?challenge=&state=`를 열고, Access 로그인 뒤 서버가 `myhome://auth?code=&state=`로 앱을 부르면, 앱이 `POST /v1/auth/exchange {code, verifier, device_name}`로 기기 토큰을 받는다. URL에는 기기 토큰을 절대 싣지 않고, 코드를 가로챈 다른 앱은 verifier가 없어 못 쓴다. 돌아갈 주소는 고정(`auth.AppRedirectURL`)이고 요청에서 받지 않는다. 화면은 meta refresh와 "앱으로 돌아가기" 버튼 둘 다(인라인 스크립트 없음) - `auth/applink.go`, `web/templates/applink.html`.
+- **코드는 5분, 해시만 저장, 먼저 소모하고 나서 verifier 확인** - 한 번 틀린 코드도 다시 못 쓰게(맞혀 보기 방지). 없음·만료·사용됨·verifier 불일치는 같은 401 메시지. 형식이 틀린 요청(400)은 코드를 소모하지 않는다. 만료 코드는 발급·교환 때 지운다. 교환은 전역 IP 제한기만 거친다(코드가 256비트 난수라 맞혀 볼 수 없다) - `app_link_codes`, `LinkCodeTTL`.
+- **남은 위험: 폰의 악성 앱이 직접 연결을 시작하는 경우** - `myhome://`를 가로채는 앱이 자기 challenge로 `/app/link`를 열면, 브라우저가 이미 Access에 로그인돼 있을 때 확인 없이 코드가 그 앱으로 갈 수 있다(PKCE는 남이 시작한 흐름의 코드를 가로채는 것만 막는다). 사용자 1명·개인 폰이라 받아들였다. 막으려면 연결 화면에서 바로 넘기지 말고 "이 폰을 연결" 버튼(POST + CSRF)을 누르게 하거나, 사용자 정의 스킴 대신 App Links(https 검증 도메인)로 바꾼다.
+- **`state`는 서버가 저장하지 않고 그대로 돌려줌** - 앱이 자기가 보낸 값인지 확인하는 용도라서. base64url 16~64자만 받는다.
+- **기기 이름은 앞뒤 공백을 떼고 60자로 자름, 비면 `android-YYYYMMDD`(KST)** - 예전에는 60자를 넘으면 기본 이름으로 바꿨다.
+- **마이그레이션 00007: 세션은 지우고 이메일로, 기기는 `email` 열 추가, 예전 `kakao_id`는 남김** - 세션은 로그인 상태일 뿐이라 지웠다(웹을 다시 열면 새로 생긴다). 기기는 데이터 삭제 금지 규칙에 따라 `kakao_id`를 기록으로 두고 예전 토큰도 그대로 쓴다. 관리 화면 기기 목록은 앱 연결·카카오(예전)·직접 발급으로 나눠 보이고, `/v1/devices`의 `via_kakao`는 `via`(`app_link`|`kakao`|`cli`)와 `email`로 바뀌었다. down은 `email`을 지우고 세션을 `kakao_id`로 되돌린다.
+- **예전 카카오 환경변수는 읽지 않고 이름만 경고** - 남아 있으면 `serve`가 시작할 때 "더 이상 쓰지 않는 환경변수"로 이름만 로그에 남긴다(값은 남기지 않는다) - `config.Obsolete`.
+- **정적 파일·`/healthz`·`/login`·`/auth/logout`은 서버 JWT 검사 밖** - 정적 파일은 공개 자산이고, 헬스체크는 VM 안에서 부르며, 나머지는 안내·세션 정리만 한다. 바깥에서는 Access가 막는다.
+- **테스트는 가짜 Access(`auth/accesstest`)** - 테스트 안에서 RSA 키를 만들어 JWKS를 httptest 서버로 내주고 JWT를 서명한다. 실제 Cloudflare Access·JWKS로는 확인하지 못했다.
+- **Access 로그인 방법은 이메일 코드(One-time PIN)만 (사용자 결정, 2026-11-08 실제 설정)** - 구글 OAuth 클라이언트를 만들지 않으려고. 서버는 로그인 방법을 보지 않고 Access JWT의 이메일만 허용 목록과 맞추므로, 나중에 구글을 더해도 코드는 그대로다. 세션 730h. 우회 앱은 `/v1`과 `/healthz` - `ACCESS_SETUP.md`.
+
+## AI 분류 추천 (사용자 결정, 2026-11-08)
+
+- **서버가 Gemini를 부르고, 보내는 것은 가맹점 이름과 분류 이름뿐** - 끼니 사진 분석과 같은 키·모델(`GEMINI_API_KEY`, `GEMINI_MODEL`)을 쓴다. 요청은 고정 문구 + 보관하지 않은 지출 분류 이름 + 가맹점 목록(JSON의 `id`·`name`)이 전부다. 금액·시각·알림 원문·카드·계좌·잔액은 보내지 않는다(테스트가 요청 본문 글을 통째로 맞춰 보고, 금액·이름 조각이 없는지 본다). 답은 `{"results":[{id, category, confidence}]}`이고 `category`는 응답 스키마 enum(분류 이름 + "모름")으로 막는다. 바꾸려면 `ai/merchant.go`의 `merchantPrompt`·`MerchantPromptText`.
+- **순서: 사용자 규칙 → 규칙이 없으면 AI가 추천만 → 확인 필요에서 한 번 눌러 확정 → 학습 규칙. 자동 확정은 없음** - 틀린 추천이 예산에 바로 빠지지 않게. 확정은 기존 경로 그대로다: 앱은 `PATCH /v1/transactions/{id}` `{"category_id": 추천 분류, "remember_rule": true}`, 웹은 "AI 추천" 버튼. 그래서 같은 가맹점의 다른 확인 필요 건도 기존 학습처럼 함께 분류되고(`also_updated`), 다음 거래부터는 AI가 아니라 학습 규칙이 분류한다. 새 경로는 만들지 않았다.
+- **대상은 규칙 없음(`no_rule`) + 나간 지출 + 가맹점 이름 있음만** - 결제대행사 이름뿐인 건(`payment_gateway`: KG이니시스, 네이버페이 등), 송금(`transfer`), 입금, 종류 모름, 취소 미매칭, 이름 없음은 이름만으로 무엇을 샀는지 알 수 없어서 AI에 보내지 않고 그대로 확인 필요로 둔다. 쿠팡은 seed 규칙(쇼핑)이 먼저 잡는다. "카카오페이_가게"처럼 결제대행사 이름이 섞인 건은 파이프라인 분류와 같이 떼어낸 이름("가게")을 보낸다. 조건은 `suggest.Eligible`과 `queries/suggestions.sql`의 `ListSuggestionMerchants` 두 곳에 있으니 같이 고친다.
+- **가맹점마다 한 번만 묻고 답을 저장(`merchant_suggestions`, 마이그레이션 00008)** - 키는 결제대행사 이름을 뗀 뒤 `classify.Normalize`(공백·대소문자·법인 표기 무시)한 이름이다. 같은 가맹점 거래가 여러 건이어도 한 번, 다음 거래가 와도 다시 묻지 않는다. "모름"도 추천 없음(`category_id` NULL, 확신 0)으로 저장해서 다시 묻지 않는다. 다시 묻게 하려면 그 행을 지운다(`DELETE FROM merchant_suggestions WHERE merchant_key = '…'`, 전부는 `TRUNCATE merchant_suggestions`). 지점명이 다르면("…강남점", "…역삼점") 다른 가맹점이다. down은 표를 지운다(답만 사라지고 거래·규칙은 그대로).
+- **확신 0.6 미만은 저장하되 보여주지 않음** - 틀린 추천을 한 번 누르면 잘못된 학습 규칙이 생기므로 애매한 것은 숨기고 직접 고르게 한다. 값은 `suggest.MinConfidence`. 저장된 확신 값을 보여줄 때마다 다시 비교하므로 바꾸면 이미 저장된 답에도 바로 반영된다.
+- **추천한 분류를 보관하면 추천을 숨기고, 다음 점검에서 다시 물음** - 보관한 분류는 고를 수 없으니 그 답은 쓸모가 없다. 다시 물을 때는 보관하지 않은 분류만 보내서 같은 답이 되풀이되지 않는다. 분류 행을 지우면(웹·API는 지우지 않고 보관만 한다) 답도 함께 지워진다(`ON DELETE CASCADE`). 분류 이름을 바꾸면 분류 번호로 저장했으므로 새 이름으로 보인다. 새 분류를 만들어도 이미 저장된 답은 그대로다(새 분류로 다시 받으려면 행을 지운다).
+- **작업은 `myhome serve` 안에서 따로 돌고, 수집은 기다리지 않음** - 위젯 때문에 수집은 동기 처리 그대로다. `no_rule` 확인 필요 거래가 커밋되면 막지 않는 신호(`Processor.OnNoRule` → `Worker.Notify`)로 깨우고, 신호를 놓쳐도 1분마다 본다. 시작할 때도 한 번 본다. 한 번에 20개씩 묻고, 한 번 점검에 호출은 10번까지(남은 것은 다음 점검). 호출 하나는 45초 제한(Gemini 클라이언트 자체 30초). 실패·패닉은 기록하고 1분부터 두 배씩, 최대 30분 기다렸다가 다시 한다. 응답 모양이 틀리면 저장하지 않고 다시 묻지만, 답에서 빠진 가맹점·목록 밖 분류 이름·0~1 밖 확신은 그 가맹점만 "모름"으로 저장한다(이상한 답 때문에 같은 가맹점을 거듭 묻지 않게). serve가 끝나면 작업도 끝나고, DB 연결을 닫기 전에 끝나기를 기다린다. 값은 `suggest/worker.go`의 `Default*`, 띄우는 곳은 `cmd/myhome/main.go`의 `startSuggestWorker`.
+- **로그에는 건수만** - info 로그는 호출·물어본·추천·낮은 확신·모름·남은 수만 남긴다. 가맹점 이름과 키는 남기지 않고, 응답 해석 실패 에러에도 응답 내용을 넣지 않는다. API 키는 요청 헤더로만 간다.
+- **`AI_CLASSIFY`(기본 `on`)로 끄고, `AI_PROVIDER=mock`이면 낱말 표로 고정 추천** - `off`면 묻지도 않고 API·웹에 추천도 안 보인다(저장된 답은 남는다). 키가 없는 로컬·테스트(mock)에서도 화면을 보려고, mock은 작은 낱말 표(분식·식당·국밥·커피·카페·마트·주유·서점 등)로 늘 같은 답을 준다. "상회"는 일부러 확신 0.4라 숨겨지는 것을 볼 수 있다. 실제 판단이 아니다. 표는 `ai/merchant.go`의 `mockMerchantWords`. `on`/`off` 말고 `true`/`false`, `1`/`0`도 받고, 그 밖의 값이면 서버가 시작하지 않는다.
+- **거래 JSON에 `suggestion` 추가** - `{"category_id": 정수, "category": 분류 이름, "confidence": 0~1}` 또는 `null`. `GET /v1/review`, `GET /v1/transactions`, `GET /v1/summary`의 `recent`에서 채운다. `PATCH`·`POST` 응답의 거래는 늘 `null`이다(방금 고친 거래라서). 대상이 아닌 거래(확정·제외·다른 사유)는 늘 `null`. 추천을 읽다 실패하면 목록은 그대로 주고 `null`로 둔다(덧붙이는 정보라서) - `api/transactions.go`의 `AttachSuggestions`.
+- **웹 확인 필요 화면: "AI 추천: 분류" 주 버튼 하나** - 누르면 그 분류로 정하고 "이 가맹점은 항상"을 켠다(체크 상자와 상관없이). 같은 폼이라 메모·정산 분류도 같이 저장된다. 수동 분류 버튼과 체크 상자는 그대로다. 버튼은 기존 무채색 강조색(`.btn`, 빨강·파랑 없음)이고 스크립트를 더하지 않았다(CSP 그대로) - `templates/review.html`, `web/pages.go`의 `classifyReview`(`suggest_category_id`).
+- **"모름"이라는 이름의 분류는 AI에 보내지 않음** - AI의 "모름" 답과 구분할 수 없어서. 그런 분류를 만들 일은 거의 없다.
+- **확인 화면 메모 칸에서 Enter로 저장되지 않게 함** - 폼의 첫 제출 버튼(기본 버튼)이 AI 추천 버튼이라, 메모를 쓰다 Enter를 누르면 추천 분류로 확정되고 규칙까지 배웠다(그전에도 첫 분류 버튼으로 저장됐다). 폼 맨 앞에 꺼진 숨은 제출 버튼을 두어 Enter 제출이 일어나지 않게 했다 - `templates/review.html`.
+
+## 운영 VM과 Play 배포 (사용자 결정, 2026-11-08)
+
+- **운영은 OCI E2.1.Micro VM 한 대(kodeploy 아님)** - 예약 공인 IP `140.245.75.93`(토스 허용 IP), 사설 `10.0.3.238`. 인바운드는 managed에서 오는 SSH뿐이고 웹은 Cloudflare 터널(`myhome`)로만 나간다. Terraform은 kodeploy 저장소 `terraform/oci-infra/home.tf` - `deploy/home/setup-vm.sh`(스왑·PostgreSQL 16·cloudflared·DB 역할), `deploy/home/deploy.sh`(빌드→마이그레이션→권한→재시작).
+- **비밀값은 저장소 밖** - 로컬 `/root/myhome-secrets/`(web.env, trader.env)에서 ssh 표준입력으로만 VM에 보낸다. DB 비밀번호는 VM에서 만들고 밖으로 내보내지 않는다.
+- **매매 타이머는 설치만 하고 끈다** - 켜는 건 사람이 정한다(TQ에서 넘어오는 날, `import-tq` 뒤). 이식 점검에서 trade에 거래일 확인이 없다는 빈틈이 나왔다. 실패 알림은 앱 알림으로 채웠다(「자동매매」의 매매 실패 항목).
+- **Play는 예전 핏두잉 앱 자리(`com.fitdoing.app`)를 쓴다** - 패키지 이름은 바꿀 수 없어서 속 이름만 fitdoing이고, 스토어 이름·아이콘·화면은 MyHome. 서명은 핏두잉 업로드 키, versionCode는 2025-01-01부터 흐른 분(핏두잉 번호보다 항상 큼) - `android/app/build.gradle.kts`, `.github/workflows/android-play.yml`.
+- **targetSdk 36** - Play가 36 미만을 받지 않는다. AGP 8.7.3은 35까지만 시험돼서 `android.suppressUnsupportedCompileSdk=36`을 뒀다. 앱은 이미 `enableEdgeToEdge()`라 화면 동작은 그대로다.
+- **개인정보처리방침은 Notion 공개 페이지** - 핏두잉 방침이 이미 공개된 Notion 사이트 아래 하위 페이지로 만들어 따로 호스팅을 두지 않았다(`https://midi-broccoli-56c.notion.site/412502846708815483d9f80155f93791`). 스토어 등록정보와 앱 설정 「정보」에 같은 주소를 둔다(`SettingsScreen.kt`의 `PRIVACY_POLICY_URL`). 처리하는 정보나 외부 서비스가 바뀌면 이 페이지와 Play 데이터 보안을 같이 고친다.
+- **아이콘은 무채색 바탕의 흰 집 하나** - 원본 `docs/store/icon.svg`, 스토어용 PNG도 같은 폴더. 앱 색 기준(무채색)을 따른다.

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/yuntyu01/MyHome/server/internal/httpx"
 	"github.com/yuntyu01/MyHome/server/internal/period"
 	"github.com/yuntyu01/MyHome/server/internal/pipeline"
+	"github.com/yuntyu01/MyHome/server/internal/suggest"
 )
 
 // TransactionDTO는 거래 JSON 표현이다.
@@ -34,6 +36,10 @@ type TransactionDTO struct {
 	Installment      int32     `json:"installment_months"`
 	ManuallyEdited   bool      `json:"manually_edited"`
 	RawEventID       *int64    `json:"raw_event_id"`
+	// Suggestion은 규칙이 없어서 확인 필요로 온 지출(no_rule)의 AI 분류 추천이다. 없으면 null.
+	// GET /v1/review, GET /v1/transactions, GET /v1/summary(recent)에서 채운다. 수정·입력 응답(PATCH·POST)은 늘 null.
+	// 확정은 PATCH /v1/transactions/{id} {"category_id": suggestion.category_id, "remember_rule": true}.
+	Suggestion *suggest.Suggestion `json:"suggestion"`
 }
 
 func str(p *string) string {
@@ -137,7 +143,28 @@ func (a *API) ListTransactions(r *http.Request, f TransactionFilter) ([]Transact
 	for _, t := range rows {
 		out = append(out, listRowDTO(t))
 	}
+	a.AttachSuggestions(r.Context(), out)
 	return out, nil
+}
+
+// AttachSuggestions는 AI 분류 추천을 채운다(웹 확인 필요 화면에서도 쓴다). AI_CLASSIFY=off면 그대로 null이다.
+// 추천은 덧붙이는 정보라서, 읽다가 실패하면 기록만 하고 목록은 그대로 돌려준다.
+func (a *API) AttachSuggestions(ctx context.Context, txs []TransactionDTO) {
+	if !a.Suggestions || len(txs) == 0 {
+		return
+	}
+	in := make([]suggest.Input, len(txs))
+	for i, t := range txs {
+		in[i] = suggest.Input{Status: t.Status, ReviewReason: t.ReviewReason, Direction: t.Direction, Flow: t.Flow, Merchant: t.Merchant, CancelsID: t.CancelsID}
+	}
+	out, err := suggest.Lookup(ctx, a.q(), in)
+	if err != nil {
+		a.Logger.Warn("AI 분류 추천 조회 실패", "err", err)
+		return
+	}
+	for i := range txs {
+		txs[i].Suggestion = out[i]
+	}
 }
 
 func (a *API) listTransactions(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +191,7 @@ func (a *API) listReview(w http.ResponseWriter, r *http.Request) {
 	for _, t := range rows {
 		out = append(out, reviewRowDTO(t))
 	}
+	a.AttachSuggestions(r.Context(), out)
 	httpx.JSON(w, http.StatusOK, map[string]any{"transactions": out})
 }
 

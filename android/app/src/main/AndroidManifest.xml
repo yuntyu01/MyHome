@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- WorkManager 긴급 작업이 Android 11 이하에서 포그라운드로 돌 때 필요 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 건강: 재부팅 뒤 알림 다시 걸기 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- "최근 알림" 화면에서 다른 앱의 이름을 보여주려면 Android 11+에서 패키지 가시성 선언이 필요하다. -->
     <queries>
@@ -38,21 +40,41 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
-
-        <!-- 카카오톡/카카오계정 로그인 결과를 받는 화면 (카카오 SDK). 스킴은 kakao{네이티브 앱 키} -->
-        <activity
-            android:name="com.kakao.sdk.auth.AuthCodeHandlerActivity"
-            android:exported="true">
+            <!-- 앱 연결: 브라우저(구글 로그인) 뒤 서버가 myhome://auth?code&state로 돌려보낸다. 코드는 PKCE verifier 없이는 못 쓴다 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:host="oauth"
-                    android:scheme="${kakaoScheme}" />
+                <data android:scheme="myhome" android:host="auth" />
             </intent-filter>
         </activity>
+
+
+        <!-- 끼니 사진: 카메라 앱이 이 앱 폴더에 직접 쓰게 한다 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- 건강 알림(끼니 마감·헬스·취침) -->
+        <receiver
+            android:name=".health.ReminderReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".health.ReminderBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- 홈 화면 위젯 (Jetpack Glance) -->
         <receiver

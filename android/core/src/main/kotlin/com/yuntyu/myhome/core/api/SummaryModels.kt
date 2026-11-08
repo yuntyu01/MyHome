@@ -53,6 +53,15 @@ data class TransactionDto(
     val status: String = "",
     @SerialName("review_reason") val reviewReason: String? = null,
     val source: String = "",
+    /** 규칙에 없는 가맹점에 AI가 추천한 분류(서버가 확신이 낮으면 null). 확정은 사용자가 한 번 눌러서 한다. */
+    val suggestion: Suggestion? = null,
+)
+
+@Serializable
+data class Suggestion(
+    @SerialName("category_id") val categoryId: Long,
+    val category: String = "",
+    val confidence: Double = 0.0,
 )
 
 @Serializable

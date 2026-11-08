@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.FilledTonalButton
@@ -72,6 +73,21 @@ fun ReviewScreen(modifier: Modifier, openTxId: Long?, onOpened: () -> Unit) {
         loading = false
     }
 
+    fun confirm(t: TransactionDto, edit: TransactionEdit) {
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { app.api.editTransaction(t.id, edit) }
+            if (r is ApiResult.Ok) {
+                val extra = if (r.value.alsoUpdated > 0) " 같은 가맹점 ${r.value.alsoUpdated}건도 함께 분류했어요." else ""
+                Toast.makeText(ctx, "저장했어요.$extra", Toast.LENGTH_SHORT).show()
+                selected = null
+                load()
+                WidgetRefresher.refresh(ctx)
+            } else {
+                Toast.makeText(ctx, "실패: ${r.describe()}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     LaunchedEffect(openTxId) {
         load()
         if (openTxId != null) {
@@ -108,6 +124,13 @@ fun ReviewScreen(modifier: Modifier, openTxId: Long?, onOpened: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // AI 추천: 한 번 누르면 그 분류로 확정하고 "이 가맹점은 항상"으로 배운다
+                t.suggestion?.let { sg ->
+                    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("AI 추천 · ${sg.category}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = m.warn)
+                        FilledTonalButton(onClick = { confirm(t, TransactionEdit(categoryId = sg.categoryId, rememberRule = true)) }) { Text("이걸로") }
+                    }
+                }
             }
         }
     }
@@ -117,20 +140,7 @@ fun ReviewScreen(modifier: Modifier, openTxId: Long?, onOpened: () -> Unit) {
             t = t,
             cats = cats,
             onDismiss = { selected = null },
-            onSubmit = { edit ->
-                scope.launch {
-                    val r = withContext(Dispatchers.IO) { app.api.editTransaction(t.id, edit) }
-                    if (r is ApiResult.Ok) {
-                        val extra = if (r.value.alsoUpdated > 0) " 같은 가맹점 ${r.value.alsoUpdated}건도 함께 분류했어요." else ""
-                        Toast.makeText(ctx, "저장했어요.$extra", Toast.LENGTH_SHORT).show()
-                        selected = null
-                        load()
-                        WidgetRefresher.refresh(ctx)
-                    } else {
-                        Toast.makeText(ctx, "실패: ${r.describe()}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            },
+            onSubmit = { edit -> confirm(t, edit) },
         )
     }
 }
@@ -148,6 +158,11 @@ private fun ClassifyDialog(t: TransactionDto, cats: List<Category>, onDismiss: (
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(enabled = t.merchant.isNotBlank()) { remember = !remember }) {
                     Checkbox(checked = remember, onCheckedChange = { remember = it }, enabled = t.merchant.isNotBlank())
                     Text("이 가맹점은 항상 이 분류")
+                }
+                t.suggestion?.let { sg ->
+                    Button(onClick = { onSubmit(TransactionEdit(categoryId = sg.categoryId, rememberRule = remember)) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("AI 추천 · ${sg.category}")
+                    }
                 }
                 for (c in ordered) {
                     FilledTonalButton(onClick = { onSubmit(TransactionEdit(categoryId = c.id, rememberRule = remember)) }, modifier = Modifier.fillMaxWidth()) {

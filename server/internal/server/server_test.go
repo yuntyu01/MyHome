@@ -30,7 +30,10 @@ type client struct {
 	q     *dbq.Queries
 }
 
-func newClient(t *testing.T) *client {
+func newClient(t *testing.T) *client { t.Helper(); return newClientWith(t, nil) }
+
+// newClientWith는 설정을 고친 서버로 클라이언트를 만든다(mutate가 nil이면 기본).
+func newClientWith(t *testing.T, mutate func(*config.Config)) *client {
 	t.Helper()
 	pool := testdb.New(t)
 	q := dbq.New(pool)
@@ -41,6 +44,9 @@ func newClient(t *testing.T) *client {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	reg, _ := parser.NewRegistry("kb=test.kb;toss=test.toss")
 	cfg := config.Config{MaxBodyBytes: 64 * 1024, RateLimitRPS: 1000, RateLimitBurst: 1000}
+	if mutate != nil {
+		mutate(&cfg)
+	}
 	h := server.New(server.Deps{Config: cfg, Pool: pool, Logger: logger, Processor: &pipeline.Processor{Pool: pool, Registry: reg, Logger: logger}})
 	return &client{t: t, h: h, token: tok, q: q}
 }

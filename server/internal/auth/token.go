@@ -1,4 +1,4 @@
-// Package auth는 기기 토큰, 세션, 카카오 로그인을 담당한다.
+// Package auth는 기기 토큰, 웹 세션, Cloudflare Access 로그인, 앱 연결(1회용 코드 + PKCE)을 담당한다.
 package auth
 
 import (
@@ -50,13 +50,13 @@ func IssueDeviceToken(ctx context.Context, q DeviceCreator, name string) (string
 	return IssueDeviceTokenFor(ctx, q, name, nil)
 }
 
-// IssueDeviceTokenFor는 카카오 계정(kakaoID)으로 기기 토큰을 발급한다. CLI 발급은 nil.
-func IssueDeviceTokenFor(ctx context.Context, q DeviceCreator, name string, kakaoID *int64) (string, dbq.Device, error) {
+// IssueDeviceTokenFor는 계정(email, 앱 연결)에 묶인 기기 토큰을 발급한다. CLI 발급은 nil.
+func IssueDeviceTokenFor(ctx context.Context, q DeviceCreator, name string, email *string) (string, dbq.Device, error) {
 	tok, err := NewToken(TokenPrefix)
 	if err != nil {
 		return "", dbq.Device{}, err
 	}
-	d, err := q.CreateDevice(ctx, dbq.CreateDeviceParams{Name: name, TokenHash: HashToken(tok), KakaoID: kakaoID})
+	d, err := q.CreateDevice(ctx, dbq.CreateDeviceParams{Name: name, TokenHash: HashToken(tok), Email: email})
 	if err != nil {
 		return "", dbq.Device{}, err
 	}

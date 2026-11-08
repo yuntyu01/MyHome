@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yuntyu01/MyHome/server/internal/api"
+	"github.com/yuntyu01/MyHome/server/internal/auth"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
 	"github.com/yuntyu01/MyHome/server/internal/period"
 	"github.com/yuntyu01/MyHome/server/internal/pipeline"
@@ -16,13 +18,37 @@ import (
 
 // ---- 로그인 ----
 
+// login은 로그인 안내 화면이다. 운영(Access)에서는 로그인 자체를 Cloudflare Access가 하므로 "/"로 가는 링크만 둔다.
 func (wb *Web) login(w http.ResponseWriter, r *http.Request) {
-	if u, ok, _ := wb.Auth.Authenticate(r); ok && u.Session != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
+	if wb.Auth.Access == nil {
+		if u, ok, _ := wb.Auth.Authenticate(r); ok && u.Session != nil {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = wb.pages["login"].ExecuteTemplate(w, "login", map[string]any{"DevLogin": wb.DevLogin, "AssetVer": assetVersion})
+	_ = wb.pages["login"].ExecuteTemplate(w, "login", map[string]any{
+		"Access": wb.Auth.Access != nil, "DevLogin": wb.DevLogin, "AssetVer": assetVersion})
+}
+
+// appLink: GET /app/link?challenge=<S256 43자>&state=<16~64자>. RequireWeb 뒤에 있다(Access 로그인 필요).
+// 1회용 코드를 만들어 고정 주소 myhome://auth?code=…&state=… 로 앱을 부른다. 돌아갈 주소는 요청에서 받지 않는다.
+func (wb *Web) appLink(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	challenge, state := q.Get("challenge"), q.Get("state")
+	if !auth.ValidChallenge(challenge) || !auth.ValidState(state) {
+		http.Error(w, "잘못된 앱 연결 요청입니다. 앱에서 다시 시작해 주세요.", http.StatusBadRequest)
+		return
+	}
+	u, _ := auth.UserFromContext(r.Context())
+	appURL, err := wb.Devices.CreateAppLink(r.Context(), u.Email, challenge, state)
+	if err != nil {
+		wb.fail(w, err)
+		return
+	}
+	// appURL은 고정 접두(myhome://auth)에 base64url 값만 붙인 것이라 template.URL로 넘긴다(html/template은 http(s) 밖의 주소를 막는다).
+	wb.writeTemplate(w, wb.pages["applink"], "applink", "applink", map[string]any{
+		"AppURL": template.URL(appURL), "Email": u.Email, "AssetVer": assetVersion})
 }
 
 // ---- 대시보드 ----
@@ -198,8 +224,9 @@ func (wb *Web) nextReview(r *http.Request, flash string) (reviewData, error) {
 		if last.CategoryName != nil {
 			name = *last.CategoryName
 		}
-		dto := dtoFromTx(t, name)
-		d.Item = &dto
+		items := []api.TransactionDTO{dtoFromTx(t, name)}
+		wb.API.AttachSuggestions(r.Context(), items)
+		d.Item = &items[0]
 	}
 	return d, nil
 }
@@ -223,9 +250,17 @@ func (wb *Web) classifyReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e := editFromForm(r)
+	// "AI 추천: 분류" 버튼: 그 분류로 정하고 "이 가맹점은 항상"을 켠다(체크 상자와 상관없이). 학습은 기존 PATCH 경로와 같다.
+	fromAI := false
+	if v := r.PostFormValue("suggest_category_id"); v != "" {
+		if cid, err := strconv.ParseInt(v, 10, 64); err == nil && cid > 0 {
+			e.CategoryID, e.RememberRule, fromAI = &cid, true, true
+		}
+	}
 	if r.PostFormValue("action") == "exclude" {
 		s := "excluded"
 		e = pipeline.Edit{Status: &s}
+		fromAI = false
 	}
 	res, err := wb.API.Editor.EditTransaction(r.Context(), id, e)
 	if err != nil {
@@ -233,6 +268,9 @@ func (wb *Web) classifyReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	flash := "분류했어요."
+	if fromAI {
+		flash = "AI 추천대로 분류했어요."
+	}
 	if e.Status != nil && *e.Status == "excluded" {
 		flash = "제외했어요."
 	}

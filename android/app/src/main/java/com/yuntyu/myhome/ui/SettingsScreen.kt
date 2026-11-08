@@ -25,10 +25,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.yuntyu.myhome.MyHomeApp
-import com.yuntyu.myhome.auth.KakaoLogin
+import com.yuntyu.myhome.auth.AppLink
 import com.yuntyu.myhome.core.ServerUrl
 import com.yuntyu.myhome.work.WorkScheduler
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun SettingsScreen(modifier: Modifier) {
+fun SettingsScreen(modifier: Modifier, onNavigate: (Screen) -> Unit = {}) {
     val ctx = LocalContext.current
     val app = MyHomeApp.instance
     val settings by app.settings.state.collectAsState()
@@ -49,6 +50,10 @@ fun SettingsScreen(modifier: Modifier) {
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        SectionCard("앱") {
+            ItemRow("건강 설정", sub = "끼니·헬스·취침·영양 목표·알림") { onNavigate(Screen.HEALTH_SETTINGS) }
+            ItemRow("수집 상태", sub = "알림 접근 권한, 수집할 앱, 전송 로그") { onNavigate(Screen.STATUS) }
+        }
         SectionCard("서버") {
             OutlinedTextField(
                 value = url,
@@ -70,7 +75,7 @@ fun SettingsScreen(modifier: Modifier) {
             }) { Text("저장") }
         }
 
-        KakaoLoginSection()
+        ConnectSection()
 
         SectionCard("기기 토큰 직접 입력 (비상용)") {
             Text(
@@ -114,8 +119,17 @@ fun SettingsScreen(modifier: Modifier) {
                 }
             }) { Text("거부된 알림 다시 보내기") }
         }
+
+        // Play 정책: 스토어와 앱 안에 개인정보처리방침 링크를 둔다
+        SectionCard("정보") {
+            val uri = LocalUriHandler.current
+            FilledTonalButton(onClick = { uri.openUri(PRIVACY_POLICY_URL) }) { Text("개인정보처리방침") }
+        }
     }
 }
+
+/** Play 스토어 등록정보와 같은 주소(Notion 공개 페이지). docs/DECISIONS.md 「Play 배포」 */
+const val PRIVACY_POLICY_URL = "https://midi-broccoli-56c.notion.site/412502846708815483d9f80155f93791"
 
 @Composable
 fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
@@ -125,36 +139,23 @@ fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
-/** 카카오 로그인: 서버가 회원번호를 검증한 뒤 기기 토큰을 발급한다. */
+/**
+ * 앱 연결: 브라우저에서 Cloudflare Access(이메일 코드)로 로그인하면 앱으로 돌아와 이 폰 전용 토큰을 받는다.
+ * 돌아오는 주소에는 1회용 코드만 실리고, 토큰은 앱이 직접 서버에서 받는다(AppLink).
+ */
 @Composable
-fun KakaoLoginSection() {
+fun ConnectSection() {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-    SectionCard("카카오 로그인") {
+    val message by AppLink.message.collectAsState()
+    val hasToken by MyHomeApp.instance.tokenStore.hasToken.collectAsState()
+    SectionCard("서버 연결") {
         Text(
-            "처음 한 번 로그인하면 서버가 이 폰 전용 토큰을 발급해요. 토큰은 Android Keystore로 암호화해서 저장해요.",
+            "브라우저에서 이메일로 받은 코드로 로그인하면 앱으로 돌아와 이 폰 전용 토큰을 받아요. 토큰은 Android Keystore로 암호화해서 저장하고, 서버에서 폐기하기 전까지 계속 써요.",
             style = MaterialTheme.typography.bodySmall,
         )
-        Button(enabled = KakaoLogin.available && !busy, onClick = {
-            busy = true
-            message = null
-            scope.launch {
-                message = when (val o = KakaoLogin.login(ctx)) {
-                    KakaoLogin.Outcome.Success -> {
-                        WorkScheduler.flushNow(ctx)
-                        "로그인했어요. 기기 토큰을 저장했어요."
-                    }
-                    KakaoLogin.Outcome.Cancelled -> "로그인을 취소했어요."
-                    is KakaoLogin.Outcome.Failed -> o.message
-                }
-                busy = false
-            }
-        }) { Text(if (busy) "로그인 중…" else "카카오로 로그인") }
-        if (!KakaoLogin.available) {
-            Text("이 빌드에는 카카오 앱 키가 없어요. 토큰 직접 입력을 쓰세요.", style = MaterialTheme.typography.bodySmall)
-        }
+        Button(onClick = {
+            if (!AppLink.start(ctx)) Toast.makeText(ctx, "서버 주소를 먼저 저장해 주세요", Toast.LENGTH_SHORT).show()
+        }) { Text(if (hasToken) "다시 연결하기" else "브라우저에서 연결하기") }
         message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
     }
 }

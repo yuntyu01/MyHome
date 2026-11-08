@@ -10,19 +10,19 @@ import (
 )
 
 const createDevice = `-- name: CreateDevice :one
-INSERT INTO devices (name, token_hash, kakao_id)
+INSERT INTO devices (name, token_hash, email)
 VALUES ($1, $2, $3)
-RETURNING id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id
+RETURNING id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id, email
 `
 
 type CreateDeviceParams struct {
-	Name      string `json:"name"`
-	TokenHash []byte `json:"token_hash"`
-	KakaoID   *int64 `json:"kakao_id"`
+	Name      string  `json:"name"`
+	TokenHash []byte  `json:"token_hash"`
+	Email     *string `json:"email"`
 }
 
 func (q *Queries) CreateDevice(ctx context.Context, arg CreateDeviceParams) (Device, error) {
-	row := q.db.QueryRow(ctx, createDevice, arg.Name, arg.TokenHash, arg.KakaoID)
+	row := q.db.QueryRow(ctx, createDevice, arg.Name, arg.TokenHash, arg.Email)
 	var i Device
 	err := row.Scan(
 		&i.ID,
@@ -32,12 +32,13 @@ func (q *Queries) CreateDevice(ctx context.Context, arg CreateDeviceParams) (Dev
 		&i.LastSeenAt,
 		&i.RevokedAt,
 		&i.KakaoID,
+		&i.Email,
 	)
 	return i, err
 }
 
 const getActiveDeviceByTokenHash = `-- name: GetActiveDeviceByTokenHash :one
-SELECT id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id
+SELECT id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id, email
 FROM devices
 WHERE token_hash = $1
   AND revoked_at IS NULL
@@ -54,12 +55,13 @@ func (q *Queries) GetActiveDeviceByTokenHash(ctx context.Context, tokenHash []by
 		&i.LastSeenAt,
 		&i.RevokedAt,
 		&i.KakaoID,
+		&i.Email,
 	)
 	return i, err
 }
 
 const listDevices = `-- name: ListDevices :many
-SELECT id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id
+SELECT id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id, email
 FROM devices
 ORDER BY id
 `
@@ -81,6 +83,7 @@ func (q *Queries) ListDevices(ctx context.Context) ([]Device, error) {
 			&i.LastSeenAt,
 			&i.RevokedAt,
 			&i.KakaoID,
+			&i.Email,
 		); err != nil {
 			return nil, err
 		}
@@ -96,7 +99,7 @@ const revokeDevice = `-- name: RevokeDevice :one
 UPDATE devices
 SET revoked_at = coalesce(revoked_at, now())
 WHERE id = $1
-RETURNING id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id
+RETURNING id, name, token_hash, created_at, last_seen_at, revoked_at, kakao_id, email
 `
 
 func (q *Queries) RevokeDevice(ctx context.Context, id int64) (Device, error) {
@@ -110,6 +113,7 @@ func (q *Queries) RevokeDevice(ctx context.Context, id int64) (Device, error) {
 		&i.LastSeenAt,
 		&i.RevokedAt,
 		&i.KakaoID,
+		&i.Email,
 	)
 	return i, err
 }

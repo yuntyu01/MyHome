@@ -61,3 +61,15 @@ data class InvestLedgerRow(
     val note: String = "",
     val amount: Long = 0,
 )
+
+/** GET /v1/invest/alerts 응답. 자동매매 작업(systemd)이 실패할 때만 한 줄씩 생긴다. */
+@Serializable
+data class InvestAlerts(val alerts: List<InvestAlert> = emptyList())
+
+@Serializable
+data class InvestAlert(
+    val id: Long,
+    @SerialName("created_at") val createdAt: String = "",
+    val title: String = "",
+    val body: String = "",
+)

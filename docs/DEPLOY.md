@@ -11,6 +11,7 @@
   - 토글이 넣어 주는 환경변수 이름도 **확인 필요.** `DATABASE_URL`이 아니면 직접 만들어 넣는다.
   - 토글이 없으면 외부 관리형 PostgreSQL을 쓴다.
 - HTTPS 도메인 (앱이 Bearer 토큰을 보내므로 **HTTP 평문 배포 금지**)
+- Cloudflare Access(이메일 코드 로그인). 웹 화면은 Access 뒤에 두고 `/v1/*`만 통과시킨다. 설정은 [`ACCESS_SETUP.md`](ACCESS_SETUP.md). 운영 설정에서 Access 값이 빠지면 서버가 시작하지 않는다.
 
 ## 2. 빌드 설정
 
@@ -37,7 +38,9 @@
 |---|---|
 | `DATABASE_URL` | 예: `postgres://user:pass@host:5432/myhome?sslmode=require` |
 | `TRUST_PROXY_HEADERS` | KoDeploy에서는 `true`. 프록시 뒤라서 끄면 모든 요청이 같은 IP로 잡혀 IP별 제한에 함께 걸린다 |
-| `KAKAO_REDIRECT_URI` | `https://{앱이름}.kodeploy.com/auth/kakao/callback` |
+| `CF_ACCESS_TEAM_DOMAIN` | Zero Trust 팀 도메인 `<팀>.cloudflareaccess.com` (https:// 있어도 됨) |
+| `CF_ACCESS_AUD` | 웹 Access 애플리케이션의 AUD 태그 |
+| `ALLOWED_EMAILS` | 허용할 이메일(쉼표 구분, 대소문자 무시). Access 정책과 같은 값 |
 
 선택 (기본값):
 
@@ -51,16 +54,27 @@
 | `RATE_LIMIT_BURST` | `30` | 순간 허용량 (IP별은 2배) |
 | `CLI_TOKEN_ISSUE_ENABLED` | `true` | `false`면 CLI 비상 토큰 발급 금지 |
 | `PARSER_PACKAGES` | (빈 값) | 패키지명 → 파서 매핑. `docs/PARSERS.md` |
-| `APP_ENV` | `production` | `development`면 개발용 로그인 허용 |
-| `KAKAO_REST_API_KEY` | | 카카오 REST API 키 (`docs/KAKAO_SETUP.md`) |
-| `KAKAO_CLIENT_SECRET` | | 카카오 Client Secret |
-| `KAKAO_APP_ID` | | 카카오 앱 ID(숫자). 앱 로그인 토큰 검증용 |
-| `ALLOWED_KAKAO_IDS` | | 허용할 카카오 회원번호(쉼표 구분) |
+| `APP_ENV` | `production` | `development`면 Access 없이 시작할 수 있고 개발용 로그인 허용 |
 | `COOKIE_SECURE` | `true` | 세션 쿠키 Secure 속성. https 운영에서는 반드시 true |
-| `SESSION_TTL` | `720h` | 웹 세션 유지 기간 |
-| `KAKAO_AUTH_BASE` | `https://kauth.kakao.com` | 카카오 인증 서버 주소 |
-| `KAKAO_API_BASE` | `https://kapi.kakao.com` | 카카오 API 서버 주소 |
-| `DEV_LOGIN_KAKAO_ID` | | 로컬 개발용 로그인. `APP_ENV=development`에서만 허용(운영에서 넣으면 서버가 시작 거부) |
+| `SESSION_TTL` | `720h` | 서버 세션(CSRF용) 유지 기간. 웹 로그인 유지는 Access 세션 시간이 정한다 |
+| `DEV_LOGIN_EMAIL` | | 로컬 개발용 로그인(`ALLOWED_EMAILS`에 있어야 함). `APP_ENV=development`에서만 허용(운영에서 넣으면 서버가 시작 거부) |
+
+예전 카카오 변수(`KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, `KAKAO_REDIRECT_URI`, `KAKAO_APP_ID`, `KAKAO_AUTH_BASE`, `KAKAO_API_BASE`, `ALLOWED_KAKAO_IDS`, `DEV_LOGIN_KAKAO_ID`)는 읽지 않는다. 남아 있으면 서버가 시작할 때 이름만 경고로 남긴다. 지워도 된다.
+
+건강(`/v1/health`, 핏두잉 이식). 키가 없으면 그 기능만 꺼지고 나머지는 그대로 돈다:
+
+| 이름 | 기본값 | 설명 |
+|---|---|---|
+| `AI_PROVIDER` | `GEMINI_API_KEY`가 있으면 `gemini`, 없으면 `mock` | 끼니 사진 분석과 가계부 AI 분류 추천. `mock`은 키 없이 고정 결과를 준다(로컬·테스트용, 분류 추천은 작은 낱말 표). `gemini`인데 키가 없으면 서버가 시작하지 않는다 |
+| `GEMINI_API_KEY` | | Google AI Studio의 Gemini API 키(사진 분석·분류 추천 같은 키). 요청 헤더로만 보내고 로그에 남기지 않는다 |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | 사진 분석·분류 추천 모델(핏두잉 기본값). 사진 분석은 응답 헤더 `X-AI-Model`에 나온다 |
+| `AI_CLASSIFY` | `on` | 가계부 AI 분류 추천(`on`/`off`). 규칙이 없는 지출의 가맹점 이름만 위 제공자로 묻고, 확인 필요 화면에 추천을 보여준다. `off`면 묻지도 보여주지도 않는다. `DECISIONS.md` 「AI 분류 추천」 |
+| `FOODSAFETY_API_KEY` | | 식품안전나라 Open API 키(C005 바코드제품정보). 아래 키와 **둘 다** 있어야 바코드 조회가 켜진다(없으면 503) |
+| `DATA_GO_KR_API_KEY` | | 공공데이터포털 키(식품의약품안전처 식품영양성분DB) |
+
+- 헬스장 위치 기능(장소 검색, 위치 도착 인증)은 없앴다(2026-11-08). 헬스 인증은 사진과 휴식권만 쓴다.
+- 끼니 사진 분석(`POST /v1/health/meals/analyze`)만 본문을 16MB(사진 3장 × 5MB + 여유)까지 받는다. `MAX_BODY_BYTES`는 그 밖의 요청에만 적용된다. 사진은 메모리에서 분석하고 버린다(저장하지 않음).
+- 역할을 나눈 DB(`deploy/home/postgres-roles.sql`)를 쓰면 마이그레이션 뒤에 그 파일을 다시 돌려야 새 테이블(건강, 앱 연결 코드 `app_link_codes`, AI 분류 추천 `merchant_suggestions`)에 웹 역할 권한이 붙는다.
 
 전체 목록과 예시는 `.env.example`에 있다.
 
@@ -70,7 +84,7 @@
 2. 배포한다. `MIGRATE_ON_START=true`면 테이블이 자동으로 생긴다.
    - 수동으로 하려면: `/myhome migrate up`, 상태 확인은 `/myhome migrate status`
 3. `https://<도메인>/healthz`가 `{"status":"ok"}`인지 확인한다.
-4. 기기 토큰 발급 (카카오 로그인을 붙이기 전이나 비상시):
+4. 앱 연결: 앱 설정 → 서버 주소 저장 → "브라우저에서 연결하기" → 이메일 코드 로그인 → 앱으로 자동 복귀(`ACCESS_SETUP.md`). 비상시에만 CLI로 기기 토큰을 발급한다:
    ```
    /myhome token issue --name galaxy
    ```

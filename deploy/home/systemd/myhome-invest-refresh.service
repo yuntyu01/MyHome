@@ -1,8 +1,9 @@
-# 주간 가격 갱신 — 화면의 평가금액과 신선도용. 메일은 보내지 않는다(실패 때만).
+# 주간 가격 갱신 — 화면의 평가금액과 신선도용. 실패하면 앱 알림이 온다(메일 없음).
 [Unit]
 Description=myhome 자동매매 — 주간 가격 갱신
 After=network-online.target postgresql.service
 Wants=network-online.target
+# 실패하면 앱 알림을 남긴다(myhome-alert@.service → invest_alerts → 앱이 읽어 폰 알림)
 OnFailure=myhome-alert@%n.service
 
 [Service]

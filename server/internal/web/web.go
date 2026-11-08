@@ -39,7 +39,7 @@ type Web struct {
 	Auth     *auth.Authenticator
 	Devices  *auth.Handlers
 	Logger   *slog.Logger
-	DevLogin bool // 로그인 화면에 개발용 로그인 링크 표시
+	DevLogin bool // 로그인 화면에 개발용 로그인 링크 표시(Access를 쓰면 항상 false)
 	pages    map[string]*template.Template
 }
 
@@ -56,11 +56,14 @@ func New(a *api.API, authn *auth.Authenticator, devices *auth.Handlers, logger *
 		}
 		w.pages[name] = t
 	}
-	t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/login.html")
-	if err != nil {
-		return nil, err
+	// 레이아웃 없이 단독으로 그리는 화면
+	for _, name := range []string{"login", "applink"} {
+		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/"+name+".html")
+		if err != nil {
+			return nil, fmt.Errorf("템플릿 %s: %w", name, err)
+		}
+		w.pages[name] = t
 	}
-	w.pages["login"] = t
 	return w, nil
 }
 
@@ -92,6 +95,8 @@ func (wb *Web) Register(mux *http.ServeMux) {
 	h("GET /report", wb.report)
 	h("GET /reconcile", wb.reconcile)
 	h("GET /more", wb.more)
+	// 앱 연결(처음 한 번): Access 로그인 뒤 1회용 코드를 만들어 myhome://auth 로 앱을 부른다
+	h("GET /app/link", wb.appLink)
 	// 투자: 읽기 전용(DB만 읽는다). POST 라우트를 만들지 않는다
 	h("GET /invest", wb.invest)
 	h("GET /invest/value", wb.investValue)
@@ -99,6 +104,8 @@ func (wb *Web) Register(mux *http.ServeMux) {
 	api := func(pattern string, fn http.HandlerFunc) { mux.Handle(pattern, wb.Auth.RequireAPI(fn)) }
 	api("GET /v1/invest", wb.apiInvest)
 	api("GET /v1/invest/value", wb.apiInvestValue)
+	// 매매 실패 알림: 앱 주기 작업이 마지막으로 본 id 다음을 읽어 폰 알림을 띄운다
+	api("GET /v1/invest/alerts", wb.apiInvestAlerts)
 }
 
 func cacheStatic(next http.Handler) http.Handler {

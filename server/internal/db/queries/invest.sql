@@ -118,3 +118,17 @@ FROM invest_runs
 WHERE cmd = $1 AND exit_code IS NOT NULL AND exit_code <> 0
 ORDER BY started_at DESC
 LIMIT 1;
+
+-- name: InsertInvestAlert :one
+-- 실패 알림 한 줄. 매매 역할만 쓴다.
+INSERT INTO invest_alerts (unit, cmd, run_id, exit_code, title, body)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, created_at, unit, cmd, run_id, exit_code, title, body;
+
+-- name: ListInvestAlertsAfter :many
+-- 앱이 마지막으로 본 id 다음 알림. since보다 오래된 것은 주지 않는다(처음 연결한 기기에 옛 알림을 쏟지 않게).
+SELECT id, created_at, unit, cmd, run_id, exit_code, title, body
+FROM invest_alerts
+WHERE id > sqlc.arg(after_id) AND created_at >= sqlc.arg(since)
+ORDER BY id
+LIMIT sqlc.arg(max_rows);

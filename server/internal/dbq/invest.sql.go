@@ -138,6 +138,45 @@ func (q *Queries) InsertInvestAdjustment(ctx context.Context, arg InsertInvestAd
 	return id, err
 }
 
+const insertInvestAlert = `-- name: InsertInvestAlert :one
+INSERT INTO invest_alerts (unit, cmd, run_id, exit_code, title, body)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, created_at, unit, cmd, run_id, exit_code, title, body
+`
+
+type InsertInvestAlertParams struct {
+	Unit     string `json:"unit"`
+	Cmd      string `json:"cmd"`
+	RunID    *int64 `json:"run_id"`
+	ExitCode *int32 `json:"exit_code"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+}
+
+// 실패 알림 한 줄. 매매 역할만 쓴다.
+func (q *Queries) InsertInvestAlert(ctx context.Context, arg InsertInvestAlertParams) (InvestAlert, error) {
+	row := q.db.QueryRow(ctx, insertInvestAlert,
+		arg.Unit,
+		arg.Cmd,
+		arg.RunID,
+		arg.ExitCode,
+		arg.Title,
+		arg.Body,
+	)
+	var i InvestAlert
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.Unit,
+		&i.Cmd,
+		&i.RunID,
+		&i.ExitCode,
+		&i.Title,
+		&i.Body,
+	)
+	return i, err
+}
+
 const insertInvestContribution = `-- name: InsertInvestContribution :exec
 INSERT INTO invest_contributions (effective_from, amount, reason, recorded_on)
 VALUES ($1, $2, $3, $4)
@@ -366,6 +405,50 @@ func (q *Queries) ListInvestAdjustments(ctx context.Context) ([]ListInvestAdjust
 			&i.Shares,
 			&i.PaidKrw,
 			&i.Reason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInvestAlertsAfter = `-- name: ListInvestAlertsAfter :many
+SELECT id, created_at, unit, cmd, run_id, exit_code, title, body
+FROM invest_alerts
+WHERE id > $1 AND created_at >= $2
+ORDER BY id
+LIMIT $3
+`
+
+type ListInvestAlertsAfterParams struct {
+	AfterID int64     `json:"after_id"`
+	Since   time.Time `json:"since"`
+	MaxRows int32     `json:"max_rows"`
+}
+
+// 앱이 마지막으로 본 id 다음 알림. since보다 오래된 것은 주지 않는다(처음 연결한 기기에 옛 알림을 쏟지 않게).
+func (q *Queries) ListInvestAlertsAfter(ctx context.Context, arg ListInvestAlertsAfterParams) ([]InvestAlert, error) {
+	rows, err := q.db.Query(ctx, listInvestAlertsAfter, arg.AfterID, arg.Since, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InvestAlert{}
+	for rows.Next() {
+		var i InvestAlert
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.Unit,
+			&i.Cmd,
+			&i.RunID,
+			&i.ExitCode,
+			&i.Title,
+			&i.Body,
 		); err != nil {
 			return nil, err
 		}

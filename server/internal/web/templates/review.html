@@ -17,6 +17,14 @@
     <div class="muted small">{{dt .OccurredAt}} · {{sourceName .Source}}{{if eq .Flow "in"}} · 들어온 돈{{end}}{{if .Category}} · 제안: {{.Category}}{{end}}</div>
   </div>
   <form hx-post="/web/review/{{.ID}}" hx-target="#review-box" hx-swap="innerHTML">
+    {{/* 메모 칸에서 Enter를 눌러도 아무 분류로 저장되지 않게: 폼의 첫 제출 버튼(기본 버튼)이 꺼져 있으면 Enter 제출이 일어나지 않는다 */}}
+    <button type="submit" disabled hidden aria-hidden="true" tabindex="-1"></button>
+    {{with .Suggestion}}
+    <div class="suggest-row">
+      <button class="btn wide suggest" name="suggest_category_id" value="{{.CategoryID}}">AI 추천: {{.Category}}</button>
+      <p class="muted small">누르면 이 분류로 정하고 다음부터 자동으로 분류해요. 아니면 아래에서 직접 고르세요.</p>
+    </div>
+    {{end}}
     <label class="remember toggle"><input type="checkbox" class="switch" name="remember" {{if .Merchant}}checked{{end}} {{if not .Merchant}}disabled{{end}}> 이 가맹점은 항상 이 분류</label>
     {{if eq .Flow "in"}}
     <div class="settle-row">

@@ -24,6 +24,8 @@ type API struct {
 	Processor *pipeline.Processor
 	Logger    *slog.Logger
 	Now       func() time.Time
+	// Suggestions가 true면 거래 목록에 AI 분류 추천(suggestion)을 붙인다(AI_CLASSIFY). false면 늘 null.
+	Suggestions bool
 }
 
 func (a *API) now() time.Time {

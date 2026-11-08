@@ -1,5 +1,5 @@
 -- name: CreateDevice :one
-INSERT INTO devices (name, token_hash, kakao_id)
+INSERT INTO devices (name, token_hash, email)
 VALUES ($1, $2, $3)
 RETURNING *;
 

@@ -5,7 +5,7 @@
 ```
 [Android 앱] --알림 원문(HTTPS, Bearer)--> [Go 서버] --> [PostgreSQL]
      ^  위젯·앱 화면 <---- 요약 API ----------+
-[PC 웹 브라우저] ---------------------------> [Go 서버] (카카오 로그인)
+[PC 웹 브라우저] --Cloudflare Access(이메일 코드)--> [Go 서버] (Access JWT 검증)
 ```
 
 - 앱은 알림을 **해석하지 않고 원문 그대로** 보낸다. 해석·분류·중복 처리는 전부 서버가 한다(알림 문구가 바뀌어도 서버만 고치면 됨).
@@ -19,7 +19,7 @@
 | [`docs/PROGRESS.md`](docs/PROGRESS.md) | 진행 상황, 막힌 것 |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | 설계 결정과 바꾸는 방법 |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | kodeploy 배포, 환경변수, 운영 명령 |
-| [`docs/KAKAO_SETUP.md`](docs/KAKAO_SETUP.md) | 카카오 디벨로퍼스 설정 |
+| [`docs/ACCESS_SETUP.md`](docs/ACCESS_SETUP.md) | 로그인(Cloudflare Tunnel + Access, 이메일 코드), 앱 연결 |
 | [`docs/ANDROID_SETUP.md`](docs/ANDROID_SETUP.md) | 앱 빌드·설치·권한·위젯 |
 | [`docs/PARSERS.md`](docs/PARSERS.md) | 실데이터로 파서 보정하는 절차 |
 | [`docs/BACKUP.md`](docs/BACKUP.md) | 백업·복구 |
@@ -34,7 +34,7 @@ server/                 Go 서버 (net/http, pgx, sqlc, goose)
     parser/             소스별 파서(KB·토스 잠정, 범용) + 합성 픽스처
     pipeline/           처리: 예외 규칙 → 중복 → 취소 상계 → 분류 → 확인 필요, 재처리, 사용자 수정
     api/                JSON API (/v1/summary, transactions, review, budgets, analytics, reports, reconcile …)
-    auth/               기기 토큰, 카카오 로그인, 세션·CSRF
+    auth/               기기 토큰, Access JWT 검증, 세션·CSRF, 앱 연결(1회용 코드 + PKCE)
     web/                PC 웹 (html/template + htmx + Chart.js 내장)
     db/                 마이그레이션(goose), 쿼리(sqlc → internal/dbq)
 android/
@@ -53,7 +53,7 @@ docs/
 - **예산**: 분류별 월 예산(시작일 변경 가능), 남은 돈 = 예산 − 확정 지출 + 정산
 - **PC 웹**: 대시보드, 거래(검색·수정·제외), 확인 필요 큐, 예산(지난달 복사), 분석(비중·일별 추이·전월 대비), 월간 리포트, 명세서 대조, 관리(현금 입력·분류·자동 분류 규칙·설정·읽지 못한 알림·기기), 다크 모드, 모바일
 - **앱·위젯**: 홈 위젯(크기별 3단계, 결제 직후 즉시 갱신 + 30분), 이번 달 요약, 확인 필요 처리, 최근 거래, 예산 80%·초과 알림(무음, 끌 수 있음)
-- **보안**: 카카오 로그인 + 허용 회원번호, 기기 토큰(DB엔 해시만, 앱은 Keystore 암호화), 세션 쿠키 HttpOnly·Secure·SameSite + CSRF, CSP, rate limit
+- **보안**: 웹은 Cloudflare Access(이메일 코드) + 허용 이메일, 서버도 Access JWT를 직접 검증. 앱은 브라우저 로그인 후 1회용 코드 + PKCE로 기기 토큰을 받는다(DB엔 해시만, 앱은 Keystore 암호화). 세션 쿠키 HttpOnly·Secure·SameSite + CSRF, CSP, rate limit
 
 ## 로컬 실행
 
@@ -65,12 +65,12 @@ make up                     # postgres + server (docker compose)
 curl localhost:8080/healthz # {"status":"ok"}
 ```
 
-카카오 키 없이 웹을 보려면 `.env`에 개발용 로그인을 켠다(운영 금지):
+Cloudflare Access 없이 웹을 보려면 `.env`에 개발용 로그인을 켠다(운영 금지, `CF_ACCESS_*`는 비워 둔다):
 
 ```
 APP_ENV=development
-DEV_LOGIN_KAKAO_ID=1
-ALLOWED_KAKAO_IDS=1
+DEV_LOGIN_EMAIL=me@example.com
+ALLOWED_EMAILS=me@example.com
 COOKIE_SECURE=false
 ```
 

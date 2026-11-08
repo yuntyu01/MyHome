@@ -1,10 +1,12 @@
 package com.yuntyu.myhome
 
 import android.app.Application
-import com.kakao.sdk.common.KakaoSdk
 import com.yuntyu.myhome.core.api.MyHomeApi
 import com.yuntyu.myhome.data.AppDatabase
 import com.yuntyu.myhome.data.SummaryRepository
+import com.yuntyu.myhome.health.HealthLocal
+import com.yuntyu.myhome.health.MealPhotos
+import com.yuntyu.myhome.health.Reminders
 import com.yuntyu.myhome.notify.Notifications
 import com.yuntyu.myhome.security.TokenStore
 import com.yuntyu.myhome.settings.AppSettings
@@ -24,6 +26,9 @@ class MyHomeApp : Application() {
     lateinit var summaryRepo: SummaryRepository
         private set
 
+    lateinit var healthLocal: HealthLocal
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -32,14 +37,15 @@ class MyHomeApp : Application() {
         tokenStore = TokenStore(this)
         api = MyHomeApi(baseUrl = { settings.serverUrl }, token = { tokenStore.read() })
         summaryRepo = SummaryRepository(this)
+        healthLocal = HealthLocal(this)
         Notifications.createChannels(this)
-        if (BuildConfig.KAKAO_NATIVE_APP_KEY.isNotBlank()) {
-            KakaoSdk.init(this, BuildConfig.KAKAO_NATIVE_APP_KEY)
-        }
         // 앱이 켜질 때마다 남은 대기열을 비우고 주기 작업을 보장한다.
         WorkScheduler.ensurePeriodic(this)
         WorkScheduler.flushNow(this)
         WidgetRefresher.ensurePeriodic(this)
+        // 건강: 알림을 다시 걸고, 보관 기간이 지난 끼니 사진을 지운다
+        Reminders.reschedule(this)
+        MealPhotos.purge(this, healthLocal.photoKeepDays)
     }
 
     companion object {

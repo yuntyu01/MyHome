@@ -1,5 +1,5 @@
 -- name: CreateSession :one
-INSERT INTO sessions (id_hash, kakao_id, csrf_token, expires_at)
+INSERT INTO sessions (id_hash, email, csrf_token, expires_at)
 VALUES ($1, $2, $3, $4)
 RETURNING *;
 

@@ -42,16 +42,17 @@ const investUsage = `사용법: myhome invest <명령> [옵션]
   verify                             판정 검산
   why                                확신이 흔들릴 때
   reconcile [--apply-cash]           증권사 계좌 대조 (읽기 전용)
-  alert --unit U                     실패 알림 메일 (systemd OnFailure가 부른다)
+  alert --unit U                     실패 알림을 앱에 남김 (systemd OnFailure가 부른다)
 
 마이그레이션
   import-tq --state DIR --master CSV [--dry-run]
 
 종료 코드: 0 정상, 1 실패(기다려도 안 풀림), 75 기다리면 풀리는 실패
 환경변수: DATABASE_URL, TOSS_APP_KEY, TOSS_APP_SECRET, TOSS_ACCOUNT, TOSS_TOKEN_FILE(선택),
-          MAIL_FROM, MAIL_TO, GMAIL_APP_PASSWORD (실패 알림), INVEST_HEARTBEAT_URL (status 성공 시 ping)`
+          INVEST_HEARTBEAT_URL (status 성공 시 ping)`
 
 // readOnlyCmds는 상태를 쓰지 않는 명령이다. 잠금을 잡지 않는다 — 매매 중에도 볼 수 있게.
+// alert도 잠금을 잡지 않는다 — 실패 알림이 다른 작업을 기다리느라 늦으면 안 된다.
 var readOnlyCmds = map[string]bool{"order": true, "ledger": true, "verify": true, "why": true, "status": true, "alert": true}
 
 type multiFlag []string
@@ -234,13 +235,7 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 	case "reconcile":
 		return app.Reconcile(ctx, run.ReconcileOpts{ApplyCash: *applyCash})
 	case "alert":
-		var m run.Mailer
-		if c, err := run.SMTPFromEnv(); err != nil {
-			fmt.Fprintln(app.Err, "⚠", err)
-		} else {
-			m = c
-		}
-		return app.Alert(ctx, m, run.AlertOpts{Unit: *unit})
+		return app.Alert(ctx, run.AlertOpts{Unit: *unit})
 	case "import-tq":
 		return app.ImportTQ(ctx, run.ImportOpts{StateDir: *stateDir, MasterCSV: *master, DryRun: *dry})
 	}

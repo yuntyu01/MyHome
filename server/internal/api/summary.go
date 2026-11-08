@@ -87,6 +87,7 @@ func (a *API) BuildSummary(r *http.Request, p period.Period, recentN int) (Summa
 	for _, t := range recent {
 		s.Recent = append(s.Recent, recentDTO(t))
 	}
+	a.AttachSuggestions(ctx, s.Recent)
 	return s, nil
 }
 

@@ -9,10 +9,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/yuntyu01/MyHome/server/internal/ai"
 	"github.com/yuntyu01/MyHome/server/internal/api"
 	"github.com/yuntyu01/MyHome/server/internal/auth"
 	"github.com/yuntyu01/MyHome/server/internal/config"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
+	"github.com/yuntyu01/MyHome/server/internal/health"
+	"github.com/yuntyu01/MyHome/server/internal/health/foods"
 	"github.com/yuntyu01/MyHome/server/internal/httpx"
 	"github.com/yuntyu01/MyHome/server/internal/ingest"
 	"github.com/yuntyu01/MyHome/server/internal/pipeline"
@@ -24,7 +27,14 @@ type Deps struct {
 	Pool      *pgxpool.Pool
 	Logger    *slog.Logger
 	Processor *pipeline.Processor // nil이면 원문 저장만 한다
-	Kakao     auth.Kakao          // nil이면 설정값으로 실제 카카오 클라이언트를 만든다(설정이 없으면 비활성)
+	// Access는 웹 화면의 Cloudflare Access JWT 검증기다. nil이면 설정값(CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD)으로 만들고,
+	// 설정도 없으면 Access 검사 없이 APP_ENV=development에서만 웹을 연다(테스트는 가짜 키 서버를 쓰는 검증기를 넣는다).
+	Access *auth.AccessVerifier
+
+	// 건강(핏두잉 이식). nil이면 설정값으로 만든다(테스트는 가짜를 넣는다).
+	Analyzer ai.FoodAnalyzer
+	Foods    *foods.Lookup
+	Now      func() time.Time // 건강 API의 "오늘"(KST). nil이면 time.Now
 }
 
 // New는 전체 HTTP 핸들러를 만든다.
@@ -41,28 +51,30 @@ func New(d Deps) http.Handler {
 	deviceLimiter := httpx.NewRateLimiter(d.Config.RateLimitRPS, d.Config.RateLimitBurst)
 	mux.Handle("POST /v1/events", auth.RequireDevice(q, d.Logger, perDeviceLimit(deviceLimiter, http.HandlerFunc(ing.PostEvent))))
 
-	authn := &auth.Authenticator{Q: q, TTL: d.Config.SessionTTL, Secure: d.Config.CookieSecure, Logger: d.Logger}
+	access := d.Access
+	if access == nil && d.Config.AccessConfigured() {
+		access = auth.NewAccessVerifier(d.Config.CFAccessTeamDomain, d.Config.CFAccessAUD, d.Config.IsAllowedEmail)
+	}
+	authn := &auth.Authenticator{Q: q, TTL: d.Config.SessionTTL, Secure: d.Config.CookieSecure, Logger: d.Logger,
+		Access: access, DevMode: access == nil && d.Config.AppEnv == "development", Allowed: d.Config.IsAllowedEmail}
 	if authn.TTL <= 0 {
 		authn.TTL = 30 * 24 * time.Hour
 	}
-	kakao := d.Kakao
-	if kakao == nil && d.Config.KakaoConfigured() {
-		kakao = &auth.KakaoHTTP{
-			RestAPIKey: d.Config.KakaoRestAPIKey, ClientSecret: d.Config.KakaoClientSecret, RedirectURI: d.Config.KakaoRedirectURI,
-			AuthBase: d.Config.KakaoAuthBase, APIBase: d.Config.KakaoAPIBase,
-		}
-	}
-	ah := &auth.Handlers{Cfg: d.Config, Kakao: kakao, Auth: authn, Q: q, Logger: d.Logger}
+	ah := &auth.Handlers{Cfg: d.Config, Auth: authn, Q: q, Logger: d.Logger}
 	ah.Register(mux)
 
 	// 사용자 API: 기기 토큰(앱) 또는 웹 세션(+CSRF)
-	a := &api.API{Pool: d.Pool, Editor: &pipeline.Editor{Pool: d.Pool}, Processor: d.Processor, Logger: d.Logger}
+	a := &api.API{Pool: d.Pool, Editor: &pipeline.Editor{Pool: d.Pool}, Processor: d.Processor, Logger: d.Logger, Suggestions: d.Config.AIClassify}
 	a.Register(mux, authn.RequireAPI)
 
 	registerWeb(mux, authn, ah, a, d)
 
+	// 건강(핏두잉 이식): 기기 토큰(앱) 또는 웹 세션
+	newHealth(d).Register(mux, authn.RequireAPI)
+
 	var h http.Handler = mux
-	h = httpx.LimitBody(d.Config.MaxBodyBytes, h)
+	// 끼니 사진 분석만 사진 크기(최대 16MB)까지 받는다. 나머지는 MAX_BODY_BYTES 그대로
+	h = httpx.LimitBodyRoutes(d.Config.MaxBodyBytes, map[string]int64{"POST " + health.AnalyzePath: health.MaxAnalyzeBytes}, h)
 	h = httpx.RateLimitByIP(httpx.NewRateLimiter(d.Config.RateLimitRPS*4, d.Config.RateLimitBurst*2), d.Config.TrustProxyHeaders, h)
 	h = httpx.Recover(d.Logger, h)
 	h = httpx.Logging(d.Logger, h)
@@ -81,4 +93,21 @@ func perDeviceLimit(rl *httpx.RateLimiter, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// newHealth는 건강 API를 조립한다. 분석기는 AI_PROVIDER로 고른다(설정 검증은 config.Load가 한다).
+func newHealth(d Deps) *health.Handler {
+	analyzer := d.Analyzer
+	if analyzer == nil {
+		a, err := ai.New(d.Config.AIProvider, d.Config.GeminiAPIKey, d.Config.GeminiModel)
+		if err != nil {
+			panic(err) // config.Load가 먼저 거른다. 여기 오면 프로그램 오류다
+		}
+		analyzer = a
+	}
+	fl := d.Foods
+	if fl == nil {
+		fl = foods.New(d.Config.FoodSafetyAPIKey, d.Config.DataGoKrAPIKey, "", "")
+	}
+	return &health.Handler{Svc: &health.Service{Pool: d.Pool, Now: d.Now}, Analyzer: analyzer, Foods: fl, Logger: d.Logger}
 }

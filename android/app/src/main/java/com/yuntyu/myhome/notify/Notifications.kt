@@ -18,6 +18,8 @@ object Notifications {
     const val CH_SYNC = "sync"
     const val CH_TEST = "test"
     const val CH_BUDGET = "budget"
+    const val CH_HEALTH = "health"
+    const val CH_INVEST = "invest"
 
     const val ID_UPLOADING = 1001
     const val ID_TEST = 1002
@@ -32,6 +34,13 @@ object Notifications {
                     description = "분류별 예산 80% 도달·초과 알림 (기본 무음)"
                     setSound(null, null)
                     enableVibration(false)
+                },
+                NotificationChannel(CH_HEALTH, "건강 알림", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "끼니 마감 30분 전·마감 시각, 헬스 도착 1시간 전, 취침 시각"
+                },
+                // 자동매매가 실패했을 때만 온다. 드물고 놓치면 안 되니 소리를 낸다
+                NotificationChannel(CH_INVEST, "자동매매 실패", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "서버의 가격 갱신·월말 판정·주문·상태 점검 작업이 실패했을 때"
                 },
             ),
         )

@@ -885,11 +885,7 @@ func TestDateNeedsTheUnsafeSwitch(t *testing.T) {
 	}
 }
 
-type fakeMailer struct{ subject, body string }
-
-func (m *fakeMailer) Send(s, b string) error { m.subject, m.body = s, b; return nil }
-
-// 실패 알림은 실패한 실행의 출력을 그대로 싣는다 — 메일만 보고 어디를 볼지 알아야 한다.
+// 실패 알림은 실패한 실행의 출력을 싣고 DB에 남는다 — 앱 알림만 보고 어디를 볼지 알아야 한다.
 func TestAlertCarriesTheFailedRunOutput(t *testing.T) {
 	h := newHarness(t, seedOpt{})
 	id, err := h.st.StartRun(h.ctx, "trade", "")
@@ -900,14 +896,40 @@ func TestAlertCarriesTheFailedRunOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.app.Now = time.Now
-	m := &fakeMailer{}
-	if rc := h.app.Alert(h.ctx, m, AlertOpts{Unit: "myhome-invest-trade.service"}); rc != 0 {
+	if rc := h.app.Alert(h.ctx, AlertOpts{Unit: "myhome-invest-trade.service"}); rc != 0 {
 		t.Fatalf("rc %d %s", rc, h.err)
 	}
-	if !strings.Contains(m.subject, "trade") || !strings.Contains(m.subject, "exit 1") || !strings.Contains(m.body, "0주까지만") {
-		t.Fatalf("%q\n%s", m.subject, m.body)
+	// 실행 기록에 없는 유닛(DB에 닿기 전에 죽음)도 알림은 남긴다
+	if rc := h.app.Alert(h.ctx, AlertOpts{Unit: "myhome-invest-status.service"}); rc != 0 {
+		t.Fatalf("rc %d %s", rc, h.err)
 	}
-	if rc := h.app.Alert(h.ctx, nil, AlertOpts{Unit: "myhome-invest-trade.service"}); rc != 1 {
-		t.Fatal("메일 설정이 없는데 성공으로 끝났다")
+	got, err := h.st.AlertsAfter(h.ctx, 0, time.Now().Add(-time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("알림 %d건", len(got))
+	}
+	a := got[0]
+	if !strings.Contains(a.Title, "주문") || !strings.Contains(a.Title, "exit 1") || !strings.Contains(a.Body, "0주까지만") || a.RunID == nil || *a.RunID != id {
+		t.Fatalf("%+v", a)
+	}
+	if got[1].RunID != nil || !strings.Contains(got[1].Body, "journalctl -u myhome-invest-status.service") {
+		t.Fatalf("%+v", got[1])
+	}
+	// 앱은 마지막으로 본 id 다음만 받는다
+	if rest, _ := h.st.AlertsAfter(h.ctx, got[0].ID, time.Now().Add(-time.Hour), 10); len(rest) != 1 || rest[0].ID != got[1].ID {
+		t.Fatalf("after: %+v", rest)
+	}
+}
+
+func TestLastLinesKeepsTheEnd(t *testing.T) {
+	long := strings.Repeat("가나다라마\n", 400) + "✗ 마지막 이유"
+	got := lastLines(long, 100)
+	if !strings.HasPrefix(got, "…\n") || !strings.HasSuffix(got, "✗ 마지막 이유") || len([]rune(got)) > 103 {
+		t.Fatalf("%q", got)
+	}
+	if lastLines(" 짧다 ", 100) != "짧다" {
+		t.Fatal("짧은 출력은 그대로")
 	}
 }
