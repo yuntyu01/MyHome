@@ -18,6 +18,7 @@ import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import com.yuntyu.myhome.BuildConfig
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.R
 import com.yuntyu.myhome.core.api.ApiResult
@@ -84,9 +85,42 @@ object GymGeofence {
     fun hasForeground(ctx: Context) =
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-    /** 지오펜스는 Android 10부터 "항상 허용"(백그라운드 위치)이 있어야 앱이 꺼져 있어도 울린다. */
-    fun hasBackground(ctx: Context) = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-        ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+    /**
+     * 지오펜스는 Android 10부터 "항상 허용"(백그라운드 위치)이 있어야 앱이 꺼져 있어도 울린다.
+     * Play 위치 권한 선언 전에는 매니페스트에 그 권한이 없어서(BuildConfig.GYM_AUTO=false) 늘 false다.
+     */
+    fun hasBackground(ctx: Context) = BuildConfig.GYM_AUTO && (
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+
+    /** 위치로 출석의 결과. */
+    sealed interface HereResult {
+        data class Done(val distanceM: Int) : HereResult
+        data class TooFar(val distanceM: Int, val allowedM: Int) : HereResult
+        data class Failed(val why: String) : HereResult
+    }
+
+    /**
+     * 지금 위치가 저장한 헬스장 반경 안이면 오늘 출석을 geofence로 남긴다(앱을 연 채로 누를 때, 자동 출석이 꺼져 있어도 쓴다).
+     * 허용 거리 = 반경 + 위치 오차(최대 100m).
+     */
+    suspend fun checkInHere(ctx: Context): HereResult {
+        val s = spot(ctx) ?: return HereResult.Failed("헬스장 위치를 먼저 저장해 주세요")
+        val loc = currentLocation(ctx) ?: return HereResult.Failed("위치를 잡지 못했어요. 위치(GPS)를 켜 주세요")
+        val d = FloatArray(1)
+        Location.distanceBetween(loc.latitude, loc.longitude, s.lat, s.lng, d)
+        val allowed = s.radiusM + minOf(loc.accuracy, 100f).toInt()
+        if (d[0] > allowed) return HereResult.TooFar(d[0].toInt(), allowed)
+        val today = LocalDate.now().toString()
+        return when (val r = MyHomeApp.instance.api.gymCheckIn(today, "geofence")) {
+            is ApiResult.Ok -> {
+                prefs(ctx).edit { putString("last", today) }
+                HereResult.Done(d[0].toInt())
+            }
+            else -> HereResult.Failed("출석을 남기지 못했어요")
+        }
+    }
 
     private fun pending(ctx: Context): PendingIntent = PendingIntent.getBroadcast(
         ctx,

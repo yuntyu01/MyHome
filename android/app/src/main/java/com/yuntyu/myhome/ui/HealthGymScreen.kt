@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.yuntyu.myhome.BuildConfig
 import com.yuntyu.myhome.health.GymGeofence
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Switch
@@ -263,9 +264,10 @@ private fun GymLocationSection(onChanged: () -> Unit) {
         lifecycle.currentStateFlow.collect { if (it == androidx.lifecycle.Lifecycle.State.RESUMED) { GymGeofence.register(ctx); tick++ } }
     }
 
-    SectionCard("헬스장 위치로 자동 출석") {
+    SectionCard(if (BuildConfig.GYM_AUTO) "헬스장 위치로 자동 출석" else "헬스장 위치로 출석") {
         Text(
-            "헬스장에 있을 때 위치를 저장해 두면, 그 근처에 5분 넘게 머물 때 자동으로 출석을 남겨요. 위치는 이 폰에만 저장돼요.",
+            if (BuildConfig.GYM_AUTO) "헬스장에 있을 때 위치를 저장해 두면, 그 근처에 5분 넘게 머물 때 자동으로 출석을 남겨요. 위치는 이 폰에만 저장돼요."
+            else "헬스장에 있을 때 위치를 저장해 두면, 다음부터 헬스장에서 '위치로 출석'을 눌러 사진 없이 출석해요. 위치는 이 폰에만 저장돼요.",
             style = MaterialTheme.typography.bodySmall,
             color = m.muted,
         )
@@ -280,16 +282,32 @@ private fun GymLocationSection(onChanged: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (r in listOf(100, 150, 250)) Chip("${r}m", spot.radiusM == r, Modifier.weight(1f)) { GymGeofence.setRadius(ctx, r); tick++ }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (!BuildConfig.GYM_AUTO) {
+            Button(onClick = {
+                busy = true
+                scope.launch {
+                    val r = GymGeofence.checkInHere(ctx)
+                    busy = false
+                    val msg = when (r) {
+                        is GymGeofence.HereResult.Done -> "출석했어요 (헬스장에서 ${r.distanceM}m)"
+                        is GymGeofence.HereResult.TooFar -> "헬스장에서 ${r.distanceM}m 떨어져 있어요 (${r.allowedM}m 안이어야 해요)"
+                        is GymGeofence.HereResult.Failed -> r.why
+                    }
+                    Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                    if (r is GymGeofence.HereResult.Done) onChanged()
+                }
+            }, enabled = !busy && fg, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "위치 확인 중…" else "위치로 출석") }
+        }
+        if (BuildConfig.GYM_AUTO) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("자동 출석", Modifier.weight(1f))
             Switch(checked = enabled, onCheckedChange = { GymGeofence.setEnabled(ctx, it); tick++ })
         }
-        if (enabled && !bg) {
+        if (BuildConfig.GYM_AUTO && enabled && !bg) {
             Text("앱이 꺼져 있어도 알려면 위치 권한을 '항상 허용'으로 바꿔야 해요.", style = MaterialTheme.typography.bodySmall, color = m.warn)
             FilledTonalButton(onClick = {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) askBackground.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             }) { Text("'항상 허용' 켜기") }
-        } else if (enabled) {
+        } else if (BuildConfig.GYM_AUTO && enabled) {
             Text("켜져 있어요. 헬스장에 5분 머물면 출석이 남고 알림이 와요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
