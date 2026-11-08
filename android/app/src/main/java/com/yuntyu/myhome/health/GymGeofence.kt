@@ -37,7 +37,8 @@ import kotlin.coroutines.resume
 object GymGeofence {
     private const val PREFS = "gym_geofence"
     private const val ID = "gym"
-    private const val DWELL_MS = 5 * 60 * 1000
+    // 디버그 빌드는 시연·확인용으로 30초
+    private val DWELL_MS = if (BuildConfig.DEBUG) 30 * 1000 else 5 * 60 * 1000
     const val DEFAULT_RADIUS = 150
     private const val NOTIFY_ID = 4001
 
@@ -60,7 +61,7 @@ object GymGeofence {
             putLong("lat", java.lang.Double.doubleToRawLongBits(loc.latitude))
             putLong("lng", java.lang.Double.doubleToRawLongBits(loc.longitude))
             putInt("radius", radiusM)
-            putBoolean("enabled", true)
+            // 자동 출석은 여기서 켜지 않는다. 화면에서 안내(백그라운드 위치)를 보고 동의해야 켠다
         }
         register(ctx)
     }

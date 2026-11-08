@@ -33,8 +33,8 @@ android {
 
         // 기본 서버 주소(선택). 앱 설정 화면에서 바꿀 수 있다.
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"${buildSetting("myhome.serverUrl")}\"")
-        // 헬스장 자동 출석(지오펜스, 백그라운드 위치). Play 위치 권한 선언이 통과한 뒤 true + 매니페스트에 ACCESS_BACKGROUND_LOCATION
-        buildConfigField("boolean", "GYM_AUTO", "false")
+        // 헬스장 자동 출석(지오펜스, 백그라운드 위치). false면 "위치로 출석" 버튼만(매니페스트의 ACCESS_BACKGROUND_LOCATION도 같이 뺀다)
+        buildConfigField("boolean", "GYM_AUTO", "true")
     }
 
     // 업로드 키(핏두잉 것과 같은 키). 값은 local.properties 또는 환경변수(KEYSTORE_FILE·KEYSTORE_PASSWORD·KEY_ALIAS·KEY_PASSWORD)로만 받는다.

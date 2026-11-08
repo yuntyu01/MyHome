@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -229,6 +230,8 @@ private fun GymLocationSection(onChanged: () -> Unit) {
     val m = LocalModo.current
     var tick by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
+    // Play 정책: 백그라운드 위치를 요청하기 전에 앱 안에서 먼저 알리고 동의를 받는다
+    var disclosure by remember { mutableStateOf(false) }
     val spot = remember(tick) { GymGeofence.spot(ctx) }
     val enabled = remember(tick) { GymGeofence.enabled(ctx) }
     val fg = remember(tick) { GymGeofence.hasForeground(ctx) }
@@ -282,7 +285,8 @@ private fun GymLocationSection(onChanged: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (r in listOf(100, 150, 250)) Chip("${r}m", spot.radiusM == r, Modifier.weight(1f)) { GymGeofence.setRadius(ctx, r); tick++ }
         }
-        if (!BuildConfig.GYM_AUTO) {
+        // 자동 출석이 꺼져 있거나 '항상 허용'이 없을 때도 쓸 수 있는 한 번 누르기 출석
+        run {
             Button(onClick = {
                 busy = true
                 scope.launch {
@@ -298,17 +302,40 @@ private fun GymLocationSection(onChanged: () -> Unit) {
                 }
             }, enabled = !busy && fg, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "위치 확인 중…" else "위치로 출석") }
         }
-        if (BuildConfig.GYM_AUTO) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // 켤 때는 늘 안내를 먼저 보여 준다(Play 정책: 백그라운드 위치는 앱 안 안내 + 동의 뒤에 요청)
+        val toggleAuto: (Boolean) -> Unit = { on -> if (on) disclosure = true else { GymGeofence.setEnabled(ctx, false); tick++ } }
+        if (BuildConfig.GYM_AUTO) Row(Modifier.fillMaxWidth().clickable { toggleAuto(!enabled) }, verticalAlignment = Alignment.CenterVertically) {
             Text("자동 출석", Modifier.weight(1f))
-            Switch(checked = enabled, onCheckedChange = { GymGeofence.setEnabled(ctx, it); tick++ })
+            Switch(checked = enabled, onCheckedChange = toggleAuto)
         }
         if (BuildConfig.GYM_AUTO && enabled && !bg) {
             Text("앱이 꺼져 있어도 알려면 위치 권한을 '항상 허용'으로 바꿔야 해요.", style = MaterialTheme.typography.bodySmall, color = m.warn)
-            FilledTonalButton(onClick = {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) askBackground.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            }) { Text("'항상 허용' 켜기") }
+            FilledTonalButton(onClick = { disclosure = true }) { Text("'항상 허용' 켜기") }
         } else if (BuildConfig.GYM_AUTO && enabled) {
             Text("켜져 있어요. 헬스장에 5분 머물면 출석이 남고 알림이 와요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
+        }
+        if (disclosure) {
+            AlertDialog(
+                onDismissRequest = { disclosure = false },
+                title = { Text("위치 정보 사용 안내") },
+                text = {
+                    Text(
+                        "MyHome은 헬스장 자동 출석을 위해 앱이 닫혀 있거나 사용 중이 아닐 때에도 위치 정보를 수집합니다.\n\n" +
+                            "위치는 저장한 헬스장 근처에 머물렀는지 확인하는 데만 쓰고, 헬스장 좌표는 이 폰에만 저장합니다. " +
+                            "서버에는 그날 출석했는지만 보내고 위치나 이동 경로는 보내지 않습니다.\n\n" +
+                            "다음 화면에서 위치 권한을 '항상 허용'으로 골라 주세요. 언제든 이 화면에서 자동 출석을 끌 수 있어요.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        disclosure = false
+                        GymGeofence.setEnabled(ctx, true)
+                        tick++
+                        if (!bg && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) askBackground.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                    }) { Text("동의하고 계속") }
+                },
+                dismissButton = { TextButton(onClick = { disclosure = false }) { Text("취소") } },
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = { if (fg) saveHere() else askFine.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)) }, enabled = !busy) {
