@@ -417,29 +417,32 @@ func (c *Client) Buyable(ctx context.Context, symbol string, priceUSD float64) (
 // Order는 주문 제출이다. 쓰기다 — 실제 돈이 움직인다.
 //
 // 🔴 clientOrderId가 멱등성 키다. 같은 값으로 다시 보내면 토스가 이전 주문을 그대로 돌려준다.
-// 자동화에서 가장 비싼 실수가 이중 주문인데, 그것을 API가 직접 막아 준다. 그래서 키를
-// (날짜·종목·방향·수량·유형)으로 결정적으로 만든다 — 같은 날 같은 주문을 두 번 내면 한 건이 되고,
-// 유형을 승격하면 다른 건이 된다.
+// 키는 호출부(run)가 만들어 주문 기록에 "결과 모름"으로 먼저 남긴 뒤 넘긴다. 응답을 못 받으면 다음 실행이
+// 같은 키로 증권사 주문 목록을 찾는다(FindOrders) — 보낸 키와 찾는 키가 같아야 하므로 여기서 만들지 않는다.
 //
 // 🔴 주문 POST는 연결이 끊겨도 다시 보내지 않는다 — 접수 여부를 모르는 채로 다시 보내지 않는다.
-func (c *Client) Order(ctx context.Context, symbol string, side broker.Side, qty int, price float64, style broker.Style) (broker.OrderResult, error) {
+// 보내기 전에 실패한 것(형식 검사·토큰·계좌)은 notSent로 감싸 IsRejected가 "확실히 안 나갔다"고 답하게 한다.
+func (c *Client) Order(ctx context.Context, symbol string, side broker.Side, qty int, price float64, style broker.Style, clientOrderID string) (broker.OrderResult, error) {
 	out, ok := sideOut[side]
 	if !ok {
-		return broker.OrderResult{}, fmt.Errorf("side는 'buy' 또는 'sell': %q", side)
+		return broker.OrderResult{}, notSent(fmt.Errorf("side는 'buy' 또는 'sell': %q", side))
 	}
 	st, ok := orderStyles[style]
 	if !ok {
-		return broker.OrderResult{}, fmt.Errorf("주문 유형은 %v 중 하나: %q", slices.Sorted(maps.Keys(orderStyles)), style)
+		return broker.OrderResult{}, notSent(fmt.Errorf("주문 유형은 %v 중 하나: %q", slices.Sorted(maps.Keys(orderStyles)), style))
+	}
+	if strings.TrimSpace(clientOrderID) == "" {
+		return broker.OrderResult{}, notSent(errors.New("clientOrderId가 비었다 — 멱등성 키 없이 주문하지 않는다"))
 	}
 	qtyS, err := formatDecimal(float64(qty), 0, "주문 수량")
 	if err != nil {
-		return broker.OrderResult{}, err
+		return broker.OrderResult{}, notSent(err)
 	}
 	body := map[string]any{
 		"symbol":        symbol,
 		"side":          out,
 		"quantity":      qtyS,
-		"clientOrderId": fmt.Sprintf("tq-%s-%s-%s-%s-%s", broker.Today(c.now()).Format("20060102"), symbol, side, qtyS, style),
+		"clientOrderId": clientOrderID,
 		"orderType":     st.orderType,
 		"timeInForce":   st.timeInForce,
 	}
@@ -447,14 +450,21 @@ func (c *Client) Order(ctx context.Context, symbol string, side broker.Side, qty
 	if st.needsPrice {
 		priceS, err := formatDecimal(price, 4, "주문 단가")
 		if err != nil {
-			return broker.OrderResult{}, err
+			return broker.OrderResult{}, notSent(err)
 		}
 		body["price"] = priceS
 		sent, _ = strconv.ParseFloat(priceS, 64)
 	}
+	// 토큰·계좌는 POST 전에 받아 둔다 — 여기서 실패하면 주문은 나가지 않았다
+	if _, err := c.Token(ctx); err != nil {
+		return broker.OrderResult{}, notSent(err)
+	}
+	if _, err := c.AccountSeq(ctx); err != nil {
+		return broker.OrderResult{}, notSent(err)
+	}
 
-	c.warn(fmt.Sprintf("주문 제출 — %s %s %s주 (%s: %s+%s). 실제 돈이 움직인다",
-		symbol, side, qtyS, style, st.orderType, st.timeInForce))
+	c.warn(fmt.Sprintf("주문 제출 — %s %s %s주 (%s: %s+%s, %s). 실제 돈이 움직인다",
+		symbol, side, qtyS, style, st.orderType, st.timeInForce, clientOrderID))
 	raw, err := c.request(ctx, http.MethodPost, "/api/v1/orders", reqOpts{json: body, noRetry: true})
 	if err != nil {
 		return broker.OrderResult{}, err
@@ -586,7 +596,100 @@ func (c *Client) OpenOrders(ctx context.Context) ([]map[string]any, error) {
 	return c.orders(ctx, "OPEN", "", "", "")
 }
 
-// ── 계약 ⑥ 자금 부족 판별 ─────────────────────────────────────────────
+// ── 계약 ⑥ 접수 여부를 모르는 주문 찾기 ───────────────────────────────
+
+// FindOrders는 기간(KST 날짜)의 끝난 주문과 지금 살아 있는 주문 중 그 종목 것이다. 읽기 전용.
+//
+// 🔴 주문 목록 행에 clientOrderId가 실려 오는지는 문서에서 확인하지 못했다. 그래서 키를 짚지 않고
+// 행의 값 어딘가에 그 키가 있는지만 본다(있으면 ByClientID). 없으면 호출부가 종목·방향과 주문번호로
+// 가린다 — 없는 필드를 지어내서 "없다"고 답하는 것이 가장 위험하다(그 답이 곧 새 주문이다).
+// 살아 있는 주문은 종목으로 거르지 않고 받은 뒤 여기서 거른다. 종목 칸이 비어 오면 남겨 둔다.
+func (c *Client) FindOrders(ctx context.Context, symbol, clientOrderID string, from, to time.Time) ([]broker.OrderRef, error) {
+	if from.IsZero() {
+		return nil, errors.New("조회 시작일이 비었다")
+	}
+	if to.IsZero() {
+		to = from
+	}
+	start, end := ymd(from), ymd(to)
+	if end < start {
+		return nil, fmt.Errorf("조회 종료일이 시작일보다 앞선다: %s → %s", start, end)
+	}
+	closed, err := c.orders(ctx, "CLOSED", symbol, start, end)
+	if err != nil {
+		return nil, err
+	}
+	open, err := c.orders(ctx, "OPEN", "", "", "")
+	if err != nil {
+		return nil, err
+	}
+	var out []broker.OrderRef
+	for i, row := range append(closed, open...) {
+		byID := hasValue(row, clientOrderID)
+		sym := strings.TrimSpace(orText(row["symbol"]))
+		if !byID && sym != "" && sym != symbol {
+			continue
+		}
+		ex, _ := row["execution"].(map[string]any)
+		filled, err := numOr0(ex["filledQuantity"], "체결 수량")
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, broker.OrderRef{
+			OrderID: orText(row["orderId"]), Symbol: sym, Side: sideIn[text(row["side"])],
+			Open: i >= len(closed), FilledQty: int(filled), ByClientID: byID,
+		})
+	}
+	return out, nil
+}
+
+// hasValue는 행의 맨 위 값 중에 want와 같은 문자열이 있는가다.
+func hasValue(row map[string]any, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, v := range row {
+		switch v.(type) {
+		case string, json.Number:
+			if strings.TrimSpace(text(v)) == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ── 계약 ⑦ 거절·자금 부족 판별 ────────────────────────────────────────
+
+// notSentError는 POST를 보내기 전에 실패한 주문이다. 접수되지 않은 것이 확실하다.
+type notSentError struct{ err error }
+
+func (e *notSentError) Error() string { return e.err.Error() }
+func (e *notSentError) Unwrap() error { return e.err }
+
+func notSent(err error) error { return &notSentError{err: err} }
+
+// IsRejected는 주문이 접수되지 않은 것이 확실한가다.
+//
+// 🔴 명시적 거절은 4xx + 오류 코드뿐이다. 408(요청 시간 초과)·409(충돌 — 같은 clientOrderId가 이미 있을
+// 수 있다)는 모름으로 둔다. 응답 전 연결 끊김·타임아웃·5xx·응답 형식 이상·orderId 없는 2xx도 모름이다 —
+// 그때 다음 유형으로 내려가면 앞 주문이 살아 있을 때 이중 체결이다.
+func (c *Client) IsRejected(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ns *notSentError
+	if errors.As(err, &ns) {
+		return true
+	}
+	var te *Error
+	if !errors.As(err, &te) {
+		return false
+	}
+	return te.Status >= 400 && te.Status < 500 && te.Status != http.StatusRequestTimeout &&
+		te.Status != http.StatusConflict && te.Code != ""
+}
 
 // IsFundsError는 자금 부족인가다. 주문 유형을 바꿔도 안 풀리므로 승격을 멈춰야 한다.
 func (c *Client) IsFundsError(err error) bool {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,6 +32,8 @@ const investUsage = `사용법: myhome invest <명령> [옵션]
 
 수동 — 복구·교정 전용
   order                              주문서 + preflight
+  orders [--clear-stale]             진행 중인 주문 기록. --clear-stale은 지난 적용월 기록을 지운다
+                                     (증권사에 살아 있을 수 있는 주문이 있거나 장부에 없는 체결이 있으면 거부)
   execute --fill SYM=PX [--fx F] [--shares N] [--paid KRW] [--dry-run]
   amend --fill SYM=PX --fx F [--dry-run]
   adjust (--auto | --shares N --paid KRW) [--symbol S] [--fx F] --reason "..." [--dry-run]
@@ -120,13 +123,19 @@ func investCmd(ctx context.Context, cfg config.Config, args []string) int {
 		return &toss.Client{Config: c, TokenFile: os.Getenv("TOSS_TOKEN_FILE"), Log: app.Err}, nil
 	}
 
-	if !readOnlyCmds[name] {
-		unlock, err := st.Lock(ctx, 10*time.Minute)
+	// orders는 보기만 할 때는 잠금을 잡지 않는다. --clear-stale은 상태를 지우므로 잡는다
+	readOnly := readOnlyCmds[name] || (name == "orders" && !slices.ContainsFunc(rest, func(a string) bool {
+		return strings.HasPrefix(strings.TrimLeft(a, "-"), "clear-stale")
+	}))
+	if !readOnly {
+		held, err := st.Hold(ctx, 10*time.Minute)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "✗", err)
 			return run.ExitRetry
 		}
-		defer unlock()
+		defer held.Release()
+		// refresh 재시도 대기 동안은 잠금을 놓는다 — 쥐고 기다리면 겹친 judge가 75로 끝난다
+		app.Pause = func(ctx context.Context, d time.Duration) error { return held.Pause(ctx, d, time.Sleep) }
 	}
 	runID, err := st.StartRun(ctx, name, strings.Join(rest, " "))
 	if err != nil {
@@ -189,6 +198,7 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 	stateDir := fs.String("state", "", "TQ state/ 디렉터리")
 	master := fs.String("master", "", "master.csv (scripts/tq_export.py)")
 	unit := fs.String("unit", "", "실패한 systemd 유닛 이름")
+	clearStale := fs.Bool("clear-stale", false, "지난 적용월 주문 기록을 지운다 (증권사에 묻고 안전할 때만)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -208,6 +218,8 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 		return app.Judge(ctx, run.JudgeOpts{Date: *date, DryRun: *dry})
 	case "order":
 		return app.Order(ctx, run.OrderOpts{Date: *date})
+	case "orders":
+		return app.Orders(ctx, run.OrdersOpts{ClearStale: *clearStale})
 	case "trade":
 		return app.Trade(ctx, run.TradeOpts{Date: *date, DryRun: *dry, FX: *fx})
 	case "execute":

@@ -73,6 +73,8 @@ func (wb *Web) Register(mux *http.ServeMux) {
 	fileServer := http.StripPrefix("/static/", http.FileServer(http.FS(static)))
 	mux.Handle("GET /static/", cacheStatic(fileServer))
 	mux.HandleFunc("GET /login", wb.login)
+	// 자동매매 신선도: 외부 하트비트가 로그인 없이 부른다(Access는 /healthz 우회로 통과). 금액은 싣지 않는다
+	mux.HandleFunc("GET /healthz/invest", wb.healthzInvest)
 
 	h := func(pattern string, fn http.HandlerFunc) { mux.Handle(pattern, secureHeaders(wb.Auth.RequireWeb(fn))) }
 	h("GET /{$}", wb.dashboard)

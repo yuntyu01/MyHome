@@ -499,6 +499,56 @@ func derefStr(p *string) string {
 	return *p
 }
 
+// investHealthMaxAge보다 오래 성공한 status가 없으면 deadman이 멈춘 것이다. status는 주 1회(월 02:23 UTC)라
+// 한 번 빠진 것까지는 봐주지 않는다 — 7일 + 하루 여유.
+const investHealthMaxAge = 8 * 24 * time.Hour
+
+// investHealth는 GET /healthz/invest 응답이다. 공개 경로라 상태 낱말만 담는다(금액·보유·종목 없음).
+// 하트비트는 200과 "ok"를 함께 본다(/healthz와 같은 규칙).
+type investHealth struct {
+	Status   string   `json:"status"`             // ok | fail | error
+	Trading  string   `json:"trading,omitempty"`  // not_started: 아직 position이 없다
+	Problems []string `json:"problems,omitempty"` // status_stale | judge_failed | trade_failed
+}
+
+// buildInvestHealth는 신선도 판정이다. 매매를 시작하지 않았으면(position 없음) 볼 것이 없어 200이다.
+func buildInvestHealth(now time.Time, h dbq.InvestHealthRow) (investHealth, int) {
+	if !h.HasPosition {
+		return investHealth{Status: "ok", Trading: "not_started"}, http.StatusOK
+	}
+	var p []string
+	if now.Sub(h.LastStatusOk) > investHealthMaxAge {
+		p = append(p, "status_stale")
+	}
+	if h.JudgeExit != 0 {
+		p = append(p, "judge_failed")
+	}
+	if h.TradeExit != 0 {
+		p = append(p, "trade_failed")
+	}
+	if len(p) > 0 {
+		return investHealth{Status: "fail", Problems: p}, http.StatusServiceUnavailable
+	}
+	return investHealth{Status: "ok"}, http.StatusOK
+}
+
+// healthzInvest는 GET /healthz/invest다. 밖의 하트비트(deploy/home/heartbeat.gs)가 30분마다 부른다.
+//
+// 앱 알림은 서버가 살아 있어야 오고, status의 INVEST_HEARTBEAT_URL ping은 status가 돌아야 온다. 이 경로는
+// 서버 밖에서 "자동매매가 조용히 멈췄나"를 묻는 길이다. 503이면 하트비트가 사람에게 알린다.
+// 로그인이 없으므로 금액·보유·종목은 절대 싣지 않는다. DB 질의 하나다.
+func (wb *Web) healthzInvest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	row, err := store.New(wb.API.Pool, "web").Health(r.Context())
+	if err != nil {
+		wb.Logger.Error("자동매매 신선도 조회 실패", "err", err)
+		httpx.JSON(w, http.StatusServiceUnavailable, investHealth{Status: "error"})
+		return
+	}
+	body, code := buildInvestHealth(time.Now(), row)
+	httpx.JSON(w, code, body)
+}
+
 const (
 	// investAlertsMaxAge보다 오래된 실패 알림은 앱에 주지 않는다(새로 연결한 기기에 옛 알림을 쏟지 않게).
 	investAlertsMaxAge = 7 * 24 * time.Hour

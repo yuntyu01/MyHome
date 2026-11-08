@@ -59,6 +59,18 @@ object Notifications {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     /**
+     * 그 채널 알림이 실제로 화면에 뜰 수 있나. 권한(33+)뿐 아니라 앱 알림 끄기와 채널 끄기까지 본다.
+     * 권한만 보면 설정에서 앱 알림을 꺼 둔 기기에서는 띄운 줄 알고 넘어간다.
+     */
+    fun canShow(context: Context, channel: String): Boolean {
+        if (!canPost(context)) return false
+        val nm = context.getSystemService(NotificationManager::class.java) ?: return false
+        if (!nm.areNotificationsEnabled()) return false
+        val ch = nm.getNotificationChannel(channel) ?: return true // 아직 안 만들었으면 notify가 기본값으로 띄운다
+        return ch.importance != NotificationManager.IMPORTANCE_NONE
+    }
+
+    /**
      * 수집 → 전송 → 삭제 흐름을 확인하는 테스트 알림. 제목에 표시가 있어서 서버는 거래로 만들지 않는다.
      * @return 알림 권한이 없으면 false
      */

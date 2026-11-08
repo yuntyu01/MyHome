@@ -132,3 +132,34 @@ make docker-build
 # TLS 재암호화 프록시 뒤라면:
 docker build --secret id=ca_bundle,src=/path/to/ca.crt -t myhome-server:local server
 ```
+
+## 9. 자동매매 타이머 켜기·끄기 (운영 VM)
+
+`deploy/home/deploy.sh`는 매매 타이머를 설치만 하고 켜지 않는다. 켜고 끄는 것은 사람이 VM에서 한다(deploy.sh가 두 스크립트를 `/opt/myhome/`에 넣는다).
+
+```bash
+sudo /opt/myhome/enable-invest.sh    # 켜기: 지난 실행 기록 정리 → 타이머 켜기 → status 한 번 → 다음 일정 출력
+sudo /opt/myhome/disable-invest.sh   # 끄기: 타이머만 끈다. 돌고 있는 작업은 끊지 않는다
+```
+
+- 켜기 전에 `import-tq`로 TQ 상태를 옮기고 TQ 쪽 실행을 멈춘다(토스 토큰이 1개라 동시 실행 금지).
+- `systemctl enable --now`를 바로 쓰지 않는다. 타이머가 `Persistent=true`라 예전에 켰던 기록(`/var/lib/systemd/timers/stamp-myhome-invest-*`)이 있으면 켜는 순간 놓친 일정(예: trade)을 돌린다. `enable-invest.sh`는 그 기록을 지우고 켠다.
+- 마지막에 출력되는 `systemctl list-timers`에서 다음 실행 시각을 확인한다.
+
+| 타이머 | 일정 (UTC) | 하는 일 |
+|---|---|---|
+| refresh | 금 22:43 | 주간 가격 갱신 |
+| judge | 25~31일·1일 22:37, 26~31일·1~3일 11:37 | 월말 판정. 11:37은 장 시작 전 만회(평일 월말 판정이 빠졌을 때) |
+| trade | 1~15일 15:17 | 주문·체결 확인 한 단계 |
+| status | 월 02:23 | deadman. 성공하면 `INVEST_HEARTBEAT_URL`로 신호 |
+
+지난달 주문 기록이 남아 trade가 "진행 중인 주문 기록이 YYYY-MM 것이다"로 멈추면(VM에서 `myhome-trader`로):
+
+```bash
+myhome invest orders                 # 남은 기록 보기 (읽기 전용)
+myhome invest orders --clear-stale   # 지난 적용월 기록 지우기
+```
+
+`--clear-stale`은 증권사에 묻고, 살아 있을 수 있는 주문이 하나라도 있거나 장부에 반영되지 않은 체결이 있으면(증권사 보유와 장부가 다르면) 지우지 않는다. 이번 적용월 기록은 지우지 않는다.
+
+밖에서 보는 자동매매 신선도는 `GET /healthz/invest`다(로그인 없음, 금액 없음). 매매 전이면 200, 마지막 성공 status가 8일보다 오래됐거나 마지막 judge·trade가 실패했으면 503. `deploy/home/heartbeat.gs`가 `/healthz`와 함께 30분마다 부른다. Access 우회는 `ACCESS_SETUP.md`.

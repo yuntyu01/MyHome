@@ -408,7 +408,7 @@ func TestEachStyleMapsToTheDocumentedCombination(t *testing.T) {
 		t.Run(string(tc.style), func(t *testing.T) {
 			fx := client(t)
 			fx.route("POST", "/api/v1/orders", 200, ok(map[string]any{"orderId": "ORD-1", "clientOrderId": nil}))
-			res, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, tc.style)
+			res, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, tc.style, "tq-test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -437,12 +437,13 @@ func TestEachStyleMapsToTheDocumentedCombination(t *testing.T) {
 }
 
 // 🔴 멱등성 키다 — 같은 값으로 다시 보내면 토스가 이전 주문을 돌려준다.
-// 승격하면 유형이 달라지므로 새 주문이 되고, 같은 유형 재실행은 한 건이 된다.
-func TestTheClientOrderIDIsDeterministicPerStyle(t *testing.T) {
+// 키는 호출부(run)가 정해 주문 기록에 먼저 남긴다. 어댑터는 받은 키를 그대로 실어야 한다 —
+// 보낸 키와 나중에 찾는 키가 다르면 결과를 모르는 주문을 영영 못 찾는다.
+func TestTheClientOrderIDIsSentAsGiven(t *testing.T) {
 	fx := client(t)
 	fx.route("POST", "/api/v1/orders", 200, ok(map[string]any{"orderId": "ORD-1"}))
-	for _, st := range []broker.Style{broker.MOC, broker.MOC, broker.Market} {
-		if _, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, st); err != nil {
+	for _, key := range []string{"tq-20260806-TQQQ-buy-5-moc", "tq-20260806-TQQQ-buy-5-market"} {
+		if _, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.MOC, key); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -450,22 +451,108 @@ func TestTheClientOrderIDIsDeterministicPerStyle(t *testing.T) {
 	for _, c := range fx.callsTo("POST", "/api/v1/orders") {
 		keys = append(keys, fmt.Sprint(c.JSON["clientOrderId"]))
 	}
-	if keys[0] != keys[1] {
-		t.Errorf("같은 주문인데 키가 달라 이중 주문이 된다: %v", keys)
+	if fmt.Sprint(keys) != "[tq-20260806-TQQQ-buy-5-moc tq-20260806-TQQQ-buy-5-market]" {
+		t.Errorf("키 = %v", keys)
 	}
-	if keys[2] == keys[0] {
-		t.Errorf("승격했는데 같은 키라 새 주문이 안 나간다: %v", keys)
+}
+
+// 키 없이 주문하지 않는다. 보내기 전에 막은 것은 확실히 안 나간 것이다.
+func TestAnOrderWithoutAKeyIsNeverSent(t *testing.T) {
+	fx := client(t)
+	fx.route("POST", "/api/v1/orders", 200, ok(map[string]any{"orderId": "ORD-1"}))
+	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.MOC, " ")
+	if err == nil || !fx.c.IsRejected(err) {
+		t.Fatalf("키 없는 주문: %v (거절로 봐야 한다)", err)
 	}
-	// UTC 08-06 15:17은 KST 08-07이다 — 증권사 달력으로 찍는다
-	if keys[0] != "tq-20260807-TQQQ-buy-5-moc" {
-		t.Errorf("키 = %q", keys[0])
+	if n := len(fx.callsTo("POST", "/api/v1/orders")); n != 0 {
+		t.Fatalf("주문 POST %d회", n)
+	}
+}
+
+// 🔴 명시적 거절(4xx + 코드)만 다음 유형으로 내려가도 된다. 나머지는 접수됐을 수 있다.
+func TestOnlyAnExplicitRejectionCountsAsNotAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		status   int
+		body     any
+		rejected bool
+	}{
+		{"422 코드", 422, apiErr("order-hours-closed", "시간 아님"), true},
+		{"400 코드", 400, apiErr("invalid-request", "형식"), true},
+		{"403 IP", 403, apiErr("forbidden", ""), true},
+		{"자금 부족", 422, apiErr("insufficient-buying-power", "부족"), true},
+		{"500", 500, apiErr("internal-error", "서버"), false},
+		{"503 본문 없음", 503, nil, false},
+		{"409 충돌", 409, apiErr("duplicate-client-order-id", "이미 있음"), false},
+		{"408 시간 초과", 408, apiErr("request-timeout", ""), false},
+		{"4xx 코드 없음", 400, map[string]any{}, false},
+		{"2xx인데 orderId 없음", 200, ok(map[string]any{"clientOrderId": "x"}), false},
+		{"응답 전에 끊김", 0, dropConn{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := client(t)
+			fx.c.HTTPClient = fx.srv.Client()
+			fx.route("POST", "/api/v1/orders", tc.status, tc.body)
+			_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.MOC, "tq-test")
+			if err == nil {
+				t.Fatal("성공했다")
+			}
+			if got := fx.c.IsRejected(err); got != tc.rejected {
+				t.Fatalf("IsRejected = %v, want %v (%v)", got, tc.rejected, err)
+			}
+		})
+	}
+}
+
+// 결과를 모르는 주문은 주문 목록에서 찾는다 — clientOrderId가 실려 있으면 그것으로, 없어도 종목으로 돌려준다.
+func TestFindOrdersMarksTheRowCarryingTheKey(t *testing.T) {
+	fx := client(t)
+	withKey := orderRow("MINE", 5, 0, "", "PENDING")
+	withKey["clientOrderId"] = "tq-20260806-TQQQ-buy-5-moc"
+	other := orderRow("OTHER", 3, 3, "70.0", "FILLED")
+	qqqm := orderRow("QQQM-1", 2, 0, "", "PENDING")
+	qqqm["symbol"] = "QQQM"
+	fx.routeFn("GET", "/api/v1/orders", func(c seen) (int, any) {
+		if c.Query.Get("status") == "CLOSED" {
+			if c.Query.Get("symbol") != "TQQQ" || c.Query.Get("from") != "2026-08-06" || c.Query.Get("to") != "2026-08-08" {
+				t.Errorf("조회 조건 %v", c.Query)
+			}
+			return 200, page(other)
+		}
+		return 200, page(withKey, qqqm)
+	})
+	refs, err := fx.c.FindOrders(ctx, "TQQQ", "tq-20260806-TQQQ-buy-5-moc", day(2026, 8, 6), day(2026, 8, 8))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]broker.OrderRef{}
+	for _, r := range refs {
+		got[r.OrderID] = r
+	}
+	if len(refs) != 2 || !got["MINE"].ByClientID || !got["MINE"].Open || got["MINE"].Side != broker.Buy {
+		t.Fatalf("%+v", refs)
+	}
+	if o := got["OTHER"]; o.ByClientID || o.Open || o.FilledQty != 3 {
+		t.Fatalf("%+v", o)
+	}
+	if _, ok := got["QQQM-1"]; ok {
+		t.Fatal("다른 종목 주문을 돌려줬다")
+	}
+}
+
+// 조회가 실패하면 "없다"가 아니라 에러다 — "없다"는 곧 새 주문이다.
+func TestFindOrdersFailsLoudly(t *testing.T) {
+	fx := client(t)
+	fx.route("GET", "/api/v1/orders", 500, apiErr("internal-error", ""))
+	if refs, err := fx.c.FindOrders(ctx, "TQQQ", "k", day(2026, 8, 6), day(2026, 8, 6)); err == nil {
+		t.Fatalf("조회 실패를 빈 목록으로 돌려줬다: %+v", refs)
 	}
 }
 
 func TestAnOrderWithoutAnIDIsNotTreatedAsAccepted(t *testing.T) {
 	fx := client(t)
 	fx.route("POST", "/api/v1/orders", 200, ok(map[string]any{"clientOrderId": "x"}))
-	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep)
+	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep, "tq-test")
 	tossErr(t, err)
 	mustContain(t, err, "orderId 없음")
 }
@@ -474,7 +561,7 @@ func TestAnOrderWithoutAnIDIsNotTreatedAsAccepted(t *testing.T) {
 func TestARejectedOrderIsNeverRetried(t *testing.T) {
 	fx := client(t)
 	fx.route("POST", "/api/v1/orders", 422, apiErr("insufficient-buying-power", "주문 가능 금액이 부족합니다."))
-	if _, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.Sweep); err == nil {
+	if _, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.Sweep, "tq-test"); err == nil {
 		t.Fatal("거부된 주문이 성공했다")
 	}
 	if n := len(fx.callsTo("POST", "/api/v1/orders")); n != 1 {
@@ -488,7 +575,7 @@ func TestTheOrderPostIsNotRetriedOnConnectionError(t *testing.T) {
 	fx := client(t)
 	fx.c.HTTPClient = fx.srv.Client()
 	fx.route("POST", "/api/v1/orders", 0, dropConn{})
-	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.Sweep)
+	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.Sweep, "tq-test")
 	if err == nil {
 		t.Fatal("끊긴 주문이 성공했다")
 	}
@@ -540,7 +627,7 @@ func TestReadsAreRetriedOnConnectionError(t *testing.T) {
 func TestInsufficientFundsStopsThePromotion(t *testing.T) {
 	fx := client(t)
 	fx.route("POST", "/api/v1/orders", 422, apiErr("insufficient-buying-power", "주문 가능 금액이 부족합니다."))
-	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.Sweep)
+	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.Sweep, "tq-test")
 	te := tossErr(t, err)
 	if te.Code != "insufficient-buying-power" || te.Status != 422 {
 		t.Errorf("Code·Status = %q, %d", te.Code, te.Status)
@@ -558,7 +645,7 @@ func TestClosedHoursIsNotAFundsError(t *testing.T) {
 		"requestId": "r", "code": "order-hours-closed",
 		"message": "현재 해당 주문을 접수할 수 없는 시간입니다.",
 		"data":    map[string]any{"retryAfterAt": "2026-08-06T22:30:00+09:00"}}})
-	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.Sweep)
+	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 5, 71.08, broker.Sweep, "tq-test")
 	if fx.c.IsFundsError(err) {
 		t.Error("시간 제한을 자금 부족으로 봤다")
 	}
@@ -569,14 +656,14 @@ func TestClosedHoursIsNotAFundsError(t *testing.T) {
 func TestABlockedIPSaysWhatToDo(t *testing.T) {
 	fx := client(t)
 	fx.route("POST", "/api/v1/orders", 403, apiErr("forbidden", ""))
-	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep)
+	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep, "tq-test")
 	mustContain(t, err, "허용 IP")
 }
 
 func TestPrerequisitesAreNamed(t *testing.T) {
 	fx := client(t)
 	fx.route("POST", "/api/v1/orders", 422, apiErr("prerequisite-required", "사전 자격 요건 미충족"))
-	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep)
+	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep, "tq-test")
 	mustContain(t, err, "약관 동의")
 }
 
@@ -741,7 +828,7 @@ func TestSecretsNeverBecomeAString(t *testing.T) {
 func TestTheErrorMessageIsScrubbed(t *testing.T) {
 	fx := client(t)
 	fx.route("POST", "/api/v1/orders", 400, apiErr("invalid-request", "bad key SECRET-uvwxyz"))
-	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep)
+	_, err := fx.c.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep, "tq-test")
 	if err == nil || strings.Contains(err.Error(), "SECRET-uvwxyz") {
 		t.Fatalf("시크릿이 에러에 실렸다: %v", err)
 	}
@@ -764,7 +851,7 @@ func TestTheAdapterReturnsTheSharedBorderTypes(t *testing.T) {
 	if _, err := b.Buyable(ctx, "TQQQ", 70.0); err != nil {
 		t.Error(err)
 	}
-	if res, err := b.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep); err != nil || res.Price != 70 {
+	if res, err := b.Order(ctx, "TQQQ", broker.Buy, 1, 70.0, broker.Sweep, "tq-test"); err != nil || res.Price != 70 {
 		t.Errorf("Order = %+v, %v", res, err)
 	}
 	if b.Env() != "real" || b.AccountMasked() != "123-****" {

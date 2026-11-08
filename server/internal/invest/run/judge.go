@@ -38,6 +38,12 @@ func (a *App) Judge(ctx context.Context, o JudgeOpts) int {
 		a.printf("%s에 판정할 달이 없다. 아무것도 하지 않는다.", invest.FormatDay(today))
 		return ExitOK
 	}
+	// 🔴 장 시작 전 만회 실행(11:37 UTC)은 월말 당일 아침에도 돈다. 그날 종가는 아직 없으니 실패가 아니라
+	// 아직 때가 아닌 것이다 — 마감 뒤 실행(22:37 UTC)이 판정한다. 이것을 실패로 두면 매달 오경보가 난다
+	if day.Equal(today) && invest.LastCompleteSession(a.now()).Before(day) {
+		a.printf("%s 장 마감 전이다. 판정은 마감 뒤 실행이 한다.", invest.FormatDay(day))
+		return ExitOK
+	}
 	if !day.Equal(today) {
 		a.printf("⚠ %s 판정을 %s에 만회한다 — 실행이 뉴욕 자정을 넘겨 밀렸다", invest.FormatDay(day), invest.FormatDay(today))
 	}

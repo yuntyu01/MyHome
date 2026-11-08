@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -57,6 +58,7 @@ type placed struct {
 	Qty             int
 	Price           float64
 	Style           broker.Style
+	ClientID        string
 }
 
 type fakeBroker struct {
@@ -66,16 +68,29 @@ type fakeBroker struct {
 	open     []string
 	limit    float64 // 0이면 무제한
 	spent    float64
-	placed   []placed
+	placed   []placed // 접수된 주문
+	attempts []placed // Order 호출 전부(거절·끊김 포함)
 	filled   map[string][]broker.Fill
 	queried  [][2]time.Time
 	n        int
 	orderErr error
 	openErr  error
+
+	// 결과를 모르는 실패: 이 유형은 응답 없이 끊긴다. acceptOnTimeout이면 증권사는 받았다
+	timeout         map[broker.Style]bool
+	acceptOnTimeout bool
+	hideClientID    bool  // 주문 목록에 clientOrderId가 실려 오지 않는다
+	findErr         error // 주문 목록 조회 실패
+	fundsAbove      int   // 0보다 크면 이 수량을 넘는 매수는 자금 부족으로 거절
+	buyableCap      float64
+	buyableAsked    []float64
 }
 
+// errFakeTimeout은 응답 전에 끊긴 주문이다. 접수 여부를 모른다.
+var errFakeTimeout = errors.New("context deadline exceeded (테스트)")
+
 func newFake() *fakeBroker {
-	return &fakeBroker{held: map[string]int{}, avg: map[string]float64{}, rejects: map[broker.Style]bool{}, filled: map[string][]broker.Fill{}}
+	return &fakeBroker{held: map[string]int{}, avg: map[string]float64{}, rejects: map[broker.Style]bool{}, filled: map[string][]broker.Fill{}, timeout: map[broker.Style]bool{}}
 }
 
 func (f *fakeBroker) Balance(context.Context) (broker.Balance, error) {
@@ -98,21 +113,71 @@ func (f *fakeBroker) Buyable(_ context.Context, sym string, px float64) (broker.
 	if cash < 0 {
 		cash = 0
 	}
+	if f.buyableCap > 0 && cash > f.buyableCap { // 매도대금이 아직 주문가능금액에 안 들어온 증권사
+		cash = f.buyableCap
+	}
+	f.buyableAsked = append(f.buyableAsked, px)
 	return broker.Buyable{Symbol: sym, PriceUSD: px, CashUSD: cash, MaxQty: int(cash / px)}, nil
 }
 
-func (f *fakeBroker) Order(_ context.Context, sym string, side broker.Side, qty int, px float64, style broker.Style) (broker.OrderResult, error) {
+func (f *fakeBroker) Order(_ context.Context, sym string, side broker.Side, qty int, px float64, style broker.Style, cid string) (broker.OrderResult, error) {
+	f.attempts = append(f.attempts, placed{"", sym, side, qty, px, style, cid})
 	if f.orderErr != nil {
 		return broker.OrderResult{}, f.orderErr
+	}
+	if f.fundsAbove > 0 && side == broker.Buy && qty > f.fundsAbove {
+		return broker.OrderResult{}, errors.New("주문가능금액이 부족합니다 (테스트)")
 	}
 	if f.rejects[style] {
 		return broker.OrderResult{}, fmt.Errorf("%s 거부됨 (테스트)", style)
 	}
+	// 토스처럼 같은 clientOrderId는 같은 주문이다 — 이전 주문을 그대로 돌려준다
+	for _, p := range f.placed {
+		if p.ClientID == cid {
+			return broker.OrderResult{OrderID: p.OrderID, Symbol: p.Symbol, Side: p.Side, Qty: p.Qty, Price: p.Price}, nil
+		}
+	}
+	if f.timeout[style] {
+		if f.acceptOnTimeout {
+			f.accept(sym, side, qty, px, style, cid)
+		}
+		return broker.OrderResult{}, errFakeTimeout
+	}
+	id := f.accept(sym, side, qty, px, style, cid)
+	return broker.OrderResult{OrderID: id, Symbol: sym, Side: side, Qty: qty, Price: px}, nil
+}
+
+func (f *fakeBroker) accept(sym string, side broker.Side, qty int, px float64, style broker.Style, cid string) string {
 	f.n++
 	id := fmt.Sprintf("ODNO%d", f.n)
-	f.placed = append(f.placed, placed{id, sym, side, qty, px, style})
+	f.placed = append(f.placed, placed{id, sym, side, qty, px, style, cid})
 	f.open = append(f.open, id)
-	return broker.OrderResult{OrderID: id, Symbol: sym, Side: side, Qty: qty, Price: px}, nil
+	return id
+}
+
+// IsRejected는 명시적 거절(유형 거부·자금 부족)만 참이다. 끊김은 모름이다.
+func (f *fakeBroker) IsRejected(err error) bool {
+	return strings.Contains(err.Error(), "거부됨") || f.IsFundsError(err)
+}
+
+func (f *fakeBroker) FindOrders(_ context.Context, sym, cid string, _, _ time.Time) ([]broker.OrderRef, error) {
+	if f.findErr != nil {
+		return nil, f.findErr
+	}
+	var out []broker.OrderRef
+	for _, p := range f.placed {
+		byID := !f.hideClientID && cid != "" && p.ClientID == cid
+		if !byID && p.Symbol != sym {
+			continue
+		}
+		filled := 0
+		for _, x := range f.filled[p.OrderID] {
+			filled += x.Qty
+		}
+		out = append(out, broker.OrderRef{OrderID: p.OrderID, Symbol: p.Symbol, Side: p.Side,
+			Open: slices.Contains(f.open, p.OrderID), FilledQty: filled, ByClientID: byID})
+	}
+	return out, nil
 }
 
 func (f *fakeBroker) Fills(_ context.Context, sym string, from, to time.Time) ([]broker.Fill, error) {
@@ -359,6 +424,7 @@ func TestTradeSettlesIntoTheAccountOnceFilled(t *testing.T) {
 }
 
 // 전환하는 달 — 매도가 체결돼야 매수를 낸다. 매도대금이 매수에 들어가야 한다.
+// 매도 체결을 확인한 실행이 같은 자리에서 매수까지 낸다(매도대금이 주문가능금액에 들어와 있으면).
 func TestTradeSellsBeforeBuyingAndReinvestsProceeds(t *testing.T) {
 	h := newHarness(t, seedOpt{acct: qqqm3()})
 	h.fb.held["QQQM"] = 3
@@ -373,13 +439,15 @@ func TestTradeSellsBeforeBuyingAndReinvestsProceeds(t *testing.T) {
 		t.Fatal("매도 미체결인데 매수를 냈다")
 	}
 	h.fb.fill("ODNO1", 3, 283.00, "")
-	h.trade(d(8, 5), false) // ③ 매도 체결 확인
-	if len(h.fb.placed) != 1 {
-		t.Fatal("매도 체결 확인 날에 매수까지 냈다")
+	if rc := h.trade(d(8, 5), false); rc != 0 { // ③ 매도 체결 확인 → 같은 실행에서 ④ 매수 제출
+		t.Fatalf("rc %d: %s", rc, h.err)
 	}
-	h.trade(d(8, 6), false) // ④ 매수 제출
 	if p := h.fb.placed; len(p) != 2 || p[1].Side != broker.Buy || p[1].Symbol != "TQQQ" || p[1].Style != broker.MOC {
-		t.Fatalf("④ 매수 제출 %+v", p)
+		t.Fatalf("④ 매도 체결을 확인한 실행이 매수를 내지 않았다 %+v", p)
+	}
+	h.trade(d(8, 6), false) // 매수 미체결 — 새로 내지 않는다
+	if len(h.fb.placed) != 2 {
+		t.Fatalf("매수 미체결인데 또 냈다 %+v", h.fb.placed)
 	}
 	ordered := h.fb.placed[1].Qty
 	// 매도대금 ≈ $849 + 적립 ≈ $422. 매도대금이 빠지면 6주다

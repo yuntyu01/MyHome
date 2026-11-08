@@ -90,6 +90,16 @@ type OrderResult struct {
 	SubmittedAt time.Time
 }
 
+// OrderRef는 증권사 주문 목록의 한 건이다. 접수 여부를 모르는 주문을 찾을 때 쓴다.
+type OrderRef struct {
+	OrderID    string
+	Symbol     string // 증권사가 비워 주면 ""
+	Side       Side   // 읽지 못하면 ""
+	Open       bool   // 아직 살아 있는가
+	FilledQty  int
+	ByClientID bool // 행 어딘가에 찾는 clientOrderId가 있었다
+}
+
 // Fill은 체결 1건이다 (주문 단위 집계).
 type Fill struct {
 	OrderID string
@@ -106,8 +116,15 @@ type Broker interface {
 	// Buyable은 그 종목을 그 단가로 지금 몇 주까지 살 수 있는가. 읽기 전용.
 	Buyable(ctx context.Context, symbol string, priceUSD float64) (Buyable, error)
 	// Order는 주문 제출이다. 쓰기다 — 실제 돈이 움직인다.
-	// 지원하지 않는 유형은 에러를 돌려주면 호출부가 다음 유형으로 승격한다.
-	Order(ctx context.Context, symbol string, side Side, qty int, price float64, style Style) (OrderResult, error)
+	// clientOrderID는 호출부가 정해 주문 기록에 먼저 남긴 멱등성 키다. 같은 키는 같은 주문이다.
+	// 에러가 나면 호출부는 IsRejected로 갈라 본다. 명시적 거절만 다음 유형으로 승격한다.
+	Order(ctx context.Context, symbol string, side Side, qty int, price float64, style Style, clientOrderID string) (OrderResult, error)
+	// IsRejected는 주문이 접수되지 않은 것이 확실한가다(증권사의 명시적 거절, 보내기 전 실패).
+	// false면 접수 여부를 모른다 — 타임아웃·연결 끊김·5xx·응답 형식 이상. 그때는 새 주문을 내지 않는다.
+	IsRejected(err error) bool
+	// FindOrders는 기간(KST 날짜, 양끝 포함)의 끝난 주문과 지금 살아 있는 주문 중 그 종목 것이다. 읽기 전용.
+	// 행 어딘가에 clientOrderID가 있으면 종목과 상관없이 넣고 ByClientID를 켠다.
+	FindOrders(ctx context.Context, symbol, clientOrderID string, from, to time.Time) ([]OrderRef, error)
 	// Fills는 기간(KST 날짜, 양끝 포함)·종목의 체결이다. 넓게 묻고 좁게 거른다 — 주문번호 대조는 호출부가 한다.
 	Fills(ctx context.Context, symbol string, from, to time.Time) ([]Fill, error)
 	// OpenOrders는 미체결 주문 원본 행이다. 승격 전에 옛 주문이 죽었는지 확인하는 용도다.

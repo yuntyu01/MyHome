@@ -316,6 +316,38 @@ func (q *Queries) InsertInvestStateHistory(ctx context.Context, arg InsertInvest
 	return err
 }
 
+const investHealth = `-- name: InvestHealth :one
+SELECT
+    EXISTS (SELECT 1 FROM invest_state WHERE key = 'position') AS has_position,
+    COALESCE((SELECT max(started_at) FROM invest_runs WHERE cmd = 'status' AND exit_code = 0),
+             'epoch'::timestamptz)::timestamptz AS last_status_ok,
+    COALESCE((SELECT exit_code FROM invest_runs WHERE cmd = 'judge' AND finished_at IS NOT NULL
+              ORDER BY started_at DESC LIMIT 1), 0)::integer AS judge_exit,
+    COALESCE((SELECT exit_code FROM invest_runs WHERE cmd = 'trade' AND finished_at IS NOT NULL
+              ORDER BY started_at DESC LIMIT 1), 0)::integer AS trade_exit
+`
+
+type InvestHealthRow struct {
+	HasPosition  bool      `json:"has_position"`
+	LastStatusOk time.Time `json:"last_status_ok"`
+	JudgeExit    int32     `json:"judge_exit"`
+	TradeExit    int32     `json:"trade_exit"`
+}
+
+// 외부 하트비트용 신선도(GET /healthz/invest). 금액·출력은 읽지 않는다.
+// 매매를 아직 시작하지 않았으면(position 없음) has_position이 false다.
+func (q *Queries) InvestHealth(ctx context.Context) (InvestHealthRow, error) {
+	row := q.db.QueryRow(ctx, investHealth)
+	var i InvestHealthRow
+	err := row.Scan(
+		&i.HasPosition,
+		&i.LastStatusOk,
+		&i.JudgeExit,
+		&i.TradeExit,
+	)
+	return i, err
+}
+
 const lastFailedInvestRun = `-- name: LastFailedInvestRun :one
 SELECT id, cmd, args, started_at, finished_at, exit_code, output
 FROM invest_runs
