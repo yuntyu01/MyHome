@@ -19,13 +19,16 @@ import (
 // 🔴 체결이 가격보다 먼저다 (§12.1.3). 미체결은 곧 한 달 지연이고, 전 구간 지연은 −27%다.
 // 반면 매수일이 1일이든 20일이든 성과 차이는 3%다. 그래서 좁은 지정가는 쓰지 않는다.
 // MOC → 시장가 → 시장가 대용 지정가 순으로 내려간다.
-//   - 주문이 거부되면 같은 실행에서 즉시 다음 유형
+//   - 증권사가 명시적으로 거절하면(4xx + 오류 코드) 같은 실행에서 즉시 다음 유형
 //   - 체결 없이 만료되면 다음 실행에서 다음 유형
+//   - 🔴 결과를 모르면(타임아웃·연결 끊김·5xx) 내려가지 않고 멈춘다. 주문은 보내기 전에 결과 모름으로
+//     기록해 두고, 다음 실행이 clientOrderId로 증권사 주문 목록을 찾아 이어받거나(있으면) 다시 낸다(확실히 없으면)
 //
 // 세 유형이 다 막히면 재시도로 풀리는 종류가 아니다 — 멈추고 알린다. 3일 대기 같은 것은 없다.
 //
 // 🔴 왜 하루에 안 끝내는가. 전환하는 달은 매도가 체결돼야 매수 규모를 안다. 미체결 주문이
-// 남아 있으면 새 주문을 절대 내지 않는다 — 이중 체결 방지.
+// 남아 있으면 새 주문을 절대 내지 않는다 — 이중 체결 방지. 매도 체결을 확인한 실행은 매도대금이
+// 주문가능금액에 들어와 있으면 그 자리에서 매수를 낸다(체결된 매도 뒤에만 산다는 규칙은 그대로다).
 
 // SweepBand는 시장가 대용 지정가의 밴드다. 넓은 지정가는 밴드 가격이 아니라 시장 가격에 체결된다 —
 // 밴드는 폭주 방어일 뿐이다. TQQQ는 3배라 NDX 3% 갭이 9%가 되므로 갭을 덮고도 남게 잡는다.
@@ -155,7 +158,7 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		return a.fail(ExitFail, "%v", err)
 	}
 	// 🔴 뉴욕 휴장일에는 주문을 내지 않는다. TQ는 이 검사를 execution.yml 게이트에서 했고,
-	//    여기서는 타이머(매월 1~8일)가 휴장일에도 부르므로 명령이 직접 막는다. 실패가 아니라 건너뛰기다
+	//    여기서는 타이머(매월 1~15일)가 휴장일에도 부르므로 명령이 직접 막는다. 실패가 아니라 건너뛰기다
 	//    (첫 거래일이 아닌 날 사는 것은 지연이지 위반이 아니다. 다음 거래일 실행이 이어받는다)
 	if !invest.IsTradingDay(today) {
 		a.printf("%s은 뉴욕 휴장일이다. 주문을 내지 않는다(다음 거래일에 이어서 한다)", invest.FormatDay(today))
@@ -167,6 +170,12 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	}
 	acct := pos.Holdings
 	ym := pos.ApplyYM
+	// 🔴 적용월이 이번 달이 아니면 월말 판정이 빠진 것이다. "이미 완료"로 끝내면 지난달 체결 표시가
+	// 이번 달을 덮어 판정 누락이 조용히 묻힌다 — 완료 확인보다 먼저 보고 실패로 알린다
+	if cur := invest.YM(today); ym != cur {
+		return a.fail(ExitFail, "🚨 적용월이 %s다 — 오늘(%s)은 %s. 월말 판정이 빠졌다(마지막 판정 %s, %s).\n  주문하지 않는다. judge 실행 기록을 확인할 것 (만회는 월말 다음 거래일 장 마감 전까지만 된다)",
+			ym, invest.FormatDay(today), cur, pos.YM, pos.LastRun)
+	}
 	if pos.ExecutedThisMonth() {
 		a.printf("%s 이미 완료 (%s). 할 일 없음", ym, *pos.ExecutedOn)
 		return ExitOK
@@ -202,7 +211,7 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		book = *bookp
 	}
 	if book.YM != ym { // 지난달 잔여는 이어받지 않는다
-		return a.fail(ExitFail, "진행 중인 주문이 %s 것이다. 손으로 정리할 것", book.YM)
+		return a.fail(ExitFail, "진행 중인 주문 기록이 %s 것이다. 새 주문을 내지 않는다.\n  `myhome invest orders`로 보고, 증권사에 남은 주문이 없으면 `myhome invest orders --clear-stale`로 정리할 것", book.YM)
 	}
 
 	row, ok := prices.AsOf(today)
@@ -213,12 +222,7 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	if fx <= 0 {
 		return a.fail(ExitFail, "환율을 구할 수 없다. --fx로 넣거나 refresh로 USDKRW_MKT를 채울 것")
 	}
-	var pending []int
-	for i, ord := range book.Orders {
-		if !ord.Filled {
-			pending = append(pending, i)
-		}
-	}
+	pending := pendingOf(book)
 
 	// 브로커는 실제로 쓸 때만 만든다 — dry-run이 자격증명 없이도 돌아야 무엇을 살지 미리 볼 수 있다
 	var client broker.Broker
@@ -232,17 +236,25 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		}
 	}
 
+	// ⓪ 결과를 모르는 주문이 있으면 증권사에서 먼저 찾는다. 정해지기 전에는 아무것도 내지 않는다
+	if rc, ok := a.resolveUnknown(ctx, client, &book, o.DryRun); !ok {
+		return rc
+	}
+	pending = pendingOf(book)
+
 	// ① 미체결이 있으면 체결부터 확인. 새 주문은 내지 않는다.
-	//    단, 주문이 만료됐으면 settle이 승격했다고 알리고 아래 주문 단계로 이어진다
+	//    단, 주문이 만료됐으면 승격하고, 매도가 끝났으면 매수로 넘어가 아래 주문 단계로 이어진다
+	sameRun := false
 	if len(pending) > 0 {
-		rc, promoted := a.settle(ctx, client, &book, pending, today, acct, pos, target, row, fx, fxEst, o.DryRun)
-		if !promoted {
+		rc, next := a.settle(ctx, client, &book, pending, today, acct, pos, target, row, fx, fxEst, o.DryRun)
+		if next == settleStop {
 			return rc
 		}
 		if b, err := a.Store.LoadOrders(ctx); err == nil && b != nil {
 			book = *b
 		}
 		sells = sellLegsFor(acct, target)
+		sameRun = next == settleSold
 	}
 
 	// ② 매도 단계
@@ -277,9 +289,10 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		if math.IsNaN(close) {
 			return a.fail(ExitFail, "%s 종가가 마스터에 없다 — refresh 먼저", sym)
 		}
+		ref := a.freshPrice(ctx, sym, close, today)
 		a.printf("%s 매도 주문 — %s %d주", ym, sym, qty)
 		// 매도 레그가 있다는 것은 전환이다 — 실패 비용이 −27%짜리다
-		return a.place(ctx, client, &book, sym, broker.Sell, qty, close, today, true)
+		return a.place(ctx, client, &book, sym, broker.Sell, qty, ref, today, true)
 	}
 
 	// ③ 매수 단계
@@ -299,7 +312,10 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	if math.IsNaN(close) {
 		return a.fail(ExitFail, "%s 종가가 마스터에 없다 — refresh 먼저", target)
 	}
-	est := close * (1 + SizingBuffer)
+	// 🔴 마스터 종가는 금요일·판정일에만 갱신된다. 며칠 사이 5% 넘게 오르면 안전폭이 뚫려 자금 부족이
+	// 거듭된다 — 지금 가격을 다시 받아 그 위에 안전폭을 얹는다
+	ref := a.freshPrice(ctx, target, close, today)
+	est := ref * (1 + SizingBuffer)
 	planUSD := acct.CashUSD + float64(planKRW)/fx + proceedsUSD - spentUSD
 	planQty := int(math.Floor(planUSD / (est * (1 + invest.FeeRate))))
 
@@ -311,6 +327,12 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		b, err := client.Buyable(ctx, target, est)
 		if err != nil {
 			return a.fail(ExitFail, "매수가능금액 조회 실패: %v\n  얼마나 살 수 있는지 모르는 채로 주문하지 않는다", err)
+		}
+		// 매도 체결을 확인한 바로 그 실행에서 사는 것은 매도대금이 주문가능금액에 들어와 있을 때만이다.
+		// 안 들어온 채로 계좌 기준으로 사면 매도대금이 한 달 동안 현금으로 논다 — 다음 실행에 맡긴다
+		if sameRun && b.CashUSD < proceedsUSD*proceedsSeen {
+			a.printf("  매도대금 %s가 아직 주문가능금액(%s)에 다 들어오지 않았다 — 매수는 다음 실행에서 낸다", usd(proceedsUSD), usd(b.CashUSD))
+			return ExitOK
 		}
 		if b.MaxQty <= 0 {
 			return a.fail(ExitFail, "증권사가 %s를 0주까지만 허용한다 (주문가능 %s).\n  확인할 것:\n    · %s원 자동이체가 실제로 들어왔는가\n    · 통합증거금(원화주문)이 켜져 있는가 — 신청해야 켜진다",
@@ -333,46 +355,162 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	book.Stage = "buy"
 	// 전환의 매수 레그는 긴급, 순수 적립 매수는 아니다 — 적립 실패는 잔돈이 이월될 뿐이다
 	soldQty, _ := sold(book)
-	return a.place(ctx, client, &book, target, broker.Buy, qty, close, today, soldQty > 0)
+	return a.place(ctx, client, &book, target, broker.Buy, qty, ref, today, soldQty > 0)
 }
 
-// place는 주문 1건 제출이다. 유형을 내려가며 접수될 때까지 시도한다.
+// proceedsSeen은 매도대금이 주문가능금액에 들어왔다고 볼 비율이다. 수수료 계산 차이만큼 여유를 둔다.
+const proceedsSeen = 0.99
+
+// freshQuoteBand를 넘게 마스터 종가와 다른 현재가는 믿지 않는다(야후 오류로 보고 종가를 쓴다).
+const freshQuoteBand = 0.30
+
+// freshPrice는 사이징과 지정가 밴드에 쓸 지금 가격이다. 받지 못하면 마스터 종가다.
 //
-// 🔴 거부는 같은 실행에서 즉시 승격한다. 거부는 접수 자체가 안 된 것이라 이중 체결 위험이 없다.
-// 세 유형이 다 막히면 재시도로 풀릴 종류가 아니다 — 멈추고 사람을 부른다.
-func (a *App) place(ctx context.Context, client broker.Broker, book *invest.OrderBook, symbol string, side broker.Side, qty int, close float64, today time.Time, urgent bool) int {
+// 🔴 이 값은 마스터에 쓰지 않는다. 장중 시세는 종가가 아니다(§10.0). 수량과 밴드 계산에만 쓴다.
+// 토스 클라이언트에는 시세 조회가 없어(문서에서 확인한 엔드포인트만 쓴다) 야후 일봉의 마지막 값을 쓴다.
+// 장중이면 그것이 지금 가격이다. 야후가 안 되거나 값이 이상하면 종가로 돌아가고 그렇다고 남긴다.
+// 그래도 자금 부족이 나면 place가 수량을 줄여 한 번 더 낸다.
+func (a *App) freshPrice(ctx context.Context, symbol string, close float64, today time.Time) float64 {
+	if a.Prices == nil {
+		return close
+	}
+	bars, err := a.Prices.DailyCloses(ctx, []string{symbol}, today.AddDate(0, 0, -7))
+	if err != nil {
+		a.warnf("  ⚠ %s 현재가 조회 실패 - 마스터 종가 %s로 잡는다: %v", symbol, usd(close), err)
+		return close
+	}
+	px := math.NaN()
+	for _, b := range bars[symbol] {
+		if b.OK() && b.Close > 0 {
+			px = b.Close
+		}
+	}
+	if math.IsNaN(px) {
+		a.warnf("  ⚠ %s 현재가가 비어 있다 - 마스터 종가 %s로 잡는다", symbol, usd(close))
+		return close
+	}
+	if d := math.Abs(px/close - 1); d > freshQuoteBand {
+		a.warnf("  ⚠ %s 현재가 %s가 종가 %s와 %.0f%% 차이 - 믿지 않고 종가로 잡는다", symbol, usd(px), usd(close), d*100)
+		return close
+	}
+	a.printf("  %s 현재가 %s (마스터 종가 %s)", symbol, usd(px), usd(close))
+	return px
+}
+
+// pendingOf는 아직 끝나지 않은 주문(체결 대기·결과 모름)의 위치다.
+func pendingOf(book invest.OrderBook) []int {
+	var out []int
+	for i, ord := range book.Orders {
+		if !ord.Filled {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// clientOrderID는 주문의 멱등성 키다. (뉴욕 주문일·종목·방향·수량·유형) - TQ와 같은 모양이다.
+//
+// 같은 날 같은 주문을 다시 보내면 같은 키라 토스가 이전 주문을 돌려준다. 승격하거나 수량을 바꾸면 새 키다.
+// 🔴 키는 보내기 전에 주문 기록에 남긴다. 응답을 못 받으면 다음 실행이 이 키로 증권사에서 찾는다.
+// 보낸 키와 찾는 키가 같아야 하므로 어댑터가 아니라 여기서 만든다.
+func clientOrderID(day time.Time, symbol string, side broker.Side, qty int, style broker.Style) string {
+	return fmt.Sprintf("tq-%s-%s-%s-%d-%s", day.Format("20060102"), symbol, side, qty, style)
+}
+
+// submitOutcome은 주문 1건을 보낸 결과다.
+type submitOutcome int
+
+const (
+	submitAccepted submitOutcome = iota // 접수됐다 (주문번호 있음)
+	submitRejected                      // 명시적 거절. 접수되지 않은 것이 확실하다
+	submitFunds                         // 자금 부족 거절
+	submitStop                          // 결과 모름·저장 실패. 멈춘다 (rc가 답이다)
+)
+
+// submit은 주문 1건을 기록하고 보낸다.
+//
+// 🔴 순서가 핵심이다. ① 결과 모름으로 먼저 저장 ② 보낸다 ③ 접수면 주문번호를 채워 저장, 명시적 거절이면
+// 기록을 지운다. 응답 전에 끊기면(타임아웃·연결·5xx·형식 이상) 기록은 결과 모름으로 남고 멈춘다.
+// 접수됐을 수 있는 주문을 두고 다음 유형을 내면 이중 체결이다.
+func (a *App) submit(ctx context.Context, client broker.Broker, book *invest.OrderBook, styleIdx int, symbol string, side broker.Side, qty int, px float64, today time.Time) (int, submitOutcome, error) {
+	style := broker.Styles[styleIdx]
+	id := clientOrderID(today, symbol, side, qty, style)
+	prevIdx := book.StyleIdx
+	n := len(book.Orders)
+	book.Orders = append(book.Orders, invest.BookOrder{
+		ClientOrderID: id, Symbol: symbol, Side: string(side), Qty: qty, Price: px, Style: string(style),
+		SubmittedOn: invest.FormatDay(today), SubmittedAt: a.now().UTC().Format(time.RFC3339), Unknown: true,
+	})
+	book.StyleIdx = styleIdx
+	if err := a.Store.SaveOrders(ctx, *book); err != nil {
+		book.Orders, book.StyleIdx = book.Orders[:n], prevIdx
+		return a.fail(ExitFail, "주문 기록 저장 실패 - 주문을 내지 않았다: %v", err), submitStop, nil
+	}
+	res, err := client.Order(ctx, symbol, side, qty, px, style, id)
+	if err != nil {
+		funds := client.IsFundsError(err)
+		if !funds && !client.IsRejected(err) {
+			return a.fail(ExitFail, "🚨 주문 결과를 모른다 - %s %s %d주 (%s, clientOrderId %s)\n  %v\n  접수됐을 수 있어 다음 유형으로 내려가지 않는다(이중 체결 방지).\n  다음 실행이 이 키로 증권사 주문 목록을 찾아, 있으면 이어받고 확실히 없을 때만 다시 낸다.\n  급하면 증권사 앱에서 이 주문이 들어갔는지 확인할 것",
+				symbol, side, qty, style.Label(), id, err), submitStop, err
+		}
+		// 접수되지 않은 것이 확실하다. 기록을 지운다
+		book.Orders, book.StyleIdx = book.Orders[:n], prevIdx
+		if serr := a.Store.SaveOrders(ctx, *book); serr != nil {
+			return a.fail(ExitFail, "거절된 주문(%s) 기록을 지우지 못했다: %v\n  다음 실행이 증권사에서 확인하고 이어간다", id, serr), submitStop, err
+		}
+		if funds {
+			return ExitOK, submitFunds, err
+		}
+		return ExitOK, submitRejected, err
+	}
+	book.Orders[n].OrderID, book.Orders[n].Unknown = res.OrderID, false
+	if err := a.Store.SaveOrders(ctx, *book); err != nil {
+		// 주문은 이미 접수됐다. 저장된 기록은 결과 모름(clientOrderId)으로 남아 있어 다음 실행이
+		// 증권사 주문 목록에서 이 주문을 찾아 이어받는다. 새로 내지 않는다
+		return a.fail(ExitFail, "🚨 주문 %s 접수 후 저장 실패: %v\n  기록에는 결과 모름(clientOrderId %s)으로 남아 있다. 다음 실행이 증권사에서 찾아 이어받는다", res.OrderID, err, id), submitStop, nil
+	}
+	a.printf("  주문번호 %s (%s) - 체결 확인은 다음 실행에서", res.OrderID, style.Label())
+	return ExitOK, submitAccepted, nil
+}
+
+// place는 주문 1건 제출이다. 유형을 내려가며 접수될 때까지 시도한다. ref는 밴드 기준 가격(현재가, 없으면 종가)이다.
+//
+// 🔴 명시적 거절만 같은 실행에서 즉시 승격한다. 거절은 접수 자체가 안 된 것이라 이중 체결 위험이 없다.
+// 결과를 모르는 실패는 승격하지 않고 멈춘다(submit). 세 유형이 다 막히면 재시도로 풀릴 종류가 아니다.
+// 멈추고 사람을 부른다.
+func (a *App) place(ctx context.Context, client broker.Broker, book *invest.OrderBook, symbol string, side broker.Side, qty int, ref float64, today time.Time, urgent bool) int {
 	var tried []string
+	shrunk := false
 	for i := book.StyleIdx; i < len(broker.Styles); i++ {
 		style := broker.Styles[i]
-		px := limitPrice(close, side)
+		px := limitPrice(ref, side)
 		shown := "(단가 미지정)"
 		if style == broker.Sweep {
 			shown = "@ " + usd(px)
 		}
 		a.printf("  %s로 %s %s %d주 %s", style.Label(), symbol, side, qty, shown)
-		res, err := client.Order(ctx, symbol, side, qty, px, style)
-		if err != nil {
-			// 🔴 자금 부족이면 유형을 바꿔도 소용없다. 통합증거금은 신청해야 켜지는 서비스다
-			if client.IsFundsError(err) {
-				return a.fail(ExitFail, "자금 부족으로 주문 불가 — %s %s %d주\n  %v\n  주문 유형을 바꿔도 풀리지 않는다. 확인할 것:\n    · 통합증거금(원화주문)이 켜져 있는가 — 신청해야 켜진다\n    · 꺼져 있다면 미리 USD로 환전돼 있는가\n    · 원화가 실제로 입금됐는가",
-					symbol, side, qty, err)
+		rc, out, err := a.submit(ctx, client, book, i, symbol, side, qty, px, today)
+		switch out {
+		case submitAccepted, submitStop:
+			return rc
+		case submitFunds:
+			// 🔴 자금 부족이면 유형을 바꿔도 소용없다. 매수만 한 번, 증권사가 지금 허용하는 수량으로 줄여
+			// 같은 유형으로 다시 낸다. 같은 단가로 다시 물으면 같은 수량이 나오므로 안전폭을 한 번 더 얹어 묻는다
+			if side == broker.Buy && !shrunk {
+				shrunk = true
+				b, berr := client.Buyable(ctx, symbol, ref*(1+SizingBuffer)*(1+SizingBuffer))
+				if next := min(b.MaxQty, qty-1); berr == nil && next > 0 {
+					a.printf("  자금 부족 - 증권사 주문가능 %s 기준으로 %d주 → %d주로 줄여 한 번 더 낸다", usd(b.CashUSD), qty, next)
+					qty = next
+					i--
+					continue
+				}
 			}
-			tried = append(tried, fmt.Sprintf("%s: %v", style.Label(), err))
-			a.warnf("    거부됨 — 다음 유형으로 내려간다")
-			continue
+			return a.fail(ExitFail, "자금 부족으로 주문 불가 — %s %s %d주\n  %v\n  주문 유형을 바꿔도 풀리지 않는다. 확인할 것:\n    · 통합증거금(원화주문)이 켜져 있는가 — 신청해야 켜진다\n    · 꺼져 있다면 미리 USD로 환전돼 있는가\n    · 원화가 실제로 입금됐는가",
+				symbol, side, qty, err)
 		}
-		book.StyleIdx = i
-		book.Orders = append(book.Orders, invest.BookOrder{
-			OrderID: res.OrderID, Symbol: symbol, Side: string(side), Qty: qty, Price: px,
-			Style: string(style), SubmittedOn: invest.FormatDay(today),
-		})
-		if err := a.Store.SaveOrders(ctx, *book); err != nil {
-			// 주문은 이미 접수됐다. 저장 실패는 이중 주문으로 이어질 수 있어 크게 알린다.
-			// 다음 실행은 같은 clientOrderId로 다시 내므로 증권사가 같은 주문을 돌려준다
-			return a.fail(ExitFail, "🚨 주문 %s 접수 후 저장 실패: %v\n  증권사 앱에서 주문을 확인할 것", res.OrderID, err)
-		}
-		a.printf("  주문번호 %s (%s) — 체결 확인은 다음 실행에서", res.OrderID, style.Label())
-		return ExitOK
+		tried = append(tried, fmt.Sprintf("%s: %v", style.Label(), err))
+		a.warnf("    거부됨 - 다음 유형으로 내려간다")
 	}
 	for _, t := range tried {
 		a.warnf("    · %s", t)
@@ -384,6 +522,137 @@ func (a *App) place(ctx context.Context, client broker.Broker, book *invest.Orde
 		tail = "\n  🔴 전환이 막히면 한 달 잘못된 포지션이다. 즉시 손으로 처리할 것"
 	}
 	return a.fail(ExitFail, "%s 주문이 모든 유형에서 거부됐다 — %s %s %d주.\n  재시도로 풀리는 종류가 아니다. 증권사 앱에서 직접 확인할 것%s", kind, symbol, side, qty, tail)
+}
+
+// lookupWindow는 주문을 증권사에 물을 기간(KST 날짜)이다.
+//
+// 🔴 조회 창을 넓게 잡는다. submitted_on은 뉴욕 날짜이고 증권사 주문일자는 KST다. 미국 장중에
+// 낸 주문은 증권사 장부에 다음 날로 찍힌다. 대조는 주문번호로 하므로 남의 주문을 주워오지 않는다
+func (a *App) lookupWindow(submittedOn string) (time.Time, time.Time, error) {
+	sub, err := invest.ParseDay(submittedOn)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("주문 기록 형식 이상: %v", err)
+	}
+	end := broker.Today(a.now())
+	bt := invest.Date(end.Year(), end.Month(), end.Day())
+	if sub.After(bt) {
+		bt = sub
+	}
+	return sub.AddDate(0, 0, -1), bt.AddDate(0, 0, 1), nil
+}
+
+// lookup은 결과를 모르는 주문을 증권사 주문 목록에서 가린 결과다.
+type lookup int
+
+const (
+	lookupAbsent    lookup = iota // 확실히 없다. 접수되지 않았다
+	lookupFound                   // 이 주문이다
+	lookupAmbiguous               // 확신할 수 없다. 멈춘다
+)
+
+// pickUnknown은 결과를 모르는 주문 o를 증권사 행에서 고른다.
+//
+// clientOrderId가 실린 행이 있으면 그것이다. 주문 목록에 키가 실려 오는지는 문서에서 확인하지 못해서,
+// 같은 종목·방향인데 우리 기록에 없는 주문도 후보로 본다. 이 계좌는 이 전략만 쓰므로 하나면 그것이다.
+// 후보가 하나도 없을 때만 "없다"고 답한다. 둘 이상이거나 주문번호가 비면 모른다.
+func pickUnknown(book invest.OrderBook, o invest.BookOrder, refs []broker.OrderRef) (broker.OrderRef, lookup) {
+	var exact, cands []broker.OrderRef
+	for _, r := range refs {
+		if r.ByClientID {
+			exact = append(exact, r)
+			continue
+		}
+		if (r.Side != "" && string(r.Side) != o.Side) || (r.Symbol != "" && r.Symbol != o.Symbol) {
+			continue
+		}
+		known := false
+		for _, b := range book.Orders {
+			if b.OrderID != "" && sameOrderID(b.OrderID, r.OrderID) {
+				known = true
+			}
+		}
+		if !known {
+			cands = append(cands, r)
+		}
+	}
+	pick := cands
+	if len(exact) > 0 {
+		pick = exact
+	}
+	switch {
+	case len(pick) == 0:
+		return broker.OrderRef{}, lookupAbsent
+	case len(pick) == 1 && strings.TrimSpace(pick[0].OrderID) != "":
+		return pick[0], lookupFound
+	}
+	return broker.OrderRef{}, lookupAmbiguous
+}
+
+// describeOrder는 주문 기록 한 줄이다.
+func describeOrder(o invest.BookOrder) string {
+	state := "체결 대기"
+	switch {
+	case o.Unknown:
+		state = "결과 모름"
+	case o.Filled && o.Expired:
+		state = fmt.Sprintf("만료(%d주 체결)", o.Qty)
+	case o.Filled:
+		state = fmt.Sprintf("체결 @ $%.4f", o.FillPrice)
+	}
+	id := o.OrderID
+	if id == "" {
+		id = "-"
+	}
+	return fmt.Sprintf("%s %s %d주 (%s, %s 제출) 주문번호 %s · clientOrderId %s · %s",
+		o.Symbol, o.Side, o.Qty, broker.Style(o.Style).Label(), o.SubmittedOn, id, dash(o.ClientOrderID), state)
+}
+
+// resolveUnknown은 결과를 모르는 주문을 증권사에서 찾아 정한다. ok가 false면 rc로 끝낸다.
+//
+// 🔴 찾으면 이어받고(그 주문의 체결을 기다린다), 확실히 없을 때만 기록을 지워 같은 유형부터 다시 내게 한다.
+// 확실하지 않으면(조회 실패, 후보 여럿) 멈추고 사람을 부른다. 모르는데 새로 내면 이중 체결이다.
+func (a *App) resolveUnknown(ctx context.Context, client broker.Broker, book *invest.OrderBook, dryRun bool) (int, bool) {
+	keep := make([]invest.BookOrder, 0, len(book.Orders))
+	changed := false
+	for _, o := range book.Orders {
+		if !o.Unknown {
+			keep = append(keep, o)
+			continue
+		}
+		what := describeOrder(o)
+		from, to, err := a.lookupWindow(o.SubmittedOn)
+		if err != nil {
+			return a.fail(ExitFail, "%v", err), false
+		}
+		refs, err := client.FindOrders(ctx, o.Symbol, o.ClientOrderID, from, to)
+		if err != nil {
+			return a.fail(ExitFail, "🚨 결과를 모르는 주문을 증권사에서 찾지 못했다 - %s\n  %v\n  새 주문을 내지 않는다. 다음 실행이 다시 찾는다. 급하면 증권사 앱에서 확인할 것", what, err), false
+		}
+		ref, got := pickUnknown(*book, o, refs)
+		switch got {
+		case lookupFound:
+			a.printf("결과를 몰랐던 주문을 증권사에서 찾았다 - %s → 주문번호 %s. 이 주문을 이어받는다", what, ref.OrderID)
+			o.OrderID, o.Unknown = ref.OrderID, false
+			keep = append(keep, o)
+		case lookupAbsent:
+			a.printf("결과를 몰랐던 주문은 증권사에 없다 - %s. 접수되지 않았으므로 같은 유형부터 다시 낸다", what)
+		default:
+			return a.fail(ExitFail, "🚨 결과를 모르는 주문이 증권사의 어느 주문인지 확신할 수 없다 - %s\n  같은 종목 주문 %d건이 보인다. 새 주문을 내지 않는다. 증권사 앱에서 확인할 것", what, len(refs)), false
+		}
+		changed = true
+	}
+	if !changed {
+		return ExitOK, true
+	}
+	book.Orders = keep
+	if dryRun {
+		a.printf("[dry-run] 주문 기록은 저장하지 않았다")
+		return ExitOK, true
+	}
+	if err := a.Store.SaveOrders(ctx, *book); err != nil {
+		return a.fail(ExitFail, "주문 기록 저장 실패: %v", err), false
+	}
+	return ExitOK, true
 }
 
 // sameOrderID는 주문번호 대조다. 형식 차이에 깨지지 않게 앞의 0을 떼고 본다.
@@ -478,30 +747,34 @@ func sold(book invest.OrderBook) (int, float64) {
 	return qty, float64(qty) * px * (1 - invest.FeeRate - invest.SECFeeRate)
 }
 
-// settle은 미체결 주문을 확인하고 계좌에 반영한다. promoted가 true면 주문이 만료돼 승격했다는
-// 뜻이고, 호출부가 이어서 다음 유형으로 새 주문을 낸다.
+// settleNext는 settle 뒤에 할 일이다.
+type settleNext int
+
+const (
+	settleStop     settleNext = iota // 여기서 끝낸다
+	settlePromoted                   // 만료돼 승격했다. 다음 유형으로 낸다
+	settleSold                       // 매도가 끝났다. 같은 실행에서 매수로 이어간다
+)
+
+// settle은 미체결 주문을 확인하고 계좌에 반영한다. 다음 할 일을 함께 돌려준다.
+//   - settlePromoted: 주문이 만료돼 승격했다. 호출부가 이어서 다음 유형으로 새 주문을 낸다
+//   - settleSold: 매도가 다 끝났다. 호출부가 같은 실행에서 매수로 이어간다(매도대금이 들어와 있을 때만)
+//   - settleStop: 여기서 끝낸다(rc가 답이다)
 //
 // 🔴 dryRun이면 조회만 하고 아무것도 쓰지 않는다. 미리 보려고 친 명령이 그 달 체결을 확정하면
 // 안 된다 — 실제로 --dry-run이 position·ledger를 써서 체결을 확정한 적이 있다.
 func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.OrderBook, pending []int, today time.Time,
-	acct invest.Account, pos invest.Position, target string, row invest.PriceRow, fx float64, fxEst, dryRun bool) (int, bool) {
+	acct invest.Account, pos invest.Position, target string, row invest.PriceRow, fx float64, fxEst, dryRun bool) (int, settleNext) {
 	ym := book.YM
 	for _, i := range pending {
 		o := &book.Orders[i]
-		// 🔴 조회 창을 넓게 잡는다. submitted_on은 뉴욕 날짜이고 증권사 주문일자는 KST다. 미국 장중에
-		// 낸 주문은 증권사 장부에 다음 날로 찍힌다. 대조는 주문번호로 하므로 남의 주문을 주워오지 않는다
-		sub, err := invest.ParseDay(o.SubmittedOn)
+		from, to, err := a.lookupWindow(o.SubmittedOn)
 		if err != nil {
-			return a.fail(ExitFail, "주문 기록 형식 이상: %v", err), false
+			return a.fail(ExitFail, "%v", err), settleStop
 		}
-		end := broker.Today(a.now())
-		bt := invest.Date(end.Year(), end.Month(), end.Day())
-		if sub.After(bt) {
-			bt = sub
-		}
-		fills, err := client.Fills(ctx, o.Symbol, sub.AddDate(0, 0, -1), bt.AddDate(0, 0, 1))
+		fills, err := client.Fills(ctx, o.Symbol, from, to)
 		if err != nil {
-			return a.fail(ExitFail, "체결 조회 실패: %v", err), false
+			return a.fail(ExitFail, "체결 조회 실패: %v", err), settleStop
 		}
 		got, sum := 0, 0.0
 		for _, f := range fills {
@@ -521,7 +794,7 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 				}
 				a.printf("%s 미체결 — %s %s %d/%d주 (%s, %s 제출) · %s", ym, o.Symbol, o.Side, got, o.Qty, style.Label(), o.SubmittedOn, why)
 				a.printf("  오늘은 새 주문을 내지 않는다")
-				return ExitOK, false
+				return ExitOK, settleStop
 			}
 			asked := o.Qty
 			nxt := book.StyleIdx + 1
@@ -532,7 +805,7 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 				} else {
 					a.printf("[dry-run] 승격하지 않았다 — 실제 실행은 모든 유형 소진으로 멈추고 알린다")
 				}
-				return ExitOK, false
+				return ExitOK, settleStop
 			}
 			o.Expired, o.Filled, o.Qty = true, true, got // 채워진 만큼만 인정하고 닫는다
 			o.FillPrice = 0
@@ -541,14 +814,14 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 			}
 			book.StyleIdx = nxt
 			if err := a.Store.SaveOrders(ctx, *book); err != nil {
-				return a.fail(ExitFail, "주문 상태 저장 실패: %v", err), false
+				return a.fail(ExitFail, "주문 상태 저장 실패: %v", err), settleStop
 			}
 			a.printf("%s %s 만료 — %d주 중 %d주 체결", ym, style.Label(), asked, got)
 			if nxt >= len(broker.Styles) {
-				return a.fail(ExitFail, "%s %s 주문이 모든 유형에서 체결되지 않았다.\n  거래정지·시스템 장애 같은 예외 상황이다. 재시도로 풀리지 않는다.\n  증권사 앱에서 직접 처리할 것", o.Symbol, o.Side), false
+				return a.fail(ExitFail, "%s %s 주문이 모든 유형에서 체결되지 않았다.\n  거래정지·시스템 장애 같은 예외 상황이다. 재시도로 풀리지 않는다.\n  증권사 앱에서 직접 처리할 것", o.Symbol, o.Side), settleStop
 			}
 			a.printf("  → %s로 즉시 승격한다", broker.Styles[nxt].Label())
-			return ExitOK, true
+			return ExitOK, settlePromoted
 		}
 		// 🔴 실제 체결 수량을 적는다. 증권사가 주문보다 많이 채워 주면 그것이 사실이다
 		if got != o.Qty {
@@ -559,32 +832,34 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 	}
 	if !dryRun {
 		if err := a.Store.SaveOrders(ctx, *book); err != nil {
-			return a.fail(ExitFail, "주문 상태 저장 실패: %v", err), false
+			return a.fail(ExitFail, "주문 상태 저장 실패: %v", err), settleStop
 		}
 	}
 
-	if book.Stage == "sell" { // 매도 끝 → 다음 실행에서 매수
+	if book.Stage == "sell" { // 매도 끝 → 매수
 		if dryRun {
-			a.printf("[dry-run] 저장하지 않았다 — 실제 실행이 매도 완료로 표시하고 매수는 그다음 실행에서 낸다")
-			return ExitOK, false
+			a.printf("[dry-run] 저장하지 않았다 - 실제 실행이 매도 완료로 표시하고, 매도대금이 주문가능금액에 들어와 있으면 같은 실행에서 매수를 낸다")
+			return ExitOK, settleStop
 		}
 		// 🔴 레그가 바뀌면 유형도 처음부터 다시 시도한다 — 매수도 MOC를 써 볼 기회를 준다
 		book.Stage, book.StyleIdx = "buy", 0
 		if err := a.Store.SaveOrders(ctx, *book); err != nil {
-			return a.fail(ExitFail, "주문 상태 저장 실패: %v", err), false
+			return a.fail(ExitFail, "주문 상태 저장 실패: %v", err), settleStop
 		}
-		a.printf("  매도 완료. 매수는 다음 실행에서 낸다")
-		return ExitOK, false
+		// 🔴 매도 체결을 확인했으니 매수 규모를 안다. 다음 실행을 기다리면 하루가 더 걸리고, 8일에 낸 매도는
+		// 확인조차 못 한 채 창이 닫혔다. 매수는 체결된 매도 뒤에만 낸다는 규칙은 그대로다
+		a.printf("  매도 완료. 이어서 매수한다")
+		return ExitOK, settleSold
 	}
 
 	// 매수까지 끝났다 — 실제 체결값으로 계좌를 만든다 (수량가중 평균)
 	bought, buyPx := avgLegs(legsOf(*book, broker.Buy, target))
 	if bought <= 0 {
-		return a.fail(ExitFail, "%s 체결이 없다. 주문 이력을 확인할 것", target), false
+		return a.fail(ExitFail, "%s 체결이 없다. 주문 이력을 확인할 것", target), settleStop
 	}
 	planKRW, err := a.Store.ContributionFor(ctx, ym)
 	if err != nil {
-		return a.fail(ExitFail, "%v", err), false
+		return a.fail(ExitFail, "%v", err), settleStop
 	}
 	before := snapshot(acct, pos)
 
@@ -592,14 +867,14 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 	soldQty, _ := sold(*book)
 	if acct.Symbol != "" && acct.Symbol != target {
 		if soldQty <= 0 {
-			return a.fail(ExitFail, "%s을 팔아야 하는데 체결된 매도가 없다", acct.Symbol), false
+			return a.fail(ExitFail, "%s을 팔아야 하는데 체결된 매도가 없다", acct.Symbol), settleStop
 		}
 		// 앱 밖 매매로 장부가 실제보다 적었다면 실제로 판 수량이 정답이다
 		sq, sellPx := avgLegs(legs(*book, broker.Sell))
 		a2 := acct.Clone()
 		a2.Shares = sq
 		if acct, err = invest.SellAll(a2, sellPx, fx, today.Year(), invest.FeeRate); err != nil {
-			return a.fail(ExitFail, "%v", err), false
+			return a.fail(ExitFail, "%v", err), settleStop
 		}
 	}
 	// 🔴 원금은 이번에 새로 들어간 돈이다 (§12.1.1.4). 체결액 전부를 적으면 전환 달에 매도대금이
@@ -608,18 +883,18 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 	newMoneyKRW := math.Max(0, spentNow-acct.CashUSD) * fx
 	stepped, err := invest.Contribute(acct, newMoneyKRW, fx)
 	if err != nil {
-		return a.fail(ExitFail, "%v", err), false
+		return a.fail(ExitFail, "%v", err), settleStop
 	}
 	newAcct, err := invest.BuyExact(stepped, target, bought, buyPx, fx, invest.FeeRate)
 	if err != nil {
-		return a.fail(ExitFail, "%v", err), false
+		return a.fail(ExitFail, "%v", err), settleStop
 	}
 	if math.Abs(newMoneyKRW-float64(planKRW)) > float64(planKRW)*0.05 {
 		a.printf("  계획 %s원 · 실제 투입 %s원", commas(float64(planKRW)), won(newMoneyKRW))
 	}
 	if dryRun {
 		a.printf("[dry-run] %s %s %d주 · 잔여 %s — 저장하지 않았다", ym, target, newAcct.Shares, usd(newAcct.CashUSD))
-		return ExitOK, false
+		return ExitOK, settleStop
 	}
 	zero := 0
 	next := invest.Position{
@@ -644,7 +919,7 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 		return s.ClearOrders(ctx)
 	})
 	if err != nil {
-		return a.fail(ExitFail, "🚨 체결 반영 저장 실패: %v — 주문 기록은 남아 있다. 다음 실행이 다시 반영한다", err), false
+		return a.fail(ExitFail, "🚨 체결 반영 저장 실패: %v — 주문 기록은 남아 있다. 다음 실행이 다시 반영한다", err), settleStop
 	}
 	a.printf("\n%s 자동 매매 완료", ym)
 	a.printf("  %s %d주 · 잔여 %s", newAcct.Symbol, newAcct.Shares, usd(newAcct.CashUSD))
@@ -653,5 +928,5 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 		a.printf("  ⚠ 환율 %s는 시장 환율 추정이다. 증권사 적용값이 확인되면", plain2(fx))
 		a.printf("     myhome invest amend --fill %s=<체결단가> --fx <실제환율>", target)
 	}
-	return ExitOK, false
+	return ExitOK, settleStop
 }

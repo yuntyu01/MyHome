@@ -3,8 +3,8 @@
 // 평상시 사람이 칠 명령은 없다. 전부 systemd timer가 돈다.
 //
 //	자동
-//	  refresh → judge     월 마지막 거래일 — 판정만. 매매 없음
-//	  trade               월 1~8일 매일 — 주문·체결 확인을 한 단계씩
+//	  refresh → judge     월 마지막 거래일 — 판정만. 매매 없음 (다음 거래일 장 시작 전에 한 번 더 만회)
+//	  trade               월 1~15일 매일 — 주문·체결 확인을 한 단계씩
 //	  status (deadman)    매주 — 조용히 죽은 것 감지
 //
 //	수동 — 복구·교정 전용. 정상 달에는 쓸 일이 없다
@@ -13,6 +13,7 @@
 //	  adjust --auto       앱 밖 추가 매수를 장부에 반영
 //	  deviate / cancel    규칙 이탈 — 애초에 사람 결정이라 자동화 대상이 아님
 //	  tax --paid          납부한 양도세 기록 (연 1회)
+//	  orders --clear-stale  지난달 주문 기록이 trade를 막을 때 — 증권사에 살아 있는 주문이 없을 때만 지운다
 //
 // 판정과 실행은 반드시 다른 날이다 (§1.3 룩어헤드 금지). 실패 방향은 언제나 멈춤이다.
 // 종료 코드: 0 정상, 1 구조적 실패(기다려도 안 풀림), 75 기다리면 풀리는 실패.
@@ -58,6 +59,18 @@ type App struct {
 	// UnsafeDate가 true일 때만 --date를 받는다 (INVEST_UNSAFE_DATE=1). 테스트 전용 이음매다.
 	UnsafeDate bool
 	Sleep      func(time.Duration)
+	// Pause는 재시도 사이에 d만큼 기다리는 동안 상태 잠금을 놓았다 다시 잡는다. nil이면 그냥 잔다(잠금 없음).
+	// 다시 잡지 못하면 에러다 — 호출부는 상태를 쓰지 않고 75로 끝낸다.
+	Pause func(ctx context.Context, d time.Duration) error
+}
+
+// pause는 재시도 대기다. 잠금을 쥐고 있으면 그동안 놓는다.
+func (a *App) pause(ctx context.Context, d time.Duration) error {
+	if a.Pause != nil {
+		return a.Pause(ctx, d)
+	}
+	a.sleep(d)
+	return nil
 }
 
 func (a *App) now() time.Time {

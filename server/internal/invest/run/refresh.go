@@ -34,8 +34,12 @@ func (a *App) Refresh(ctx context.Context, o RefreshOpts) int {
 		if rc != ExitRetry || i == tries {
 			return rc
 		}
-		a.warnf("  %d/%d회 실패 — 데이터 반영 지연으로 보고 %s 뒤 다시 받는다", i, tries, o.Wait)
-		a.sleep(o.Wait)
+		a.warnf("  %d/%d회 실패 — 데이터 반영 지연으로 보고 %s 뒤 다시 받는다 (기다리는 동안 잠금을 놓는다)", i, tries, o.Wait)
+		// 🔴 기다리는 동안 상태 잠금을 놓는다. 쥐고 기다리면 그 사이 도는 judge·주간 갱신이 잠금을 못 잡고
+		// 75로 끝나 실패 알림이 간다. 다음 시도는 마스터를 처음부터 다시 읽는다
+		if err := a.pause(ctx, o.Wait); err != nil {
+			return a.fail(ExitRetry, "재시도 전에 잠금을 다시 잡지 못했다: %v", err)
+		}
 	}
 	return rc
 }

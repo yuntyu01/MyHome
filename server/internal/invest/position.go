@@ -171,17 +171,24 @@ type OrderBook struct {
 }
 
 // BookOrder는 제출한 주문 1건이다.
+//
+// 🔴 주문은 보내기 전에 Unknown(결과 모름)으로 먼저 기록한다. 응답을 받으면 OrderID를 채우고 Unknown을
+// 끈다. 응답 전에 끊기거나 프로세스가 죽으면 Unknown이 남고, 다음 실행이 ClientOrderID로 증권사 주문
+// 목록을 찾아 이어받거나(있으면) 지운다(확실히 없으면). 그 전에는 새 주문을 내지 않는다.
 type BookOrder struct {
-	OrderID     string  `json:"odno"`
-	Symbol      string  `json:"symbol"`
-	Side        string  `json:"side"`
-	Qty         int     `json:"qty"`
-	Price       float64 `json:"price"`
-	Style       string  `json:"style"`
-	SubmittedOn string  `json:"submitted_on"`
-	Filled      bool    `json:"filled"`
-	Expired     bool    `json:"expired,omitempty"`
-	FillPrice   float64 `json:"fill_price,omitempty"`
+	OrderID       string  `json:"odno"`
+	ClientOrderID string  `json:"client_order_id,omitempty"` // 보낸 멱등성 키. 결과를 모를 때 이것으로 찾는다
+	Symbol        string  `json:"symbol"`
+	Side          string  `json:"side"`
+	Qty           int     `json:"qty"`
+	Price         float64 `json:"price"`
+	Style         string  `json:"style"`
+	SubmittedOn   string  `json:"submitted_on"`           // 뉴욕 날짜
+	SubmittedAt   string  `json:"submitted_at,omitempty"` // 보낸 시각(RFC3339, UTC)
+	Unknown       bool    `json:"unknown,omitempty"`      // 보냈지만 접수됐는지 모른다(OrderID 없음)
+	Filled        bool    `json:"filled"`
+	Expired       bool    `json:"expired,omitempty"`
+	FillPrice     float64 `json:"fill_price,omitempty"`
 }
 
 // PlusMonths는 d에서 months개월 뒤 같은 날(말일 보정).

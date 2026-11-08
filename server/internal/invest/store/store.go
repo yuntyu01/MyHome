@@ -89,6 +89,49 @@ func (s *Store) Lock(ctx context.Context, wait time.Duration) (func(), error) {
 	}, nil
 }
 
+// Held는 잡은 전역 잠금이다. 기다리는 동안 잠깐 놓았다가 다시 잡을 수 있다.
+//
+// refresh는 야후가 늦으면 재시도 사이에 15분씩(최대 90분) 기다린다. 그동안 잠금을 쥐고 있으면 그 사이
+// 도는 judge·주간 갱신이 10분 기다리다 75로 끝나 실패 알림이 간다. 기다리는 동안은 상태를 쓰지 않으므로
+// 놓아도 된다 — 다시 잡은 뒤 상태를 처음부터 다시 읽는다(refresh는 매 시도에 마스터를 새로 읽는다).
+type Held struct {
+	s      *Store
+	wait   time.Duration
+	unlock func()
+}
+
+// Hold는 Lock과 같고 Held를 돌려준다.
+func (s *Store) Hold(ctx context.Context, wait time.Duration) (*Held, error) {
+	u, err := s.Lock(ctx, wait)
+	if err != nil {
+		return nil, err
+	}
+	return &Held{s: s, wait: wait, unlock: u}, nil
+}
+
+// Release는 잠금을 푼다. 두 번 불러도 된다.
+func (h *Held) Release() {
+	if h.unlock != nil {
+		h.unlock()
+		h.unlock = nil
+	}
+}
+
+// Pause는 잠금을 놓고 d만큼 기다린 뒤 다시 잡는다. 다시 못 잡으면 에러다(잠금은 풀린 채다).
+func (h *Held) Pause(ctx context.Context, d time.Duration, sleep func(time.Duration)) error {
+	h.Release()
+	sleep(d)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	u, err := h.s.Lock(ctx, h.wait)
+	if err != nil {
+		return err
+	}
+	h.unlock = u
+	return nil
+}
+
 // ── 가격 ─────────────────────────────────────────────────────────────
 
 func f64(p *float64) float64 {
