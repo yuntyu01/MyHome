@@ -20,6 +20,8 @@ import (
 type Service struct {
 	Pool *pgxpool.Pool
 	Now  func() time.Time // 테스트용. nil이면 time.Now
+	// PhotoDir은 끼니 사진을 두는 폴더(MEAL_PHOTO_DIR)다. 비우면 사진 저장을 끈다(분석만 한다) - photos.go
+	PhotoDir string
 }
 
 func (s *Service) now() time.Time {
@@ -271,20 +273,31 @@ func (s *Service) MealsOn(ctx context.Context, d Date) ([]MealView, error) {
 	return out, nil
 }
 
-// DeleteMeal은 그날 그 번호 끼니를 지운다(없어도 성공).
+// DeleteMeal은 그날 그 번호 끼니와 그 사진을 지운다(없어도 성공).
 func (s *Service) DeleteMeal(ctx context.Context, d Date, index int) error {
-	_, err := s.q().DeleteMealLog(ctx, dbq.DeleteMealLogParams{MealDate: d.Time(), MealIndex: int32(index)})
+	var files []string
+	err := s.tx(ctx, func(q *dbq.Queries) error {
+		if _, err := q.DeleteMealLog(ctx, dbq.DeleteMealLogParams{MealDate: d.Time(), MealIndex: int32(index)}); err != nil {
+			return err
+		}
+		var err error
+		files, err = q.DeleteMealPhotos(ctx, dbq.DeleteMealPhotosParams{MealDate: d.Time(), MealIndex: int32(index)})
+		return err
+	})
+	if err == nil {
+		s.deleteMealPhotoFiles(files)
+	}
 	return err
 }
 
 // ── 헬스·휴식권 ────────────────────────────────────────────────────────
 
-// Verified는 헬스 인증 방법이다: photo(사진), rest(휴식권).
-// geofence(위치)는 2026-11-08에 없앤 방법이다. 새로 받지 않지만 예전 기록(gym_logs)을 읽을 때 나온다.
+// Verified는 헬스 인증 방법이다: photo(사진), geofence(헬스장 위치에 머묾, 폰이 확인), rest(휴식권).
+// 헬스장 좌표는 서버에 두지 않는다. 폰이 지오펜스로 확인하고 결과만 보낸다(2026-11-08 사용자 요청으로 다시 켬).
 type Verified string
 
 const (
-	Geofence Verified = "geofence" // 예전 기록만
+	Geofence Verified = "geofence"
 	Photo    Verified = "photo"
 	Rest     Verified = "rest"
 )

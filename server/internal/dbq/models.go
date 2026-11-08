@@ -186,6 +186,16 @@ type MealLog struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type MealPhoto struct {
+	MealDate  time.Time `json:"meal_date"`
+	MealIndex int32     `json:"meal_index"`
+	N         int32     `json:"n"`
+	File      string    `json:"file"`
+	Bytes     int32     `json:"bytes"`
+	Sha256    []byte    `json:"sha256"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type MerchantRule struct {
 	ID          int64     `json:"id"`
 	Pattern     string    `json:"pattern"`

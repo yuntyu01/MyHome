@@ -109,3 +109,24 @@ ORDER BY used_at, id;
 -- name: InsertRestUse :exec
 INSERT INTO rest_coupon_uses (used_on, week_key)
 VALUES ($1, $2);
+
+-- name: ListMealPhotos :many
+SELECT meal_date, meal_index, n, file, bytes, sha256, created_at
+FROM meal_photos
+WHERE meal_date = $1 AND meal_index = $2
+ORDER BY n;
+
+-- name: GetMealPhoto :one
+SELECT meal_date, meal_index, n, file, bytes, sha256, created_at
+FROM meal_photos
+WHERE meal_date = $1 AND meal_index = $2 AND n = $3;
+
+-- name: InsertMealPhoto :exec
+INSERT INTO meal_photos (meal_date, meal_index, n, file, bytes, sha256)
+VALUES ($1, $2, $3, $4, $5, $6);
+
+-- name: DeleteMealPhotos :many
+-- 지운 행의 파일 이름을 돌려준다(파일은 커밋 뒤에 지운다).
+DELETE FROM meal_photos
+WHERE meal_date = $1 AND meal_index = $2
+RETURNING file;

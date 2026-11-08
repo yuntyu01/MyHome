@@ -26,6 +26,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.yuntyu.myhome.health.GymGeofence
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,7 +65,8 @@ import kotlin.coroutines.resume
 
 /**
  * 헬스: 오늘 인증 상태, 이번 주 횟수, 도착까지 남은 시간, 사진 인증 / 오늘 쉬기(휴식권).
- * 인증 사진은 서버에 보내지도 폰에 남기지도 않는다(인증 표시만 보낸다). 헬스장 위치는 쓰지 않는다(사용자 결정).
+ * 인증 사진은 서버에 보내지도 폰에 남기지도 않는다(인증 표시만 보낸다).
+ * 헬스장 위치를 정해 두면 그 근처에 머물 때 자동으로 출석한다(GymGeofence, 좌표는 폰에만).
  */
 @Composable
 fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
@@ -189,6 +193,7 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
                 Text("오늘 쉬기 · 휴식권 ${rest?.left ?: 0}/${rest?.total ?: 0}", color = m.muted)
             }
         }
+        GymLocationSection { reload++ }
     }
 
     if (confirmRest) {
@@ -209,5 +214,89 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
             },
             dismissButton = { TextButton(onClick = { confirmRest = false }) { Text("취소") } },
         )
+    }
+}
+
+/**
+ * 헬스장 자동 출석 설정. 헬스장에 있을 때 지금 위치를 저장하고, "항상 허용"을 받으면 지오펜스를 건다.
+ * Android 11부터 "항상 허용"은 앱 안 창이 아니라 설정 화면에서 고른다(권한 요청이 설정으로 보낸다).
+ */
+@Composable
+private fun GymLocationSection(onChanged: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val m = LocalModo.current
+    var tick by remember { mutableIntStateOf(0) }
+    var busy by remember { mutableStateOf(false) }
+    val spot = remember(tick) { GymGeofence.spot(ctx) }
+    val enabled = remember(tick) { GymGeofence.enabled(ctx) }
+    val fg = remember(tick) { GymGeofence.hasForeground(ctx) }
+    val bg = remember(tick) { GymGeofence.hasBackground(ctx) }
+
+    fun saveHere() {
+        busy = true
+        scope.launch {
+            val loc = GymGeofence.currentLocation(ctx)
+            busy = false
+            if (loc == null) {
+                Toast.makeText(ctx, "위치를 잡지 못했어요. 위치(GPS)를 켜고 다시 해 주세요", Toast.LENGTH_LONG).show()
+            } else {
+                GymGeofence.save(ctx, loc)
+                Toast.makeText(ctx, "여기를 헬스장으로 저장했어요 (오차 ${loc.accuracy.toInt()}m)", Toast.LENGTH_SHORT).show()
+            }
+            tick++
+        }
+    }
+    val askFine = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        tick++
+        if (r[android.Manifest.permission.ACCESS_FINE_LOCATION] == true) saveHere()
+        else Toast.makeText(ctx, "정확한 위치 권한이 있어야 헬스장 위치를 정할 수 있어요", Toast.LENGTH_LONG).show()
+    }
+    val askBackground = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        tick++
+        GymGeofence.register(ctx)
+        onChanged()
+    }
+    // 설정 화면에서 "항상 허용"을 고르고 돌아오면 다시 확인한다
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.currentStateFlow.collect { if (it == androidx.lifecycle.Lifecycle.State.RESUMED) { GymGeofence.register(ctx); tick++ } }
+    }
+
+    SectionCard("헬스장 위치로 자동 출석") {
+        Text(
+            "헬스장에 있을 때 위치를 저장해 두면, 그 근처에 5분 넘게 머물 때 자동으로 출석을 남겨요. 위치는 이 폰에만 저장돼요.",
+            style = MaterialTheme.typography.bodySmall,
+            color = m.muted,
+        )
+        if (spot == null) {
+            Button(onClick = {
+                if (fg) saveHere()
+                else askFine.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+            }, enabled = !busy) { Text(if (busy) "위치 잡는 중…" else "지금 위치를 헬스장으로") }
+            return@SectionCard
+        }
+        ItemRow("저장한 위치", "반경 ${spot.radiusM}m")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (r in listOf(100, 150, 250)) Chip("${r}m", spot.radiusM == r, Modifier.weight(1f)) { GymGeofence.setRadius(ctx, r); tick++ }
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("자동 출석", Modifier.weight(1f))
+            Switch(checked = enabled, onCheckedChange = { GymGeofence.setEnabled(ctx, it); tick++ })
+        }
+        if (enabled && !bg) {
+            Text("앱이 꺼져 있어도 알려면 위치 권한을 '항상 허용'으로 바꿔야 해요.", style = MaterialTheme.typography.bodySmall, color = m.warn)
+            FilledTonalButton(onClick = {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) askBackground.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }) { Text("'항상 허용' 켜기") }
+        } else if (enabled) {
+            Text("켜져 있어요. 헬스장에 5분 머물면 출석이 남고 알림이 와요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { if (fg) saveHere() else askFine.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)) }, enabled = !busy) {
+                Text("지금 위치로 다시 정하기", color = m.muted)
+            }
+            TextButton(onClick = { GymGeofence.clear(ctx); tick++ }) { Text("위치 지우기", color = m.muted) }
+        }
     }
 }

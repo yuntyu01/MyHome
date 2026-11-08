@@ -50,6 +50,7 @@ type Product struct {
 type Lookup struct {
 	safetyKey, dataKey   string
 	safetyBase, dataBase string
+	offBase              string // Open Food Facts 예비 조회(WithOFF). 비우면 끈다
 	http                 *http.Client
 }
 

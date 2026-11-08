@@ -97,7 +97,10 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) = Reminders.fire(context)
 }
 
-/** 재부팅·앱 업데이트·시각 변경 뒤 알림을 다시 건다. */
+/** 재부팅·앱 업데이트·시각 변경 뒤 알림과 헬스장 지오펜스를 다시 건다(지오펜스는 재부팅 때 지워진다). */
 class ReminderBootReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) = Reminders.reschedule(context)
+    override fun onReceive(context: Context, intent: Intent) {
+        Reminders.reschedule(context)
+        GymGeofence.register(context)
+    }
 }

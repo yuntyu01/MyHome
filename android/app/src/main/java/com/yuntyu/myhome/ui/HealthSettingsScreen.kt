@@ -225,7 +225,7 @@ fun HealthSettingsScreen(modifier: Modifier, onDone: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for ((d, l) in listOf(0 to "계속", 30 to "30일", 90 to "90일", 180 to "180일")) Chip(l, keepDays == d, Modifier.weight(1f)) { keepDays = d }
             }
-            Text("이 폰의 사진만 지워요. 기록은 서버에 남아요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
+            Text("이 폰의 사진만 지워요. 기록과 사진은 서버에 남고, 다시 볼 때 받아 와요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
         Button(
             onClick = {

@@ -74,7 +74,7 @@ func New(d Deps) http.Handler {
 
 	var h http.Handler = mux
 	// 끼니 사진 분석만 사진 크기(최대 16MB)까지 받는다. 나머지는 MAX_BODY_BYTES 그대로
-	h = httpx.LimitBodyRoutes(d.Config.MaxBodyBytes, map[string]int64{"POST " + health.AnalyzePath: health.MaxAnalyzeBytes}, h)
+	h = httpx.LimitBodyRoutes(d.Config.MaxBodyBytes, map[string]int64{"POST " + health.AnalyzePath: health.MaxAnalyzeBytes, "PUT " + health.MealPhotosPath: health.MaxAnalyzeBytes}, h)
 	h = httpx.RateLimitByIP(httpx.NewRateLimiter(d.Config.RateLimitRPS*4, d.Config.RateLimitBurst*2), d.Config.TrustProxyHeaders, h)
 	h = httpx.Recover(d.Logger, h)
 	h = httpx.Logging(d.Logger, h)
@@ -107,7 +107,8 @@ func newHealth(d Deps) *health.Handler {
 	}
 	fl := d.Foods
 	if fl == nil {
-		fl = foods.New(d.Config.FoodSafetyAPIKey, d.Config.DataGoKrAPIKey, "", "")
+		// 식약처 키가 없어도 Open Food Facts(키 없음)로 찾는다
+		fl = foods.New(d.Config.FoodSafetyAPIKey, d.Config.DataGoKrAPIKey, "", "").WithOFF("")
 	}
-	return &health.Handler{Svc: &health.Service{Pool: d.Pool, Now: d.Now}, Analyzer: analyzer, Foods: fl, Logger: d.Logger}
+	return &health.Handler{Svc: &health.Service{Pool: d.Pool, Now: d.Now, PhotoDir: d.Config.MealPhotoDir}, Analyzer: analyzer, Foods: fl, Logger: d.Logger}
 }

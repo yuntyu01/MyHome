@@ -88,6 +88,38 @@ func (q *Queries) DeleteMealLog(ctx context.Context, arg DeleteMealLogParams) (i
 	return result.RowsAffected(), nil
 }
 
+const deleteMealPhotos = `-- name: DeleteMealPhotos :many
+DELETE FROM meal_photos
+WHERE meal_date = $1 AND meal_index = $2
+RETURNING file
+`
+
+type DeleteMealPhotosParams struct {
+	MealDate  time.Time `json:"meal_date"`
+	MealIndex int32     `json:"meal_index"`
+}
+
+// 지운 행의 파일 이름을 돌려준다(파일은 커밋 뒤에 지운다).
+func (q *Queries) DeleteMealPhotos(ctx context.Context, arg DeleteMealPhotosParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, deleteMealPhotos, arg.MealDate, arg.MealIndex)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var file string
+		if err := rows.Scan(&file); err != nil {
+			return nil, err
+		}
+		items = append(items, file)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteTargetHistory = `-- name: DeleteTargetHistory :exec
 DELETE FROM health_target_history
 `
@@ -127,6 +159,33 @@ func (q *Queries) GetHealthSettings(ctx context.Context) ([]byte, error) {
 	var doc []byte
 	err := row.Scan(&doc)
 	return doc, err
+}
+
+const getMealPhoto = `-- name: GetMealPhoto :one
+SELECT meal_date, meal_index, n, file, bytes, sha256, created_at
+FROM meal_photos
+WHERE meal_date = $1 AND meal_index = $2 AND n = $3
+`
+
+type GetMealPhotoParams struct {
+	MealDate  time.Time `json:"meal_date"`
+	MealIndex int32     `json:"meal_index"`
+	N         int32     `json:"n"`
+}
+
+func (q *Queries) GetMealPhoto(ctx context.Context, arg GetMealPhotoParams) (MealPhoto, error) {
+	row := q.db.QueryRow(ctx, getMealPhoto, arg.MealDate, arg.MealIndex, arg.N)
+	var i MealPhoto
+	err := row.Scan(
+		&i.MealDate,
+		&i.MealIndex,
+		&i.N,
+		&i.File,
+		&i.Bytes,
+		&i.Sha256,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const insertGymRest = `-- name: InsertGymRest :exec
@@ -169,6 +228,32 @@ func (q *Queries) InsertMealItem(ctx context.Context, arg InsertMealItemParams) 
 		arg.Protein,
 		arg.Fat,
 		arg.Portion,
+	)
+	return err
+}
+
+const insertMealPhoto = `-- name: InsertMealPhoto :exec
+INSERT INTO meal_photos (meal_date, meal_index, n, file, bytes, sha256)
+VALUES ($1, $2, $3, $4, $5, $6)
+`
+
+type InsertMealPhotoParams struct {
+	MealDate  time.Time `json:"meal_date"`
+	MealIndex int32     `json:"meal_index"`
+	N         int32     `json:"n"`
+	File      string    `json:"file"`
+	Bytes     int32     `json:"bytes"`
+	Sha256    []byte    `json:"sha256"`
+}
+
+func (q *Queries) InsertMealPhoto(ctx context.Context, arg InsertMealPhotoParams) error {
+	_, err := q.db.Exec(ctx, insertMealPhoto,
+		arg.MealDate,
+		arg.MealIndex,
+		arg.N,
+		arg.File,
+		arg.Bytes,
+		arg.Sha256,
 	)
 	return err
 }
@@ -367,6 +452,46 @@ func (q *Queries) ListMealLogsBetween(ctx context.Context, arg ListMealLogsBetwe
 			&i.Portion,
 			&i.SharedMeal,
 			&i.LoggedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMealPhotos = `-- name: ListMealPhotos :many
+SELECT meal_date, meal_index, n, file, bytes, sha256, created_at
+FROM meal_photos
+WHERE meal_date = $1 AND meal_index = $2
+ORDER BY n
+`
+
+type ListMealPhotosParams struct {
+	MealDate  time.Time `json:"meal_date"`
+	MealIndex int32     `json:"meal_index"`
+}
+
+func (q *Queries) ListMealPhotos(ctx context.Context, arg ListMealPhotosParams) ([]MealPhoto, error) {
+	rows, err := q.db.Query(ctx, listMealPhotos, arg.MealDate, arg.MealIndex)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MealPhoto{}
+	for rows.Next() {
+		var i MealPhoto
+		if err := rows.Scan(
+			&i.MealDate,
+			&i.MealIndex,
+			&i.N,
+			&i.File,
+			&i.Bytes,
+			&i.Sha256,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,7 +22,9 @@ import (
 // 사진 분석 요청 크기. 앱은 사진을 긴 변 1024px로 줄여서 보낸다. 전체 서버 본문 제한(MAX_BODY_BYTES)보다 크므로
 // 서버 조립에서 이 경로만 MaxAnalyzeBytes로 연다(httpx.LimitBodyRoutes).
 const (
-	AnalyzePath     = "/v1/health/meals/analyze"
+	AnalyzePath = "/v1/health/meals/analyze"
+	// MealPhotosPath도 사진을 받으므로 서버 조립에서 MaxAnalyzeBytes로 연다
+	MealPhotosPath  = "/v1/health/meals/photos"
 	MaxPhotoBytes   = 5 << 20
 	MaxAnalyzeBytes = ai.MaxPhotos*MaxPhotoBytes + 1<<20 // 16MB
 )
@@ -47,6 +50,9 @@ func (h *Handler) Register(mux *http.ServeMux, wrap func(http.Handler) http.Hand
 	route("POST /v1/health/meals", h.postMeal)
 	route("GET /v1/health/meals", h.getMeals)
 	route("DELETE /v1/health/meals", h.deleteMeal)
+	route("PUT "+MealPhotosPath, h.putMealPhotos)
+	route("GET "+MealPhotosPath, h.getMealPhotos)
+	route("GET /v1/health/meals/photos/{date}/{index}/{n}", h.getMealPhoto)
 	route("POST /v1/health/gym/check-in", h.checkIn)
 	route("GET /v1/health/rest", h.getRest)
 	route("POST /v1/health/rest", h.postRest)
@@ -266,6 +272,90 @@ func (h *Handler) deleteMeal(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// putMealPhotos: PUT /v1/health/meals/photos?date=&index= , multipart "photo" 0~3장(JPEG). 그 끼니 사진을 통째로 바꾼다.
+func (h *Handler) putMealPhotos(w http.ResponseWriter, r *http.Request) error {
+	date, idx, err := mealKey(r)
+	if err != nil {
+		return err
+	}
+	if err := r.ParseMultipartForm(MaxAnalyzeBytes); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			return photoTooLarge()
+		}
+		return badRequest("INVALID_PHOTO", "multipart 사진이 필요해요")
+	}
+	defer r.MultipartForm.RemoveAll()
+	var photos [][]byte
+	for _, fh := range r.MultipartForm.File["photo"] {
+		p, err := readPhoto(fh)
+		if err != nil {
+			return err
+		}
+		photos = append(photos, p.Data)
+	}
+	out, err := h.Svc.ReplaceMealPhotos(r.Context(), date, idx, photos)
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"photos": out})
+	return nil
+}
+
+func (h *Handler) getMealPhotos(w http.ResponseWriter, r *http.Request) error {
+	date, idx, err := mealKey(r)
+	if err != nil {
+		return err
+	}
+	out, err := h.Svc.MealPhotos(r.Context(), date, idx)
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"photos": out})
+	return nil
+}
+
+func (h *Handler) getMealPhoto(w http.ResponseWriter, r *http.Request) error {
+	date, err := ParseDate(r.PathValue("date"))
+	if err != nil {
+		return invalid("date", "YYYY-MM-DD 형식이어야 해요")
+	}
+	idx, err1 := strconv.Atoi(r.PathValue("index"))
+	n, err2 := strconv.Atoi(r.PathValue("n"))
+	if err1 != nil || err2 != nil {
+		return invalid("index", "숫자여야 해요")
+	}
+	path, err := h.Svc.MealPhotoPath(r.Context(), date, idx, n)
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return &Error{http.StatusNotFound, "NOT_FOUND", "사진 파일이 없어요"}
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	_, err = io.Copy(w, f)
+	return err
+}
+
+// mealKey는 ?date=&index= 를 읽는다.
+func mealKey(r *http.Request) (Date, int, error) {
+	date, err := queryDate(r, "date")
+	if err != nil {
+		return "", 0, err
+	}
+	idx, err := strconv.Atoi(r.URL.Query().Get("index"))
+	if err != nil {
+		return "", 0, invalid("index", "숫자여야 해요")
+	}
+	return date, idx, nil
+}
+
 // ── 헬스·휴식권 ────────────────────────────────────────────────────────
 
 func (h *Handler) checkIn(w http.ResponseWriter, r *http.Request) error {
@@ -284,10 +374,10 @@ func (h *Handler) checkIn(w http.ResponseWriter, r *http.Request) error {
 		return invalid("verifiedBy", "필수예요")
 	case b.VerifiedBy == Rest:
 		return badRequest("INVALID", "휴식은 /v1/health/rest 로 처리해요")
-	case b.VerifiedBy != Photo:
-		// 위치(geofence) 인증은 없앴다(사용자 결정, 2026-11-08). 예전 기록은 그대로 읽힌다.
-		return invalid("verifiedBy", "사진(photo)으로만 인증해요")
+	case b.VerifiedBy != Photo && b.VerifiedBy != Geofence:
+		return invalid("verifiedBy", "photo 또는 geofence여야 해요")
 	}
+	// geofence: 앱이 헬스장 반경 안에 몇 분 머문 것을 폰에서 확인하고 보낸다(좌표는 폰에만 있다, 2026-11-08 다시 켬)
 	out, err := h.Svc.GymCheckIn(r.Context(), b.Date, b.VerifiedBy, b.CheckInAt)
 	if err != nil {
 		return err
@@ -354,11 +444,11 @@ func (h *Handler) barcode(w http.ResponseWriter, r *http.Request) error {
 	if !barcodeRe.MatchString(code) {
 		return invalid("code", "바코드는 숫자 8~14자리예요")
 	}
-	if !h.Foods.Enabled() {
+	if !h.Foods.Available() {
 		return &Error{http.StatusServiceUnavailable, "BARCODE_LOOKUP_UNAVAILABLE",
 			"바코드로 제품을 찾을 수 없어요. 영양성분표를 찍거나 직접 입력해 주세요"}
 	}
-	p, err := h.Foods.Find(r.Context(), code)
+	p, err := h.Foods.Search(r.Context(), code)
 	switch {
 	case errors.Is(err, foods.ErrNotFound):
 		return &Error{http.StatusNotFound, "BARCODE_NOT_FOUND", "등록된 제품이 아니에요. 영양성분표를 찍거나 직접 입력해 주세요"}

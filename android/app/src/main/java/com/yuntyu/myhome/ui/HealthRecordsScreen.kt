@@ -24,6 +24,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -136,6 +137,13 @@ fun HealthRecordsScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onN
             NutritionTotals(c.total, c.targets, "이날 합계", null)
             SectionCard("끼니") {
                 val meals = c.meals.orEmpty().sortedBy { it.index }
+                // 폰 보관 기간이 지나 지워진 사진은 서버에서 다시 받는다
+                var photoTick by remember { mutableStateOf(0) }
+                LaunchedEffect(selected, meals.map { it.index }) {
+                    val got = withContext(Dispatchers.IO) { meals.count { MealPhotos.ensureLocal(ctx, selected.toString(), it.index) } }
+                    if (got > 0) photoTick++
+                }
+                key(photoTick) {
                 if (meals.isEmpty()) Text("기록한 끼니가 없어요", color = m.muted)
                 for (meal in meals) {
                     Row(
@@ -158,6 +166,7 @@ fun HealthRecordsScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onN
                         }
                         Text("${num(meal.nutrition.kcal)} kcal", color = m.muted)
                     }
+                }
                 }
             }
             SectionCard("헬스") {

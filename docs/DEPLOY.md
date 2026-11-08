@@ -69,6 +69,7 @@
 | `GEMINI_API_KEY` | | Google AI Studio의 Gemini API 키(사진 분석·분류 추천 같은 키). 요청 헤더로만 보내고 로그에 남기지 않는다 |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | 사진 분석·분류 추천 모델(핏두잉 기본값). 사진 분석은 응답 헤더 `X-AI-Model`에 나온다 |
 | `AI_CLASSIFY` | `on` | 가계부 AI 분류 추천(`on`/`off`). 규칙이 없는 지출의 가맹점 이름만 위 제공자로 묻고, 확인 필요 화면에 추천을 보여준다. `off`면 묻지도 보여주지도 않는다. `DECISIONS.md` 「AI 분류 추천」 |
+| `MEAL_PHOTO_DIR` | | 끼니 사진을 저장할 폴더. 비우면 사진은 분석만 하고 저장하지 않는다(올리기는 503). VM은 `/var/lib/myhome/meal_photos`(`myhome.service`의 `StateDirectory`) |
 | `FOODSAFETY_API_KEY` | | 식품안전나라 Open API 키(C005 바코드제품정보). 아래 키와 **둘 다** 있어야 바코드 조회가 켜진다(없으면 503) |
 | `DATA_GO_KR_API_KEY` | | 공공데이터포털 키(식품의약품안전처 식품영양성분DB) |
 

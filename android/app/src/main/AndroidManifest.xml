@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- 건강: 재부팅 뒤 알림 다시 걸기 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 헬스장 자동 출석(지오펜스): 헬스장 좌표를 정할 때 지금 위치, 앱이 꺼져 있을 때 도착을 알려면 "항상 허용". 좌표는 폰에만 둔다 -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <!-- "최근 알림" 화면에서 다른 앱의 이름을 보여주려면 Android 11+에서 패키지 가시성 선언이 필요하다. -->
     <queries>
@@ -64,6 +68,9 @@
         <!-- 건강 알림(끼니 마감·헬스·취침) -->
         <receiver
             android:name=".health.ReminderReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".health.GymGeofenceReceiver"
             android:exported="false" />
         <receiver
             android:name=".health.ReminderBootReceiver"

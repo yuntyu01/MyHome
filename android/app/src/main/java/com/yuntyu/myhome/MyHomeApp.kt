@@ -29,6 +29,9 @@ class MyHomeApp : Application() {
     lateinit var healthLocal: HealthLocal
         private set
 
+    /** 화면이 닫혀도 끝까지 돌아야 하는 짧은 작업(사진 올리기 등) */
+    val ioScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -46,6 +49,7 @@ class MyHomeApp : Application() {
         // 건강: 알림을 다시 걸고, 보관 기간이 지난 끼니 사진을 지운다
         Reminders.reschedule(this)
         MealPhotos.purge(this, healthLocal.photoKeepDays)
+        com.yuntyu.myhome.health.GymGeofence.register(this)
     }
 
     companion object {

@@ -17,6 +17,10 @@ Wants=network-online.target
 [Service]
 User=myhome-web
 EnvironmentFile=/etc/myhome/web.env
+# 끼니 사진: /var/lib/myhome/meal_photos (systemd가 myhome-web 소유로 만든다). 백업은 myhome-backup이 버킷 photos/로
+StateDirectory=myhome
+StateDirectoryMode=0750
+Environment=MEAL_PHOTO_DIR=/var/lib/myhome/meal_photos
 ExecStart=/opt/myhome/myhome serve
 Restart=on-failure
 RestartSec=5s

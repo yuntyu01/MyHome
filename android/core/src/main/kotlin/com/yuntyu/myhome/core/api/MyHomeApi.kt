@@ -153,8 +153,39 @@ class MyHomeApi(
             Recommendation.serializer(),
         )
 
+    /** 바코드로 제품·영양성분 찾기(식약처 → Open Food Facts). 못 찾으면 404, 조회 불가면 503. */
+    fun barcode(code: String): ApiResult<BarcodeAnswer> = call("GET", "/v1/health/foods/barcode/$code", null, BarcodeAnswer.serializer())
+
+    /** 저장한 끼니의 사진(0~3장, JPEG)을 서버에 통째로 바꿔 둔다. 서버 저장이 꺼져 있으면 503. */
+    fun putMealPhotos(date: String, index: Int, photos: List<ByteArray>): ApiResult<MealPhotoList> {
+        val form = MultipartBody.Builder().setType(MultipartBody.FORM)
+        photos.forEachIndexed { i, b -> form.addFormDataPart("photo", "meal$i.jpg", b.toRequestBody(JPEG)) }
+        if (photos.isEmpty()) form.addFormDataPart("none", "")
+        val slow = client.newBuilder().readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
+        return send("PUT", "/v1/health/meals/photos?date=$date&index=$index", form.build(), MealPhotoList.serializer(), true, slow)
+    }
+
+    fun mealPhotos(date: String, index: Int): ApiResult<MealPhotoList> =
+        call("GET", "/v1/health/meals/photos?date=$date&index=$index", null, MealPhotoList.serializer())
+
+    /** 서버에 저장된 끼니 사진 한 장(JPEG 바이트). */
+    fun mealPhoto(date: String, index: Int, n: Int): ApiResult<ByteArray> {
+        val base = baseUrl()?.takeIf { it.isNotBlank() } ?: return ApiResult.NotConfigured("서버 주소")
+        val tok = token()?.takeIf { it.isNotBlank() } ?: return ApiResult.NotConfigured("기기 토큰")
+        return try {
+            val req = Request.Builder().url(base.trimEnd('/') + "/v1/health/meals/photos/$date/$index/$n").header("Authorization", "Bearer $tok").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) ApiResult.Ok(resp.body?.bytes() ?: ByteArray(0), resp.code) else ApiResult.HttpError(resp.code, "사진 받기 실패")
+            }
+        } catch (e: IOException) {
+            ApiResult.NetworkError(e)
+        } catch (e: IllegalArgumentException) {
+            ApiResult.NotConfigured("서버 주소 형식")
+        }
+    }
+
     /**
-     * 끼니 사진(1~3장, JPEG)을 분석한다. 사진은 서버에 저장되지 않고 AI 분석에만 쓰인다.
+     * 끼니 사진(1~3장, JPEG)을 분석한다. 이 호출에서는 사진을 저장하지 않는다(저장은 기록한 뒤 putMealPhotos).
      * AI 호출이 오래 걸릴 수 있어 읽기 제한 시간을 늘린다.
      */
     fun analyzeMeal(photos: List<ByteArray>): ApiResult<FoodResult> {

@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -443,23 +445,24 @@ func TestHealthRestCouponAndGym(t *testing.T) {
 	c.get("/v1/health/today?date=2026-09-26").is(200).eq("gym.done", 0).eq("coupons.rest.left", 1)
 	c.post("/v1/health/gym/check-in", `{"date":"2026-09-25","verifiedBy":"photo"}`).is(200).
 		eq("date", "2026-09-25").eq("verifiedBy", "photo")
-	// 위치(geofence) 인증은 없앴다
-	c.post("/v1/health/gym/check-in", `{"date":"2026-09-24","verifiedBy":"geofence"}`).code(400, "INVALID")
+	// 위치(geofence): 폰이 헬스장 반경에 머문 것을 확인하고 보낸다
+	c.post("/v1/health/gym/check-in", `{"date":"2026-09-22","verifiedBy":"geofence"}`).is(200).eq("verifiedBy", "geofence")
+	c.post("/v1/health/gym/check-in", `{"date":"2026-09-23","verifiedBy":"gps"}`).code(400, "INVALID")
 	r := c.get("/v1/health/today?date=2026-09-26").is(200)
-	r.eq("gym.done", 1).eq("gym.planned", 5).eq("gym.scheduledToday", false).eq("gym.enabled", true).eq("gym.arriveBy", "19:00")
+	r.eq("gym.done", 2).eq("gym.planned", 5).eq("gym.scheduledToday", false).eq("gym.enabled", true).eq("gym.arriveBy", "19:00")
 	c.post("/v1/health/gym/check-in", `{"date":"2026-09-25","verifiedBy":"rest"}`).code(400, "INVALID")
 	c.post("/v1/health/gym/check-in", `{"date":"2026-09-25","verifiedBy":"walk"}`).code(400, "INVALID")
 	c.post("/v1/health/gym/check-in", `{"verifiedBy":"photo"}`).code(400, "INVALID")
 	c.get("/v1/health/records/day?date=2026-09-26").is(200).eq("gymVerifiedBy", "rest").eq("gym", false)
 	c.get("/v1/health/records/day?date=2026-09-25").is(200).eq("gymVerifiedBy", "photo").eq("gym", true)
-	c.get("/v1/health/records/month?month=2026-09").is(200).eq("summary.gymDays", 1).eq("days.24.gym", true).eq("days.25.gym", false)
-	// 예전 위치 인증 기록은 그대로 읽히고 방문으로 센다
+	c.get("/v1/health/records/month?month=2026-09").is(200).eq("summary.gymDays", 2).eq("days.21.gym", true).eq("days.24.gym", true).eq("days.25.gym", false)
+	// DB에 직접 넣은 위치 인증 기록도 방문으로 센다
 	if _, err := c.pool.Exec(context.Background(),
 		`INSERT INTO gym_logs (gym_date, check_in_at, verified_by) VALUES ('2026-09-01', now(), 'geofence')`); err != nil {
 		t.Fatal(err)
 	}
 	c.get("/v1/health/records/day?date=2026-09-01").is(200).eq("gymVerifiedBy", "geofence").eq("gym", true)
-	c.get("/v1/health/records/month?month=2026-09").is(200).eq("summary.gymDays", 2).eq("days.0.gym", true)
+	c.get("/v1/health/records/month?month=2026-09").is(200).eq("summary.gymDays", 3).eq("days.0.gym", true)
 
 	// 이미 인증한 날은 휴식권으로 덮지 않는다
 	c.post("/v1/health/rest?date=2026-09-25", "").code(409, "ALREADY_CHECKED_IN")
@@ -585,7 +588,9 @@ func TestHealthRecommend(t *testing.T) {
 
 // 핏두잉 TestBarcodeAPI.
 func TestHealthBarcode(t *testing.T) {
-	newHealthClient(t).get("/v1/health/foods/barcode/8801234567890").code(503, "BARCODE_LOOKUP_UNAVAILABLE")
+	// 식약처 키도 Open Food Facts도 없으면 503
+	newHealthClient(t, func(d *server.Deps) { d.Foods = foods.New("", "", "", "") }).
+		get("/v1/health/foods/barcode/8801234567890").code(503, "BARCODE_LOOKUP_UNAVAILABLE")
 
 	safety := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "8800000000000") {
@@ -609,4 +614,61 @@ func TestHealthBarcode(t *testing.T) {
 	// 바코드 결과를 그대로 끼니로 저장할 수 있다(사진 분석과 같은 모양)
 	meal := map[string]any{"date": "2026-09-26", "index": 7, "barcode": "8801234567890", "ai": r.Body.(map[string]any)["result"]}
 	c.post("/v1/health/meals", js(meal)).is(200).eq("meal.nutrition.kcal", 150).eq("meal.barcode", "8801234567890")
+}
+
+// 끼니 사진 서버 보관: 올리면 파일과 행이 생기고, 다시 받을 수 있고, 끼니를 지우면 같이 지워진다.
+func TestHealthMealPhotosStored(t *testing.T) {
+	dir := t.TempDir()
+	c := newHealthClient(t, func(d *server.Deps) { d.Config.MealPhotoDir = dir })
+	jpeg := func(tag byte) []byte { return []byte{0xFF, 0xD8, 0xFF, 0xE0, tag, tag, 0xFF, 0xD9} }
+	put := func(photos ...[]byte) hresp {
+		body, ct := multipartBody(c.t, "photo", "image/jpeg", photos...)
+		req := httptest.NewRequest("PUT", "/v1/health/meals/photos?date=2026-09-26&index=1", body)
+		req.Header.Set("Content-Type", ct)
+		return c.serve(req, c.tok)
+	}
+	files := func() []string {
+		var out []string
+		_ = filepath.WalkDir(dir, func(p string, e os.DirEntry, _ error) error {
+			if e != nil && !e.IsDir() {
+				out = append(out, filepath.Base(p))
+			}
+			return nil
+		})
+		return out
+	}
+	c.post("/v1/health/meals", mealBody("2026-09-26", 1, 1, 500)).is(200)
+
+	put(jpeg(1), jpeg(2)).is(200).size("photos", 2)
+	if got := files(); len(got) != 2 {
+		t.Fatalf("파일 %v", got)
+	}
+	r := c.get("/v1/health/meals/photos/2026-09-26/1/1")
+	if r.Code != 200 || r.Raw != string(jpeg(2)) || r.Hdr.Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("사진 받기: %d %q", r.Code, r.Raw)
+	}
+	// 바꾸기: 1장만 남기면 나머지 파일은 지워지고, 같은 사진은 새로 쓰지 않는다
+	put(jpeg(2)).is(200).size("photos", 1)
+	if got := files(); len(got) != 1 {
+		t.Fatalf("바꾼 뒤 파일 %v", got)
+	}
+	c.get("/v1/health/meals/photos/2026-09-26/1/1").code(404, "NOT_FOUND")
+	// JPEG가 아니면 거절
+	put([]byte("not a jpeg")).code(400, "INVALID_PHOTO")
+	// 끼니를 지우면 사진도
+	c.do("DELETE", "/v1/health/meals?date=2026-09-26&index=1", "").is(204)
+	c.get("/v1/health/meals/photos?date=2026-09-26&index=1").is(200).size("photos", 0)
+	if got := files(); len(got) != 0 {
+		t.Fatalf("지운 뒤 파일 %v", got)
+	}
+}
+
+// 사진 저장이 꺼져 있으면(MEAL_PHOTO_DIR 없음) 올리기는 503, 목록은 빈 목록
+func TestHealthMealPhotosOff(t *testing.T) {
+	c := newHealthClient(t)
+	body, ct := multipartBody(c.t, "photo", "image/jpeg", []byte{0xFF, 0xD8, 0xFF, 0xD9})
+	req := httptest.NewRequest("PUT", "/v1/health/meals/photos?date=2026-09-26&index=1", body)
+	req.Header.Set("Content-Type", ct)
+	c.serve(req, c.tok).code(503, "PHOTO_STORAGE_OFF")
+	c.get("/v1/health/meals/photos?date=2026-09-26&index=1").is(200).size("photos", 0)
 }

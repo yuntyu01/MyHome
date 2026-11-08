@@ -207,3 +207,17 @@ data class GymCheckIn(val date: String, val verifiedBy: String)
 
 @Serializable
 data class RestRequest(val date: String)
+
+/** 서버에 저장된 끼니 사진 목록(GET·PUT /v1/health/meals/photos). */
+@Serializable
+data class MealPhotoList(val photos: List<MealPhotoInfo> = emptyList())
+
+@Serializable
+data class MealPhotoInfo(val n: Int, val bytes: Int = 0, val sha256: String = "")
+
+/** GET /v1/health/foods/barcode/{code}. 영양성분을 모르면 result가 null이다. */
+@Serializable
+data class BarcodeAnswer(val product: BarcodeProduct = BarcodeProduct(), val result: FoodResult? = null)
+
+@Serializable
+data class BarcodeProduct(val barcode: String = "", val name: String = "", val maker: String = "", val amount: String = "")

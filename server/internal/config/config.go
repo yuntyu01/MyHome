@@ -55,7 +55,9 @@ type Config struct {
 	AIClassify bool
 	// 바코드 → 제품 영양성분(식품안전나라 + 공공데이터포털). 둘 다 있어야 켜진다.
 	FoodSafetyAPIKey string
-	DataGoKrAPIKey   string
+	// MealPhotoDir은 끼니 사진을 저장할 폴더(MEAL_PHOTO_DIR)다. 비우면 서버에 사진을 저장하지 않는다(분석만)
+	MealPhotoDir   string
+	DataGoKrAPIKey string
 }
 
 // DefaultGeminiModel은 GEMINI_MODEL 기본값이다(핏두잉과 같다. ai.DefaultModel과 맞춘다).
@@ -135,6 +137,7 @@ func Load() (Config, error) {
 		GeminiModel:          str("GEMINI_MODEL", DefaultGeminiModel),
 		AIClassify:           onOff("AI_CLASSIFY", true, &errs),
 		FoodSafetyAPIKey:     strings.TrimSpace(os.Getenv("FOODSAFETY_API_KEY")),
+		MealPhotoDir:         strings.TrimSpace(os.Getenv("MEAL_PHOTO_DIR")),
 		DataGoKrAPIKey:       strings.TrimSpace(os.Getenv("DATA_GO_KR_API_KEY")),
 	}
 	c.CFAccessTeamDomain = teamDomain("CF_ACCESS_TEAM_DOMAIN", &errs)

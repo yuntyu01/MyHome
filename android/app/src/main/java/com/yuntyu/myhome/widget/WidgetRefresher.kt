@@ -13,6 +13,9 @@ import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.notify.BudgetAlertNotifier
 import com.yuntyu.myhome.notify.InvestAlertNotifier
+import com.yuntyu.myhome.health.MealPhotos
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 /** 위젯 갱신: 요약을 다시 받아 캐시에 넣고 모든 위젯을 다시 그린다. */
@@ -28,6 +31,8 @@ object WidgetRefresher {
         if (r is ApiResult.Ok) BudgetAlertNotifier.check(context, r.value)
         // 매매 실패 알림도 같은 주기(30분·결제 전송 직후)에 확인한다. 서버가 푸시를 보내지 않으므로 여기서 가져온다
         if (r is ApiResult.Ok) InvestAlertNotifier.check(context)
+        // 올리지 못한 끼니 사진 다시 올리기
+        if (r is ApiResult.Ok) withContext(Dispatchers.IO) { MealPhotos.retryPending(context) }
         return r is ApiResult.Ok
     }
 

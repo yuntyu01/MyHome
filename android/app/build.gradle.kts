@@ -98,6 +98,8 @@ dependencies {
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
     implementation(libs.okhttp)
+    implementation(libs.play.services.code.scanner)
+    implementation(libs.play.services.location)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
