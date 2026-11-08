@@ -61,6 +61,19 @@ class AppSettings(context: Context) {
         refresh()
     }
 
+    /** 수집 대상 앱의 알림을 마지막으로 받은 시각(알림 게시 시각, Unix ms). 0이면 아직 없음. 상태 화면용. */
+    val lastCapturedAt: Long get() = prefs.getLong(KEY_LAST_CAPTURED, 0L)
+
+    /** 수집기가 마지막으로 연결된 시각(Unix ms). 0이면 아직 없음. */
+    var listenerConnectedAt: Long
+        get() = prefs.getLong(KEY_LISTENER_CONNECTED, 0L)
+        set(v) = prefs.edit { putLong(KEY_LISTENER_CONNECTED, v) }
+
+    /** 수집한 알림의 게시 시각을 남긴다. 다시 훑은 옛 알림이 시각을 되돌리지 않게 더 늦을 때만. */
+    fun noteCaptured(postedAt: Long) {
+        if (postedAt > lastCapturedAt) prefs.edit { putLong(KEY_LAST_CAPTURED, postedAt) }
+    }
+
     /** 마지막 인증 실패 메시지(토큰 폐기 등). 홈 화면 경고용. */
     var authProblem: String?
         get() = prefs.getString(KEY_AUTH_PROBLEM, null)
@@ -72,5 +85,7 @@ class AppSettings(context: Context) {
         const val KEY_AUTO_DELETE = "auto_delete"
         const val KEY_BUDGET_ALERTS = "budget_alerts"
         const val KEY_AUTH_PROBLEM = "auth_problem"
+        const val KEY_LAST_CAPTURED = "last_captured_at"
+        const val KEY_LISTENER_CONNECTED = "listener_connected_at"
     }
 }

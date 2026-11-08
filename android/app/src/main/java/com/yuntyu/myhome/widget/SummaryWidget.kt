@@ -127,6 +127,14 @@ private fun WidgetContent(context: Context, summary: Summary?) {
                     modifier = GlanceModifier.clickable(actionStartActivity(openIntent(context, "review"))),
                 )
             }
+            if (summary.failedEvents > 0) {
+                // 서버가 읽지 못한 알림(거래로 안 잡혔을 수 있음)
+                Text(
+                    "실패 ${summary.failedEvents}",
+                    style = TextStyle(color = OverColor, fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    modifier = GlanceModifier.padding(start = 6.dp),
+                )
+            }
         }
         Spacer(GlanceModifier.height(6.dp))
         // Glance 컨테이너는 직접 자식을 10개까지만 그리므로 분류·최근 결제를 각각 Column으로 묶는다.

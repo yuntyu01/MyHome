@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.yuntyu.myhome.MyHomeApp
+import com.yuntyu.myhome.capture.CaptureService
 import com.yuntyu.myhome.notify.Notifications
 import com.yuntyu.myhome.work.WorkScheduler
 
@@ -33,6 +35,10 @@ fun StatusScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
     val listenerOn = remember(resumeTick) { PermissionStatus.listenerEnabled(ctx) }
     val batteryOk = remember(resumeTick) { PermissionStatus.batteryUnrestricted(ctx) }
     val authProblem = remember(resumeTick, pending) { app.settings.authProblem }
+    // 권한만 보고는 수집기가 실제로 붙어 있는지 모른다. 연결 여부와 마지막 수집 시각을 따로 보여준다.
+    val connected = remember(resumeTick) { CaptureService.current != null }
+    val lastCaptured = remember(resumeTick, pending) { app.settings.lastCapturedAt }
+    LaunchedEffect(resumeTick, listenerOn) { if (listenerOn) CaptureService.ensureBound(ctx) }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -40,6 +46,20 @@ fun StatusScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
     ) {
         SectionCard("수집 상태") {
             StatusRow("알림 접근 권한", listenerOn, if (listenerOn) null else "권한 안내에서 허용해 주세요")
+            if (listenerOn) {
+                val since = app.settings.listenerConnectedAt
+                StatusRow(
+                    "수집기 연결",
+                    connected,
+                    if (!connected) "끊겨 있어요. 다시 연결을 요청했어요. 계속이면 권한을 껐다 켜 주세요"
+                    else if (since > 0) "${formatTime(since)}부터 연결됨" else null,
+                )
+            }
+            StatusRow(
+                "마지막 수집",
+                lastCaptured > 0,
+                if (lastCaptured > 0) formatTime(lastCaptured) else "아직 수집한 알림이 없어요",
+            )
             StatusRow("배터리 최적화 예외", batteryOk, if (batteryOk) null else "백그라운드에서 수집이 멈출 수 있어요")
             StatusRow("서버 주소", settings.serverUrl != null, settings.serverUrl ?: "설정에서 입력")
             StatusRow("기기 토큰", hasToken && authProblem == null, authProblem ?: if (hasToken) null else "설정에서 로그인하거나 토큰 입력")

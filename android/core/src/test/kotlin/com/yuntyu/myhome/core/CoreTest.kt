@@ -91,3 +91,20 @@ class DedupeKeyTest {
         assertFalse(a == b)
     }
 }
+
+class UploadQueuePolicyTest {
+    @Test fun freshFailureStopsAndKeepsOrder() {
+        assertFalse(UploadQueuePolicy.skipAfterRetry(attempts = 1, consecutiveFailures = 1))
+        assertFalse(UploadQueuePolicy.skipAfterRetry(attempts = UploadQueuePolicy.STUCK_ATTEMPTS - 1, consecutiveFailures = 1))
+    }
+
+    @Test fun stuckHeadIsSkipped() {
+        assertTrue(UploadQueuePolicy.skipAfterRetry(attempts = UploadQueuePolicy.STUCK_ATTEMPTS, consecutiveFailures = 1))
+        assertTrue(UploadQueuePolicy.skipAfterRetry(attempts = 20, consecutiveFailures = 2))
+    }
+
+    @Test fun manyFailuresInARowStop() {
+        // 서버가 통째로 죽었으면 오래된 항목이 많아도 매번 전부 보내지 않는다
+        assertFalse(UploadQueuePolicy.skipAfterRetry(attempts = 20, consecutiveFailures = UploadQueuePolicy.MAX_CONSECUTIVE_FAILURES))
+    }
+}

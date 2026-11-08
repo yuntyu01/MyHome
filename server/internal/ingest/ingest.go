@@ -84,7 +84,8 @@ func (req *Request) Validate(now time.Time) error {
 }
 
 // ContentHash는 멱등 처리용 해시다. 같은 알림을 재전송하면 같은 값이 나온다.
-// 같은 내용이라도 게시 시각이 다르면 다른 이벤트(예: 같은 카페 두 번 결제)로 본다.
+// 같은 내용이라도 게시 시각이 다르면 다른 원문으로 저장한다. 같은 앱의 같은 내용이 10분 안에 또 오면
+// 처리 단계(pipeline)가 재게시로 보고 앞 거래에 합친다.
 func ContentHash(req Request) string {
 	h := sha256.New()
 	var ts [8]byte

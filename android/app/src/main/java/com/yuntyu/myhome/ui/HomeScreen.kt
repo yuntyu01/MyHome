@@ -95,6 +95,17 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Unit
                     Text("›", color = m.muted)
                 }
             }
+            if (s.failedEvents > 0) {
+                // 서버가 읽지 못한 알림: 거래로 안 잡혔을 수 있다. 원문은 웹에서만 본다.
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.pill)
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("읽지 못한 알림 ${s.failedEvents}건", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = m.warn)
+                    Text("웹 관리에서 확인", style = MaterialTheme.typography.bodySmall, color = m.muted)
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatTile("지출", tileAmount(s.totals.spent), MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
                 StatTile("수입", tileAmount(s.totals.income), m.income, Modifier.weight(1f))
