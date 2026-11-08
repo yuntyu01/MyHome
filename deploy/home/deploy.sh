@@ -10,7 +10,8 @@
 # 모두 ssh 표준입력으로 보내서 명령줄·로그에 남지 않는다.
 #
 # 🔴 자동매매 타이머(myhome-invest-*.timer)는 설치만 하고 켜지 않는다. 켜는 건 사람이 한다
-#    (TQ에서 넘어오는 날을 정하고 import-tq를 한 다음): systemctl enable --now myhome-invest-*.timer
+#    (TQ에서 넘어오는 날을 정하고 import-tq를 한 다음): VM에서 sudo /opt/myhome/enable-invest.sh
+#    (끄기는 disable-invest.sh). systemctl enable --now를 바로 쓰면 지난 실행 기록 때문에 켜자마자 돌 수 있다
 set -euo pipefail
 
 HOST=${MYHOME_HOST:-home}
@@ -37,7 +38,7 @@ ssh "$HOST" "sudo install -d -m 0755 /etc/cloudflared && sudo install -m 0600 /d
 
 echo "▶ 바이너리·유닛 전송"
 ssh "$HOST" "sudo install -m 0755 /dev/stdin /opt/myhome/myhome.new" < "$BIN"
-tar -C "$ROOT/deploy/home" -cf - systemd postgres-roles.sql backup.sh | ssh "$HOST" "rm -rf /tmp/myhome-deploy && mkdir -p /tmp/myhome-deploy && tar -C /tmp/myhome-deploy -xf -"
+tar -C "$ROOT/deploy/home" -cf - systemd postgres-roles.sql backup.sh enable-invest.sh disable-invest.sh | ssh "$HOST" "rm -rf /tmp/myhome-deploy && mkdir -p /tmp/myhome-deploy && tar -C /tmp/myhome-deploy -xf -"
 
 ssh "$HOST" "sudo TUNNEL_ID=$TUNNEL_ID HOSTNAME_PUBLIC=$HOSTNAME_PUBLIC bash -s" <<'REMOTE'
 set -euo pipefail
@@ -57,6 +58,7 @@ psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -f postgres-roles.sql
 
 # systemd 유닛: 웹과 백업만 켠다. 매매 타이머는 설치만
 install -m 0755 backup.sh /opt/myhome/backup.sh
+install -m 0755 enable-invest.sh disable-invest.sh /opt/myhome/
 cp systemd/*.service systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now myhome.service myhome-backup.timer >/dev/null
