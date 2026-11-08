@@ -168,5 +168,5 @@
 1. VM 만들기: kodeploy `terraform/oci-infra/home.tf` plan 확인 후 apply (예약 공인 IP 확인)
 2. 토스 WTS → 설정 → Open API에 VM 공인 IP 등록
 3. 주문 없는 읽기 전용 호출로 확인: `myhome invest reconcile` — 확인할 것: 매수가능 금액(USD)에 통합증거금 원화가 반영되는지, 평균 매입가 통화, 종료 주문 조회 날짜 기준, MOC 접수 시간
-4. 전환 시점은 판정 창(25~31일)·실행 창(1~8일)을 피해 9~24일. 그 사이 TQ 실행을 멈추고(토큰이 1개뿐이라 동시 실행 금지) `import-tq`로 옮긴다
+4. 전환 시점은 판정 창(25~31일)·실행 창(1~15일)을 피해 16~24일. 그 사이 TQ 실행을 멈추고(토큰이 1개뿐이라 동시 실행 금지) `import-tq`로 옮긴 뒤 VM에서 `sudo /opt/myhome/enable-invest.sh`
 5. 그 달까지는 TQ(손으로 사고 fill.yml로 기록)를 그대로 쓴다
