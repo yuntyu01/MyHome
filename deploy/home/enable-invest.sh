@@ -8,7 +8,7 @@
 #
 # 🔴 타이머는 Persistent=true다. systemd는 지난 실행 시각(/var/lib/systemd/timers/stamp-<타이머>)을 보고,
 #    꺼져 있던 동안 놓친 일정이 있으면 켜는 즉시 돌린다. 예전에 켰다 끈 흔적이 있으면 enable 순간 trade가
-#    돌 수 있다. 그래서 켜기 전에 그 기록을 지운다 — 기록이 없으면 다음 일정까지 기다린다.
+#    돌 수 있다. 그래서 켜기 전에 그 기록을 지운다 - 기록이 없으면 다음 일정까지 기다린다.
 set -euo pipefail
 
 TIMERS=(myhome-invest-refresh.timer myhome-invest-judge.timer myhome-invest-trade.timer myhome-invest-status.timer)
