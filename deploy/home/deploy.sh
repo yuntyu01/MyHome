@@ -67,7 +67,9 @@ systemctl enable --now myhome.service myhome-backup.timer >/dev/null
 systemctl restart myhome.service
 
 # 터널: 들어오는 포트 없이 Cloudflare로 나가는 연결만
-cat > /etc/cloudflared/config.yml <<EOF
+# SSH도 이 터널을 타므로, 설정이 바뀌었을 때만 그리고 맨 끝에 미뤄서 다시 시작한다(지금 SSH가 끊겨도 배포가 끝나게)
+NEWCFG=$(mktemp)
+cat > "$NEWCFG" <<EOF
 tunnel: $TUNNEL_ID
 credentials-file: /etc/cloudflared/$TUNNEL_ID.json
 ingress:
@@ -77,15 +79,25 @@ ingress:
     service: ssh://127.0.0.1:22
   - service: http_status:404
 EOF
+RESTART_TUNNEL=""
+if ! cmp -s "$NEWCFG" /etc/cloudflared/config.yml; then
+  install -m 0644 "$NEWCFG" /etc/cloudflared/config.yml
+  RESTART_TUNNEL=1
+fi
+rm -f "$NEWCFG"
 if [ ! -f /etc/systemd/system/cloudflared.service ]; then
   cloudflared --config /etc/cloudflared/config.yml service install >/dev/null 2>&1
+  RESTART_TUNNEL=""
 fi
-systemctl restart cloudflared
 
 for i in $(seq 1 20); do curl -fsS -m 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break; sleep 1; done
 echo "웹: $(systemctl is-active myhome) / healthz: $(curl -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz) / 터널: $(systemctl is-active cloudflared)"
 echo "백업: 다음 $(systemctl show myhome-backup.timer -p NextElapseUSecRealtime --value) / 버킷 $( [ -s /etc/myhome/backup.env ] && echo 연결됨 || echo '없음(VM 디스크만)')"
 echo "매매 타이머(꺼져 있어야 정상): $(systemctl list-unit-files 'myhome-invest-*.timer' --no-legend | awk '{print $1"="$2}' | tr '\n' ' ')"
 rm -rf /tmp/myhome-deploy
+if [ -n "$RESTART_TUNNEL" ]; then
+  systemd-run --quiet --on-active=3 --unit="myhome-tunnel-restart-$(date +%s)" systemctl restart cloudflared
+  echo "터널 설정이 바뀌어 3초 뒤 cloudflared를 다시 시작한다(SSH가 잠깐 끊긴다)"
+fi
 REMOTE
 echo "✓ 배포 끝"
