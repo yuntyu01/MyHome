@@ -1,0 +1,89 @@
+# MyHome 앱을 Play에 올린다. Play에서는 예전 핏두잉 앱 자리(com.fitdoing.app)를 쓴다 — docs/DECISIONS.md 「Play 배포」.
+#
+# 트리거
+#   - 태그 v* 푸시 → 비공개 테스트(alpha) 트랙
+#   - 손으로 실행 → 트랙 고르기, dry_run이면 AAB만 만들어 artifact로 남김
+#
+# 필요한 GitHub Secrets (값은 저장소에 두지 않는다)
+#   KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD  — 핏두잉 업로드 키
+#   PLAY_SERVICE_ACCOUNT_JSON — fitdoing-play-deploy 서비스 계정 키
+#     (Play Console 사용자 및 권한에서 이 앱의 "앱을 테스트 트랙으로 출시" 권한이 있어야 한다)
+# 변수(선택): MYHOME_SERVER_URL — 앱 기본 서버 주소. 비우면 https://myhome.kodeploy.com
+name: CD - Android Play
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Play 트랙 (internal, alpha=비공개 테스트, beta, production)"
+        default: alpha
+        required: true
+      dry_run:
+        description: "AAB만 만들고 업로드는 건너뛰기"
+        type: boolean
+        default: false
+
+concurrency:
+  group: android-play
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: 트랙·버전 정하기
+        run: |
+          echo "PLAY_TRACK=${{ inputs.track || 'alpha' }}" >> "$GITHUB_ENV"
+          echo "DRY_RUN=${{ inputs.dry_run || false }}" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then echo "ANDROID_VERSIONNAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"; fi
+          # versionCode는 build.gradle.kts가 분 단위 시각으로 정한다(핏두잉 번호보다 항상 큼)
+
+      - name: 업로드 키 복원
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          [ -n "$KEYSTORE_BASE64" ] || { echo "::error::KEYSTORE_BASE64 Secret이 없다"; exit 1; }
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+
+      - name: AAB 빌드
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          MYHOME_SERVERURL: ${{ vars.MYHOME_SERVER_URL || 'https://myhome.kodeploy.com' }}
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:bundleRelease --no-daemon
+          jarsigner -verify app/build/outputs/bundle/release/app-release.aab | grep -q "jar verified"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: myhome-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 14
+
+      - name: Play 업로드
+        if: env.DRY_RUN != 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.fitdoing.app
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: ${{ env.PLAY_TRACK }}
+          status: completed
