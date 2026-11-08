@@ -45,6 +45,7 @@ import com.yuntyu.myhome.core.api.HealthWeekly
 import com.yuntyu.myhome.core.api.MyHomeJson
 import com.yuntyu.myhome.core.api.Nutrition
 import com.yuntyu.myhome.core.api.describe
+import com.yuntyu.myhome.health.MealOutbox
 import com.yuntyu.myhome.health.Reminders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -62,6 +63,8 @@ data class HealthHome(
     val today: HealthToday,
     val weekly: HealthWeekly?,
     val card: DayCard?,
+    /** 그날 아직 서버에 못 보낸 끼니(번호 → 기록). 칸에 "보내는 중"으로 보인다 */
+    val outbox: Map<Int, MealOutbox.Entry> = emptyMap(),
 )
 
 /** 설정을 읽고, 끼니 일정 기준 날(자정 넘긴 끼니면 어제)의 오늘·주간·하루 기록을 받는다. 알림도 맞춘다. */
@@ -82,9 +85,12 @@ suspend fun loadHealthHome(): Result<HealthHome> = withContext(Dispatchers.IO) {
     }
     val weekly = (api.healthWeekly(day.toString()) as? ApiResult.Ok)?.value
     val card = (api.healthDay(day.toString()) as? ApiResult.Ok)?.value
-    card?.meals?.let { meals -> app.healthLocal.setLoggedForDay(day.toString(), meals.map { it.index }) }
+    val outbox = MealOutbox.forDay(app, day.toString())
+    // 못 보낸 끼니도 찍은 것으로 쳐서 알림에서 뺀다. 헬스를 인증했거나 쉬는 날이면 헬스 알림도 뺀다
+    card?.meals?.let { meals -> app.healthLocal.setLoggedForDay(day.toString(), meals.map { it.index } + outbox.keys) }
+    card?.let { app.healthLocal.setGymDone(day.toString(), it.gymVerifiedBy != null) }
     Reminders.reschedule(app)
-    Result.success(HealthHome(day, st, today, weekly, card))
+    Result.success(HealthHome(day, st, today, weekly, card, outbox))
 }
 
 @Composable
@@ -111,6 +117,16 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
                 if (d.today.streak > 0) Text("${d.today.streak}일째 기록 중", style = MaterialTheme.typography.bodySmall, color = m.muted)
             }
             WeekStrip(d)
+            if (d.outbox.isNotEmpty()) {
+                val failed = d.outbox.values.count { it.error != null }
+                Text(
+                    if (failed > 0) "보내지 못한 끼니가 ${failed}개 있어요. 눌러서 다시 저장해 주세요"
+                    else "보내는 중인 끼니가 ${d.outbox.size}개 있어요. 연결되면 자동으로 보내요",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (failed > 0) m.warn else m.muted,
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
+            }
             MealTiles(d, nav, onNavigate)
             NutritionTotals(d.today.total, d.today.targets, "오늘 합계", "${d.today.loggedCount}끼 기록")
             MealTable(d, nav, onNavigate)
@@ -169,24 +185,36 @@ private fun MealTiles(d: HealthHome, nav: HealthNav, onNavigate: (Screen) -> Uni
     val m = LocalModo.current
     val meals = d.card?.meals.orEmpty().associateBy { it.index }
     val now = LocalDateTime.now()
-    val statuses = HealthPlan.statuses(HealthPlan.deadlinesFor(d.day, d.settings.meals), meals.keys, now)
+    val statuses = HealthPlan.statuses(HealthPlan.deadlinesFor(d.day, d.settings.meals), meals.keys + d.outbox.keys, now)
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         for ((dl, state) in statuses) {
             val current = state == HealthPlan.TileState.CURRENT
-            val sub = when (state) {
-                HealthPlan.TileState.LOGGED -> meals[dl.index]?.loggedAt?.let(::localHhmm) ?: "기록함"
-                HealthPlan.TileState.CURRENT -> remainText(java.time.Duration.between(now, dl.at).toMinutes())
-                HealthPlan.TileState.MISSED -> "놓침"
-                HealthPlan.TileState.UPCOMING -> HealthPlan.hhmm(dl.at.hour * 60 + dl.at.minute)
+            val waiting = d.outbox[dl.index]?.takeIf { dl.index !in meals }
+            val sub = if (waiting != null) {
+                if (waiting.error != null) "보내지 못함" else "보내는 중"
+            } else {
+                when (state) {
+                    HealthPlan.TileState.LOGGED -> meals[dl.index]?.loggedAt?.let(::localHhmm) ?: "기록함"
+                    HealthPlan.TileState.CURRENT -> remainText(java.time.Duration.between(now, dl.at).toMinutes())
+                    HealthPlan.TileState.MISSED -> "놓침"
+                    HealthPlan.TileState.UPCOMING -> HealthPlan.hhmm(dl.at.hour * 60 + dl.at.minute)
+                }
             }
-            Tile(HealthPlan.label(dl.index), sub, current, done = state == HealthPlan.TileState.LOGGED) {
+            Tile(HealthPlan.label(dl.index), sub, current, done = state == HealthPlan.TileState.LOGGED && waiting == null) {
                 nav.openCapture(d.day.toString(), dl.index, meals[dl.index])
                 onNavigate(Screen.HEALTH_CAPTURE)
             }
         }
         val g = d.today.gym
         if (g.enabled) {
-            Tile("헬스", "${g.done}/${g.planned}회" + if (g.scheduledToday) " · ${g.arriveBy}" else "", current = false, done = d.card?.gym == true) {
+            // 휴식권을 쓴 날은 한 날로 보고 도착 시각 대신 "쉬는 날"
+            val rest = d.card?.gymVerifiedBy == "rest"
+            val sub = when {
+                rest -> "쉬는 날"
+                d.card?.gym == true -> "${g.done}/${g.planned}회"
+                else -> "${g.done}/${g.planned}회" + if (g.scheduledToday) " · ${g.arriveBy}" else ""
+            }
+            Tile("헬스", sub, current = false, done = d.card?.gym == true || rest) {
                 onNavigate(Screen.HEALTH_GYM)
             }
         }

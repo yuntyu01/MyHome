@@ -12,7 +12,18 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
+import androidx.work.workDataOf
+import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.location.Geofence
+import com.google.android.gms.location.GeofenceStatusCodes
 import com.google.android.gms.location.GeofencingEvent
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
@@ -22,17 +33,26 @@ import com.yuntyu.myhome.BuildConfig
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.R
 import com.yuntyu.myhome.core.api.ApiResult
+import com.yuntyu.myhome.core.api.UploadDecision
+import com.yuntyu.myhome.core.api.describe
+import com.yuntyu.myhome.core.api.toUploadDecision
 import com.yuntyu.myhome.notify.Notifications
 import com.yuntyu.myhome.ui.MainActivity
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import java.time.Instant
 import java.time.LocalDate
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 
 /**
  * 헬스장 자동 출석(지오펜스). 헬스장에서 "지금 위치를 헬스장으로"를 한 번 누르면, 그 반경 안에 [DWELL_MS] 머물 때
  * 시스템(Play 서비스)이 알려 주고, 그날 출석을 geofence로 남긴다. 카카오 장소 검색 없이 폰 GPS만 쓴다(2026-11-08).
  * 좌표는 이 폰에만 둔다. 서버에는 "그날 위치로 확인됨"만 간다. 백그라운드에서 알려면 위치 "항상 허용"이 필요하다.
+ * 출석은 WorkManager로 보낸다(GymCheckInWorker, 날짜마다 하나, 연결되면, 실패하면 늘려 가며 다시): 지하 헬스장처럼 신호가 없어도
+ * 그날 출석을 잃지 않는다. 지오펜스는 위치가 꺼지면 시스템이 지우므로 30분 주기(WidgetRefresher)에서도 다시 걸고,
+ * 걸지 못한 이유는 남겨 두었다가 화면에 보여 준다(registrationError).
  */
 object GymGeofence {
     private const val PREFS = "gym_geofence"
@@ -76,6 +96,22 @@ object GymGeofence {
         prefs(ctx).edit { clear() }
     }
 
+    /** 지오펜스를 걸지 못했거나 시스템이 지운 이유(위치 꺼짐 등). 걸리면 null. */
+    fun registrationError(ctx: Context): String? = prefs(ctx).getString("reg_error", null)
+
+    private fun setRegistrationError(ctx: Context, why: String?) = prefs(ctx).edit {
+        if (why == null) remove("reg_error") else putString("reg_error", why)
+    }
+
+    /** 아직 서버에 못 보낸 자동 출석 날짜(보내는 중), 없으면 null */
+    fun pendingCheckIn(ctx: Context): String? = prefs(ctx).getString("pending", null)
+
+    private fun errorText(code: Int): String = when (code) {
+        GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE -> "위치가 꺼져 있어서 자동 출석이 멈췄어요. 위치를 켜면 다시 걸어요"
+        GeofenceStatusCodes.GEOFENCE_INSUFFICIENT_LOCATION_PERMISSION -> "위치 권한이 모자라서 자동 출석을 걸지 못했어요"
+        else -> "자동 출석을 걸지 못했어요 (${GeofenceStatusCodes.getStatusCodeString(code)})"
+    }
+
     fun enabled(ctx: Context) = prefs(ctx).getBoolean("enabled", false) && spot(ctx) != null
 
     fun setEnabled(ctx: Context, on: Boolean) {
@@ -100,6 +136,8 @@ object GymGeofence {
         data class Done(val distanceM: Int) : HereResult
         data class TooFar(val distanceM: Int, val allowedM: Int) : HereResult
         data class Failed(val why: String) : HereResult
+        /** 반경 안이지만 지금 보내지 못해서 연결되면 보낸다 */
+        data class Queued(val distanceM: Int) : HereResult
     }
 
     /**
@@ -114,12 +152,19 @@ object GymGeofence {
         val allowed = s.radiusM + minOf(loc.accuracy, 100f).toInt()
         if (d[0] > allowed) return HereResult.TooFar(d[0].toInt(), allowed)
         val today = LocalDate.now().toString()
-        return when (val r = MyHomeApp.instance.api.gymCheckIn(today, "geofence")) {
-            is ApiResult.Ok -> {
-                prefs(ctx).edit { putString("last", today) }
+        val at = Instant.now().toString()
+        val r = MyHomeApp.instance.api.gymCheckIn(today, "geofence", at)
+        return when {
+            r is ApiResult.Ok -> {
+                onCheckedIn(ctx, today, notify = false)
                 HereResult.Done(d[0].toInt())
             }
-            else -> HereResult.Failed("출석을 남기지 못했어요")
+            // 신호가 없거나 서버가 잠깐 안 되면 연결될 때 보낸다
+            r.toUploadDecision() == UploadDecision.RETRY -> {
+                enqueueCheckIn(ctx, today, at, notify = false)
+                HereResult.Queued(d[0].toInt())
+            }
+            else -> HereResult.Failed("출석을 남기지 못했어요: ${r.describe()}")
         }
     }
 
@@ -131,12 +176,17 @@ object GymGeofence {
         PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0),
     )
 
-    /** 켜져 있고 권한이 있으면 지오펜스를 (다시) 건다. 재부팅·앱 업데이트·앱 시작 때 부른다(지오펜스는 재부팅 때 지워진다). */
+    /**
+     * 켜져 있고 권한이 있으면 지오펜스를 (다시) 건다. 재부팅·앱 업데이트·앱 시작·화면·30분 주기 때 부른다
+     * (지오펜스는 재부팅·위치 끄기 때 지워진다). 결과(실패 이유, 걸리면 null)는 남기고 onResult로도 알린다.
+     */
     @SuppressLint("MissingPermission")
-    fun register(ctx: Context) {
+    fun register(ctx: Context, onResult: ((String?) -> Unit)? = null) {
         val s = spot(ctx)
         if (s == null || !enabled(ctx) || !hasForeground(ctx) || !hasBackground(ctx)) {
             unregister(ctx)
+            setRegistrationError(ctx, null) // 꺼짐·권한 없음은 화면이 따로 알린다
+            onResult?.invoke(null)
             return
         }
         val fence = Geofence.Builder()
@@ -147,8 +197,23 @@ object GymGeofence {
             .setLoiteringDelay(DWELL_MS)
             .build()
         val req = GeofencingRequest.Builder().setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_DWELL).addGeofence(fence).build()
-        runCatching { LocationServices.getGeofencingClient(ctx).addGeofences(req, pending(ctx)) }
+        runCatching {
+            LocationServices.getGeofencingClient(ctx).addGeofences(req, pending(ctx))
+                .addOnSuccessListener { setRegistrationError(ctx, null); onResult?.invoke(null) }
+                .addOnFailureListener { e ->
+                    val why = (e as? ApiException)?.let { errorText(it.statusCode) } ?: "자동 출석을 걸지 못했어요 (${e.message})"
+                    setRegistrationError(ctx, why)
+                    onResult?.invoke(why)
+                }
+        }.onFailure { e ->
+            val why = "자동 출석을 걸지 못했어요 (${e.message})"
+            setRegistrationError(ctx, why)
+            onResult?.invoke(why)
+        }
     }
+
+    /** 시스템이 지오펜스 오류를 알려 왔다(위치를 끄면 GEOFENCE_NOT_AVAILABLE과 함께 지오펜스가 지워진다). */
+    fun onError(ctx: Context, code: Int) = setRegistrationError(ctx, errorText(code))
 
     fun unregister(ctx: Context) {
         runCatching { LocationServices.getGeofencingClient(ctx).removeGeofences(pending(ctx)) }
@@ -167,15 +232,35 @@ object GymGeofence {
         }
     }
 
-    /** 헬스장에 머문 것을 시스템이 알려 왔다. 그날 처음이면 출석을 남기고 조용히 알린다. */
+    /** 헬스장에 머문 것을 시스템이 알려 왔다. 그날 처음이면 출석 보내기를 건다(신호가 없어도 연결되면 보낸다). */
     fun onDwell(ctx: Context) {
         val today = LocalDate.now().toString()
+        if (prefs(ctx).getString("last", null) == today) return
+        enqueueCheckIn(ctx, today, Instant.now().toString(), notify = true)
+    }
+
+    /** 그날 출석 보내기를 건다. 날짜마다 하나(이미 걸려 있으면 그대로), 연결되면, 실패하면 30초부터 늘려 가며 다시. */
+    fun enqueueCheckIn(ctx: Context, date: String, at: String, notify: Boolean) {
+        prefs(ctx).edit { putString("pending", date) }
+        val req = OneTimeWorkRequestBuilder<GymCheckInWorker>()
+            .setInputData(workDataOf("date" to date, "at" to at, "notify" to notify))
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(ctx).enqueueUniqueWork("gym-checkin-$date", ExistingWorkPolicy.KEEP, req)
+    }
+
+    /** 출석이 서버에 남았다: 같은 날 다시 보내지 않고, 그날 헬스 알림을 빼고, 자동 출석이면 조용히 알린다. */
+    fun onCheckedIn(ctx: Context, date: String, notify: Boolean) {
         val p = prefs(ctx)
-        if (p.getString("last", null) == today) return
-        val r = MyHomeApp.instance.api.gymCheckIn(today, "geofence")
-        if (r !is ApiResult.Ok) return // 다음 머묾(또는 다시 들어올 때)에 다시 한다
-        p.edit { putString("last", today) }
-        if (!Notifications.canPost(ctx)) return
+        val wasPending = p.getString("pending", null) == date
+        p.edit {
+            putString("last", date)
+            if (wasPending) remove("pending")
+        }
+        MyHomeApp.instance.healthLocal.setGymDone(date, true)
+        Reminders.reschedule(ctx)
+        if (!notify || !Notifications.canPost(ctx)) return
         val open = PendingIntent.getActivity(
             ctx,
             4,
@@ -193,20 +278,43 @@ object GymGeofence {
             .build()
         Notifications.notifyChecked(ctx, NOTIFY_ID, n)
     }
+
+    /** 서버가 거절해서 그만둔 출석은 "보내는 중" 표시를 지운다. */
+    internal fun onCheckInDropped(ctx: Context, date: String) {
+        val p = prefs(ctx)
+        if (p.getString("pending", null) == date) p.edit { remove("pending") }
+    }
 }
 
-/** Play 서비스 지오펜스 전환 수신. 네트워크 호출이 있어 goAsync로 잠깐 더 산다. */
+/** 출석 보내기. 연결·서버 문제와 토큰 문제는 다시(토큰을 고치면 보내진다), 서버가 거절하면 그만둔다. */
+class GymCheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val date = inputData.getString("date") ?: return@withContext Result.failure()
+        val notify = inputData.getBoolean("notify", false)
+        val r = MyHomeApp.instance.api.gymCheckIn(date, "geofence", inputData.getString("at"))
+        when (r.toUploadDecision()) {
+            UploadDecision.SENT -> {
+                GymGeofence.onCheckedIn(applicationContext, date, notify)
+                Result.success()
+            }
+            UploadDecision.REJECTED -> {
+                GymGeofence.onCheckInDropped(applicationContext, date)
+                Result.failure()
+            }
+            UploadDecision.RETRY, UploadDecision.AUTH_FAILED -> Result.retry()
+        }
+    }
+}
+
+/** Play 서비스 지오펜스 전환 수신. 네트워크는 쓰지 않고 출석 보내기만 건다(GymCheckInWorker). 오류는 남겨서 화면에 보인다. */
 class GymGeofenceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val ev = GeofencingEvent.fromIntent(intent) ?: return
-        if (ev.hasError() || ev.geofenceTransition != Geofence.GEOFENCE_TRANSITION_DWELL) return
-        val done = goAsync()
-        MyHomeApp.instance.ioScope.launch {
-            try {
-                GymGeofence.onDwell(context.applicationContext)
-            } finally {
-                done.finish()
-            }
+        if (ev.hasError()) {
+            GymGeofence.onError(context.applicationContext, ev.errorCode)
+            return
         }
+        if (ev.geofenceTransition != Geofence.GEOFENCE_TRANSITION_DWELL) return
+        GymGeofence.onDwell(context.applicationContext)
     }
 }

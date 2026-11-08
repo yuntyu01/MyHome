@@ -148,7 +148,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     // 지나온 화면(하단바 칸으로 가면 비운다). 뒤로 가기는 여기서 꺼내고, 없으면 parent로 간다
     val backStack = remember { mutableStateListOf<Screen>() }
-    val healthNav = remember { HealthNav() }
+    val healthNav = rememberSaveable(saver = HealthNav.Saver) { HealthNav() }
     fun go(to: Screen) {
         if (to == screen) return
         if (to.topLevel) backStack.clear() else backStack.add(screen)

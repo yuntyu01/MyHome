@@ -38,7 +38,11 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +52,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.common.moduleinstall.ModuleInstall
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.HealthPlan
 import com.yuntyu.myhome.core.api.ApiResult
@@ -56,7 +62,10 @@ import com.yuntyu.myhome.core.api.FoodResult
 import com.yuntyu.myhome.core.api.HealthSettings
 import com.yuntyu.myhome.core.api.MealRequest
 import com.yuntyu.myhome.core.api.MyHomeJson
+import com.yuntyu.myhome.core.api.UploadDecision
 import com.yuntyu.myhome.core.api.describe
+import com.yuntyu.myhome.core.api.toUploadDecision
+import com.yuntyu.myhome.health.MealOutbox
 import com.yuntyu.myhome.health.MealPhotos
 import com.yuntyu.myhome.health.Reminders
 import kotlinx.coroutines.Dispatchers
@@ -80,6 +89,9 @@ fun portionLabel(p: Double): String = when (p) {
 /**
  * 끼니 촬영 → AI 분석 → 기록 확인(음식 고치기, 먹은 양, 나눠 먹음) → 저장.
  * 사진은 분석할 때 서버를 거치고, 기록을 저장하면 서버(VM 디스크)에도 남는다. 폰 사진은 보기용 캐시다. 저장된 끼니를 누르면 이 화면에서 고친다.
+ * 새로 찍는 끼니가 이미 기록이 있는 번호면 저장 전에 덮어쓸지 묻는다. "기타"는 그날 비어 있는 다음 번호를 쓴다.
+ * 신호가 없거나 서버가 잠깐 안 되면 기록을 폰에 남겨 두고 연결되면 보낸다(MealOutbox).
+ * 찍는 중인 사진 경로는 rememberSaveable로 둔다: 카메라가 열린 사이 Activity가 다시 만들어져도 사진을 잃지 않게.
  */
 @Composable
 fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) {
@@ -90,10 +102,15 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
     val editing = nav.editing
 
     var settings by remember { mutableStateOf<HealthSettings?>(null) }
-    var date by remember { mutableStateOf(nav.captureDate) }
-    var index by remember { mutableStateOf(editing?.index ?: nav.captureIndex) }
+    var date by rememberSaveable { mutableStateOf(nav.captureDate) }
+    var index by rememberSaveable { mutableStateOf(editing?.index ?: nav.captureIndex) }
     var phase by remember { mutableStateOf(if (editing != null) Phase.REVIEW else Phase.PICK) }
-    val files = remember { mutableStateListOf<File>() }
+    val files = rememberSaveable(
+        saver = listSaver<SnapshotStateList<File>, String>(
+            save = { it.map(File::getPath) },
+            restore = { paths -> paths.map(::File).filter(File::exists).toMutableStateList() },
+        ),
+    ) { mutableStateListOf() }
     var photoBytes by remember { mutableStateOf<List<ByteArray>>(emptyList()) }
     var ai by remember {
         mutableStateOf(
@@ -114,9 +131,29 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
     var editTotals by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var pendingCapture by remember { mutableStateOf<File?>(null) }
-    // 바코드로 찾은 제품이면 그 번호를 끼니와 같이 저장한다
+    // 카메라가 쓰고 있는 파일 경로(Activity가 다시 만들어져도 남게)
+    var pendingCapture by rememberSaveable { mutableStateOf<String?>(null) }
+    // 바코드로 찾은 제품이면 그 번호를 끼니와 같이 저장한다. basis는 영양값의 기준 양(예: "100g(ml)당")
     var barcode by remember { mutableStateOf(editing?.barcode) }
+    var barcodeBasis by remember { mutableStateOf<String?>(null) }
+    // AI 분석이 실패했는지(다시 알아보기 버튼), 크레딧이 없어서인지(다시 해도 안 됨)
+    var analyzeFailed by remember { mutableStateOf(false) }
+    var noCredit by remember { mutableStateOf(false) }
+    // 그날 이미 기록이 있는 끼니 번호(서버, 못 보낸 기록 포함). 덮어쓰기 확인과 "기타" 번호 고르기에 쓴다
+    var used by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var confirmOverwrite by remember { mutableStateOf(false) }
+
+    // 바코드 스캐너 모듈을 미리 받아 둔다(처음 찍을 때 모듈을 받느라 실패하지 않게)
+    LaunchedEffect(Unit) { if (editing == null) prefetchBarcodeScanner(ctx) }
+    LaunchedEffect(date) {
+        val d = date ?: return@LaunchedEffect
+        used = withContext(Dispatchers.IO) {
+            // 서버에 못 닿으면 폰 사본(최근 2주 기록한 끼니)으로
+            val saved = (app.api.healthDay(d) as? ApiResult.Ok)?.value?.meals?.map { it.index }
+                ?: app.healthLocal.logged.filter { it.startsWith("$d#") }.mapNotNull { it.substringAfter('#').toIntOrNull() }
+            (saved + MealOutbox.forDay(ctx, d).keys).toSet()
+        }
+    }
 
     LaunchedEffect(Unit) {
         val r = withContext(Dispatchers.IO) { app.api.healthSettings() }
@@ -131,7 +168,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
     }
 
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val f = pendingCapture
+        val f = pendingCapture?.let(::File)
         if (ok && f != null && f.length() > 0) files += f else f?.delete()
         pendingCapture = null
     }
@@ -142,7 +179,10 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
     fun analyze() {
         phase = Phase.ANALYZING
         message = null
+        analyzeFailed = false
+        noCredit = false
         barcode = null // 사진으로 알아본 끼니는 바코드 제품이 아니다
+        barcodeBasis = null
         scope.launch {
             val bytes = withContext(Dispatchers.IO) { files.mapNotNull(MealPhotos::downscaled) }
             photoBytes = bytes
@@ -157,9 +197,59 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                         else -> null
                     }
                 }
-                else -> message = "음식 인식에 실패했어요. 직접 입력해 주세요 (${r.describe()})"
+                else -> {
+                    analyzeFailed = true
+                    noCredit = (r as? ApiResult.HttpError)?.errorCode == "AI_NO_CREDIT"
+                    // 크레딧이 없으면 다시 해도 같으니 직접 입력만 안내한다
+                    message = if (noCredit) "AI 크레딧이 없어요 - 직접 입력해 주세요" else "음식 인식에 실패했어요. 다시 알아보거나 직접 입력해 주세요 (${r.describe()})"
+                }
             }
             phase = Phase.REVIEW
+        }
+    }
+
+    // 저장: 서버에 바로 보내고, 연결·서버 문제면 폰에 남겨 두고 연결되면 보낸다(MealOutbox)
+    fun save() {
+        val d = date ?: return
+        val i = index ?: return
+        val (aiSave, portionSave) = HealthPlan.mealToSave(ai, portion, manualTotals)
+        val req = MealRequest(d, i, aiSave, portionSave, shared, barcode)
+        val bytes = photoBytes
+        busy = true
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { app.api.saveMeal(req) }
+            busy = false
+            when {
+                r is ApiResult.Ok -> {
+                    withContext(Dispatchers.IO) {
+                        MealOutbox.remove(ctx, d, i) // 전에 못 보낸 옛 기록이 나중에 덮어쓰지 않게
+                        if (bytes.isNotEmpty()) {
+                            MealPhotos.keep(ctx, d, i, bytes)
+                            MealPhotos.markPending(ctx, d, i) // 올리는 중에 앱이 죽어도 다음 주기에 다시
+                        }
+                        files.forEach { it.delete() }
+                    }
+                    // 서버에도 사진을 올려 둔다(화면은 기다리지 않는다. 실패하면 다음 갱신 때 다시)
+                    if (bytes.isNotEmpty()) app.ioScope.launch { MealPhotos.upload(ctx.applicationContext, d, i) }
+                    app.healthLocal.markLogged(d, i, true)
+                    Reminders.reschedule(ctx)
+                    Toast.makeText(ctx, "${HealthPlan.label(i)}을 기록했어요", Toast.LENGTH_SHORT).show()
+                    onDone()
+                }
+                r.toUploadDecision() == UploadDecision.RETRY -> {
+                    withContext(Dispatchers.IO) {
+                        // 사진은 끼니 사진으로 옮겨 둔다(임시 사진은 하루 뒤 지워진다)
+                        if (bytes.isNotEmpty()) MealPhotos.keep(ctx, d, i, bytes)
+                        files.forEach { it.delete() }
+                        MealOutbox.add(ctx, req, hasPhotos = bytes.isNotEmpty())
+                    }
+                    app.healthLocal.markLogged(d, i, true) // 찍은 끼니는 알림에서 뺀다
+                    Reminders.reschedule(ctx)
+                    Toast.makeText(ctx, "지금은 보내지 못했어요. 연결되면 ${HealthPlan.label(i)} 기록을 보내요", Toast.LENGTH_LONG).show()
+                    onDone()
+                }
+                else -> message = "저장하지 못했어요: ${r.describe()}"
+            }
         }
     }
 
@@ -178,8 +268,8 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
             SectionCard("어느 끼니인가요?") {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (slot in st.meals) Chip(HealthPlan.label(slot.index), index == slot.index) { index = slot.index }
-                    val extra = if (index != null && HealthPlan.isExtra(index!!)) index!! else HealthPlan.EXTRA_BASE
-                    Chip("기타", index != null && HealthPlan.isExtra(index!!)) { index = extra }
+                    // 그날 비어 있는 다음 기타 번호(이미 기타를 골랐으면 그대로)
+                    Chip("기타", index != null && HealthPlan.isExtra(index!!)) { index = HealthPlan.extraChipIndex(index, used) }
                 }
             }
         } else if (editing != null) {
@@ -206,7 +296,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
                             val (f, uri) = MealPhotos.newCapture(ctx)
-                            pendingCapture = f
+                            pendingCapture = f.path
                             camera.launch(uri)
                         }, enabled = files.size < 3) { Text("사진 찍기") }
                         FilledTonalButton(onClick = {
@@ -225,9 +315,12 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                                 val r = withContext(Dispatchers.IO) { app.api.barcode(code) }
                                 busy = false
                                 barcode = code
+                                barcodeBasis = null
                                 when {
                                     r is ApiResult.Ok && r.value.result != null -> {
                                         ai = r.value.result!!; manualTotals = false; message = null
+                                        // Open Food Facts는 100g(ml)당 값일 때가 많다. 기준을 보여 주고 먹은 양으로 고치게 한다
+                                        barcodeBasis = ai.items.firstOrNull()?.amount?.ifBlank { null } ?: r.value.product.amount.ifBlank { null }
                                     }
                                     r is ApiResult.Ok -> {
                                         ai = FoodResult(listOf(FoodItem(name = r.value.product.name.ifBlank { "바코드 $code" })))
@@ -251,6 +344,17 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
             Phase.ANALYZING -> Text("음식을 알아보는 중이에요…", color = m.muted, modifier = Modifier.padding(6.dp))
             Phase.REVIEW -> {
                 message?.let { Text(it, color = m.warn, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 6.dp)) }
+                if (analyzeFailed && !noCredit && files.isNotEmpty()) {
+                    FilledTonalButton(onClick = { analyze() }, modifier = Modifier.padding(horizontal = 6.dp)) { Text("다시 알아보기") }
+                }
+                barcodeBasis?.let { basis ->
+                    Text(
+                        "영양성분 기준: $basis. 먹은 양이 다르면 음식을 눌러 먹은 양이나 숫자를 고쳐 주세요",
+                        color = if (basis.contains("100")) m.warn else m.muted,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
+                }
                 SectionCard("이런 음식이에요") {
                     if (ai.items.isEmpty()) Text("아직 음식이 없어요", color = m.muted)
                     ai.items.forEachIndexed { i, it ->
@@ -287,27 +391,8 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                 }
                 Button(
                     onClick = {
-                        val d = date ?: return@Button
                         val i = index ?: return@Button
-                        busy = true
-                        scope.launch {
-                            val r = withContext(Dispatchers.IO) { app.api.saveMeal(MealRequest(d, i, toSave, savePortion, shared, barcode)) }
-                            busy = false
-                            if (r is ApiResult.Ok) {
-                                withContext(Dispatchers.IO) {
-                                    if (photoBytes.isNotEmpty()) MealPhotos.keep(ctx, d, i, photoBytes)
-                                    files.forEach { it.delete() }
-                                }
-                                // 서버에도 사진을 올려 둔다(화면은 기다리지 않는다. 실패하면 다음 갱신 때 다시)
-                                if (photoBytes.isNotEmpty()) app.ioScope.launch { MealPhotos.upload(ctx.applicationContext, d, i) }
-                                app.healthLocal.markLogged(d, i, true)
-                                Reminders.reschedule(ctx)
-                                Toast.makeText(ctx, "${HealthPlan.label(i)}을 기록했어요", Toast.LENGTH_SHORT).show()
-                                onDone()
-                            } else {
-                                message = "저장하지 못했어요: ${r.describe()}"
-                            }
-                        }
+                        if (HealthPlan.needsOverwriteConfirm(i, used, editing?.index)) confirmOverwrite = true else save()
                     },
                     enabled = !busy && date != null && index != null && (ai.items.isNotEmpty() || ai.kcal > 0),
                     modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -364,6 +449,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                     scope.launch {
                         val r = withContext(Dispatchers.IO) { app.api.deleteMeal(editing.date, editing.index) }
                         if (r is ApiResult.Ok) {
+                            withContext(Dispatchers.IO) { MealOutbox.remove(ctx, editing.date, editing.index) }
                             MealPhotos.delete(ctx, editing.date, editing.index)
                             app.healthLocal.markLogged(editing.date, editing.index, false)
                             Reminders.reschedule(ctx)
@@ -375,6 +461,16 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                 }) { Text("지우기", color = m.over) }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("취소") } },
+        )
+    }
+
+    if (confirmOverwrite) {
+        AlertDialog(
+            onDismissRequest = { confirmOverwrite = false },
+            title = { Text("이미 기록이 있어요. 바꿀까요?") },
+            text = { Text("${index?.let(HealthPlan::label) ?: ""}에 저장된 기록을 이 기록으로 바꿔요.") },
+            confirmButton = { TextButton(onClick = { confirmOverwrite = false; save() }) { Text("바꾸기") } },
+            dismissButton = { TextButton(onClick = { confirmOverwrite = false }) { Text("취소") } },
         )
     }
 }
@@ -476,6 +572,17 @@ private fun TotalsDialog(ai: FoodResult, onDismiss: () -> Unit, onSave: (Int, In
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
     )
+}
+
+/** 코드 스캐너 모듈이 폰에 없으면 미리 받아 둔다(이미 있으면 아무것도 안 한다). 실패해도 찍을 때 다시 받는다. */
+private fun prefetchBarcodeScanner(context: android.content.Context) {
+    runCatching {
+        val scanner = com.google.mlkit.vision.codescanner.GmsBarcodeScanning.getClient(context)
+        val modules = ModuleInstall.getClient(context)
+        modules.areModulesAvailable(scanner).addOnSuccessListener { r ->
+            if (!r.areModulesAvailable()) modules.installModules(ModuleInstallRequest.newBuilder().addApi(scanner).build())
+        }
+    }
 }
 
 /** Play 서비스 코드 스캐너로 상품 바코드(EAN·UPC)를 찍는다. 카메라 권한이 필요 없다. 취소·실패면 null. */

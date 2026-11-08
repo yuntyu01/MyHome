@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- 건강: 재부팅 뒤 알림 다시 걸기 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 건강 알림을 제시각에(끼니 마감 30분 전이 마감 뒤에 오지 않게). Android 13+는 사용자가 "알람 및 리마인더"를 허용해야 한다(건강 설정 화면).
+         USE_EXACT_ALARM은 Play가 알람·캘린더 앱에만 허용해서 쓰지 않는다 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- 헬스장 위치 출석: 헬스장 좌표를 정할 때와 "위치로 출석"을 누를 때 지금 위치. 좌표는 폰에만 둔다.
          자동 출석(지오펜스)은 ACCESS_BACKGROUND_LOCATION이 필요하고, Play Console에 위치 권한 선언(시연 영상)을 냈다.
          선언이 거절되면 아래 줄을 빼고 build.gradle.kts의 GYM_AUTO를 false로 - docs/DECISIONS.md 「헬스장 위치」 -->
@@ -82,6 +85,7 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 

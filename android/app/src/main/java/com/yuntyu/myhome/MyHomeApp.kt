@@ -46,9 +46,10 @@ class MyHomeApp : Application() {
         WorkScheduler.ensurePeriodic(this)
         WorkScheduler.flushNow(this)
         WidgetRefresher.ensurePeriodic(this)
-        // 건강: 알림을 다시 걸고, 보관 기간이 지난 끼니 사진을 지운다
+        // 건강: 알림을 다시 걸고, 보관 기간이 지난 끼니 사진을 지우고, 못 보낸 끼니 기록을 보낸다
         Reminders.reschedule(this)
         MealPhotos.purge(this, healthLocal.photoKeepDays)
+        com.yuntyu.myhome.health.MealOutbox.flush(this)
         com.yuntyu.myhome.health.GymGeofence.register(this)
     }
 
