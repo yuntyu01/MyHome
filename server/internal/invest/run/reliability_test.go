@@ -463,17 +463,24 @@ func TestAWeekdayMonthEndIsCaughtUpBeforeTheNextOpen(t *testing.T) {
 	}
 }
 
-// 주문 기록은 이제 보내기 전에 저장된다. 전 유형이 거절된 달은 주문 없는 기록만 남는데,
-// 남은 주문이 없으니 다음 달을 막지 않는다.
-func TestAnEmptyBookFromLastMonthDoesNotBlock(t *testing.T) {
+// 주문 기록은 이제 보내기 전에 저장된다. 전 유형이 거절되면 예전처럼 기록이 남지 않아야 한다 —
+// 빈 기록이 남으면 다음 달 trade가 "지난달 기록"으로 막힌다.
+func TestAFullyRejectedMonthLeavesNoBook(t *testing.T) {
 	h := newHarness(t, seedOpt{})
-	if err := h.st.SaveOrders(h.ctx, invest.OrderBook{YM: "2026-07", Stage: "buy", StyleIdx: 2}); err != nil {
-		t.Fatal(err)
+	h.fb.rejects = map[broker.Style]bool{broker.MOC: true, broker.Market: true, broker.Sweep: true}
+	if rc := h.trade(execDay, false); rc != 1 || len(h.fb.attempts) != 3 {
+		t.Fatalf("rc %d %+v", rc, h.fb.attempts)
 	}
-	if rc := h.trade(execDay, false); rc != 0 || len(h.fb.placed) != 1 || h.fb.placed[0].Style != broker.MOC {
-		t.Fatalf("빈 기록이 막았다: rc %d %s %+v", rc, h.err, h.fb.placed)
+	if b := h.book(); b != nil {
+		t.Fatalf("거절만 있었는데 주문 기록이 남았다: %+v", b)
 	}
-	if b := h.book(); b.YM != "2026-08" {
-		t.Fatalf("%+v", b)
+	// 결과를 몰랐던 주문이 "없음"으로 정리된 뒤 그 실행이 주문 전에 멈춰도 빈 기록은 남지 않는다
+	h2 := newHarness(t, seedOpt{})
+	h2.fb.timeout[broker.MOC] = true
+	h2.trade(execDay, false)
+	h2.fb.timeout = map[broker.Style]bool{}
+	h2.useBroker(&faultyBroker{fakeBroker: h2.fb, buyableErr: errors.New("조회 실패")})
+	if rc := h2.trade(d(8, 4), false); rc != 1 || h2.book() != nil {
+		t.Fatalf("rc %d %+v", rc, h2.book())
 	}
 }

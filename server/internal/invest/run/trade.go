@@ -207,11 +207,6 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	if len(sells) > 0 {
 		book.Stage = "sell"
 	}
-	if bookp != nil && bookp.YM != ym && len(bookp.Orders) == 0 {
-		// 주문이 하나도 접수되지 않은 지난달 기록(전 유형 거절 등)은 남은 것이 없다 — 버리고 새로 시작한다
-		a.printf("지난 적용월(%s)의 빈 주문 기록을 버린다", bookp.YM)
-		bookp = nil
-	}
 	if bookp != nil {
 		book = *bookp
 	}
@@ -460,7 +455,7 @@ func (a *App) submit(ctx context.Context, client broker.Broker, book *invest.Ord
 		}
 		// 접수되지 않은 것이 확실하다. 기록을 지운다
 		book.Orders, book.StyleIdx = book.Orders[:n], prevIdx
-		if serr := a.Store.SaveOrders(ctx, *book); serr != nil {
+		if serr := a.saveBook(ctx, *book); serr != nil {
 			return a.fail(ExitFail, "거절된 주문(%s) 기록을 지우지 못했다: %v\n  다음 실행이 증권사에서 확인하고 이어간다", id, serr), submitStop, err
 		}
 		if funds {
@@ -654,10 +649,21 @@ func (a *App) resolveUnknown(ctx context.Context, client broker.Broker, book *in
 		a.printf("[dry-run] 주문 기록은 저장하지 않았다")
 		return ExitOK, true
 	}
-	if err := a.Store.SaveOrders(ctx, *book); err != nil {
+	if err := a.saveBook(ctx, *book); err != nil {
 		return a.fail(ExitFail, "주문 기록 저장 실패: %v", err), false
 	}
 	return ExitOK, true
+}
+
+// saveBook은 주문 기록을 저장한다. 주문이 하나도 없으면 기록을 지운다.
+//
+// 주문은 보내기 전에 기록되므로, 거절·"없음"으로 지우고 나면 빈 기록이 남을 수 있다. 빈 기록을 두면
+// 다음 달 trade가 "지난달 기록"으로 막힌다 — 예전처럼 접수된 주문이 없으면 기록도 없게 한다.
+func (a *App) saveBook(ctx context.Context, book invest.OrderBook) error {
+	if len(book.Orders) == 0 {
+		return a.Store.ClearOrders(ctx)
+	}
+	return a.Store.SaveOrders(ctx, book)
 }
 
 // sameOrderID는 주문번호 대조다. 형식 차이에 깨지지 않게 앞의 0을 떼고 본다.
