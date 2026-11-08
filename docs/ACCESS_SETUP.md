@@ -39,6 +39,11 @@
 
 `/healthz`는 A에 막힌다. VM 안의 헬스체크(`myhome healthcheck`)는 상관없다. 밖에서 감시하려면 `/healthz`에도 B 같은 Bypass를 더한다.
 
+**`/healthz/invest`(자동매매 신선도, 2026-11-08 추가)도 이 우회에 들어 있어야 한다.** 밖의 하트비트(`deploy/home/heartbeat.gs`)가 로그인 없이 부른다. 응답에는 상태 낱말만 있고 금액·보유·종목은 없다(매매 전이면 200, 마지막 성공 status가 8일보다 오래됐거나 마지막 judge·trade가 실패했으면 503).
+
+- 우회 경로가 접두어인지: 위 실측에서 `v1` 경로가 `/v1/summary`는 덮고 `/v1health`는 덮지 않았다. 문자열 접두어가 아니라 **경로 단위 접두어**다. 같은 규칙이면 `/healthz` 우회는 `/healthz/invest`를 덮는다(**미확인**: `/healthz/invest` 자체로는 아직 확인하지 않았다).
+- 확인: `curl -i https://myhome.kodeploy.com/healthz/invest` → Access 로그인 페이지(302)가 아니라 서버가 준 JSON(`{"status":"ok",...}` 또는 503)이 와야 한다. 로그인 페이지로 가면 B에 경로 `healthz/invest`를 하나 더 넣는다.
+
 ## 4. 팀 도메인과 AUD 태그
 
 - **팀 도메인**: Zero Trust → Settings → Custom domains(또는 General)의 Team domain, `<팀>.cloudflareaccess.com` → 서버 `CF_ACCESS_TEAM_DOMAIN` (https:// 있어도 됨)

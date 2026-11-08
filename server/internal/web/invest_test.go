@@ -329,3 +329,20 @@ func TestInvestStatusShowsLockAndResurfacingWithoutReason(t *testing.T) {
 		t.Fatal("사유 본문이 응답에 실렸다")
 	}
 }
+
+// status는 주 1회다. 7일 23시간 전 성공은 정상, 8일을 넘으면 deadman이 멈춘 것이다.
+func TestInvestHealthStaleBoundary(t *testing.T) {
+	now := etNow(2026, 11, 16)
+	for _, tc := range []struct {
+		ago  time.Duration
+		want int
+	}{{7*24*time.Hour + 23*time.Hour, 200}, {8*24*time.Hour + time.Minute, 503}} {
+		_, code := buildInvestHealth(now, dbq.InvestHealthRow{HasPosition: true, LastStatusOk: now.Add(-tc.ago)})
+		if code != tc.want {
+			t.Errorf("%s 전 성공: %d, want %d", tc.ago, code, tc.want)
+		}
+	}
+	if h, code := buildInvestHealth(now, dbq.InvestHealthRow{}); code != 200 || h.Status != "ok" || h.Trading != "not_started" {
+		t.Errorf("시작 전: %d %+v", code, h)
+	}
+}

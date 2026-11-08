@@ -26,28 +26,28 @@ object InvestAlertNotifier {
         val last = prefs.getLong(KEY_LAST_ID, 0L)
         val r = MyHomeApp.instance.api.investAlerts(last)
         if (r !is ApiResult.Ok || r.value.alerts.isEmpty()) return@withContext
-        // 알림 권한이 없어도 본 것으로 친다(권한을 켠 뒤 옛 알림이 한꺼번에 쏟아지지 않게)
-        if (Notifications.canPost(context)) {
-            val open = PendingIntent.getActivity(
-                context,
-                3,
-                Intent(context, MainActivity::class.java)
-                    .putExtra(MainActivity.EXTRA_SCREEN, "invest")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
-            for (a in r.value.alerts) {
-                val n = NotificationCompat.Builder(context, Notifications.CH_INVEST)
-                    .setSmallIcon(R.drawable.ic_stat_notify)
-                    .setContentTitle(a.title)
-                    .setContentText(a.body.lineSequence().firstOrNull { it.isNotBlank() } ?: "")
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(a.body))
-                    .setContentIntent(open)
-                    .setAutoCancel(true)
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .build()
-                Notifications.notifyChecked(context, 3000 + (a.id % 1000).toInt(), n)
-            }
+        // 띄울 수 없으면(권한·앱 알림·채널이 꺼져 있으면) 본 것으로 치지 않는다. 매매 실패는 놓치면 안 되는
+        // 알림이라, 못 띄운 것을 읽음으로 넘기면 조용히 사라진다. 켜면 그때 받는다(서버가 7일·20건까지만 준다)
+        if (!Notifications.canShow(context, Notifications.CH_INVEST)) return@withContext
+        val open = PendingIntent.getActivity(
+            context,
+            3,
+            Intent(context, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_SCREEN, "invest")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        for (a in r.value.alerts) {
+            val n = NotificationCompat.Builder(context, Notifications.CH_INVEST)
+                .setSmallIcon(R.drawable.ic_stat_notify)
+                .setContentTitle(a.title)
+                .setContentText(a.body.lineSequence().firstOrNull { it.isNotBlank() } ?: "")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(a.body))
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build()
+            Notifications.notifyChecked(context, 3000 + (a.id % 1000).toInt(), n)
         }
         prefs.edit { putLong(KEY_LAST_ID, r.value.alerts.maxOf { it.id }) }
     }

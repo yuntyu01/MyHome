@@ -634,6 +634,12 @@ func (s *Store) GetRun(ctx context.Context, id int64) (dbq.InvestRun, error) {
 	return s.q.GetInvestRun(ctx, id)
 }
 
+// Health는 외부 하트비트용 신선도다(position 유무, 마지막 성공 status, 마지막 judge·trade 종료 코드).
+// 질의 하나이고 금액·출력은 읽지 않는다.
+func (s *Store) Health(ctx context.Context) (dbq.InvestHealthRow, error) {
+	return s.q.InvestHealth(ctx)
+}
+
 // LastFailedRun은 그 명령의 마지막 실패다.
 func (s *Store) LastFailedRun(ctx context.Context, cmd string) (dbq.InvestRun, error) {
 	return s.q.LastFailedInvestRun(ctx, cmd)
