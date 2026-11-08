@@ -52,3 +52,39 @@ TARGET_DATABASE_URL='postgres://user:pass@host:5432/myhome_restore' scripts/rest
 ## 이 저장소에서 확인한 것
 
 로컬 docker postgres 16으로 `backup.sh` → 새 DB에 `restore.sh` → 원문·거래 건수 일치까지 확인했다.
+
+## VM (운영)
+
+VM에서는 `myhome-backup.timer`가 매일 04:30 KST에 `/opt/myhome/backup.sh`(저장소의 `deploy/home/backup.sh`)를 돌린다. `deploy/home/deploy.sh`가 설치하고 켠다.
+
+- DB 덤프: `/var/backups/myhome/db/myhome-YYYYMMDD-HHMMSS.dump`. VM 디스크에는 14일만 남긴다(`LOCAL_KEEP_DAYS`).
+- 버킷: `/etc/myhome/backup.env`에 `BACKUP_PAR_URL`이 있으면 OCI Object Storage `myhome-backup` 버킷에도 올린다.
+  - `db/<덤프 이름>`: 매일 올리고, 버킷 수명 주기 규칙이 60일 뒤 지운다.
+  - `photos/<날짜>/<파일>`: 끼니 사진은 한 장에 한 번만 올린다. 올린 목록은 `/var/backups/myhome/photos-uploaded.txt`에 남는다.
+- VM에는 쓰기 전용 주소(PAR)만 둔다. VM이 털려도 지난 백업을 읽거나 목록을 볼 수 없다. 덮어쓴 옛 버전은 버전 관리로 30일 남는다.
+- 실패하면 `OnFailure=`가 앱에 "서버 백업 실패" 알림을 남긴다.
+
+### 버킷 만들기 (처음 한 번)
+
+kodeploy 저장소 `terraform/oci-infra/home_backup.tf`가 버킷, 수명 주기 규칙, 쓰기 전용 PAR(2028-11-01 만료)을 만든다. 수명 주기 규칙 때문에 테넌시에 Object Storage 서비스 정책 하나를 더한다.
+
+```bash
+cd /root/study/kodeploy/terraform/oci-infra
+terraform apply -target=oci_objectstorage_bucket.home_backup -target=oci_identity_policy.home_backup_lifecycle -target=oci_objectstorage_object_lifecycle_policy.home_backup -target=oci_objectstorage_preauthrequest.home_backup_write
+printf 'BACKUP_PAR_URL=%s\n' "$(terraform output -raw home_backup_par_url)" > /root/myhome-secrets/backup.env
+chmod 600 /root/myhome-secrets/backup.env
+```
+
+그다음 `deploy/home/deploy.sh`를 다시 돌리면 VM에 들어간다. 바로 확인하려면 `ssh home 'sudo systemctl start myhome-backup.service; sudo journalctl -u myhome-backup -n 20'`.
+
+### VM 백업에서 복구
+
+```bash
+# 버킷 목록과 받기 (이 PC의 OCI CLI, 관리자 키)
+oci os object list -bn myhome-backup --prefix db/ --query 'data[].name' --all
+oci os object get -bn myhome-backup --name db/myhome-20261109-043012.dump --file /tmp/myhome.dump
+oci os object bulk-download -bn myhome-backup --prefix photos/ --download-dir /tmp/meal_photos
+```
+
+- DB: 위 「복구」처럼 새 빈 DB에 `scripts/restore.sh`로 넣고 건수를 확인한 뒤 VM의 DB로 옮긴다. VM이 살아 있으면 `/var/backups/myhome/db/`의 최근 덤프를 바로 써도 된다.
+- 사진: 받은 `photos/` 아래를 VM의 `/var/lib/myhome/meal_photos/`에 같은 구조로 넣는다(소유자 `myhome-web`).

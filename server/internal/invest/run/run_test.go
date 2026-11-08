@@ -923,6 +923,21 @@ func TestAlertCarriesTheFailedRunOutput(t *testing.T) {
 	}
 }
 
+// 매매가 아닌 유닛(백업)의 실패는 매매 실행 기록을 끌어오지 않는다
+func TestAlertForBackupUnit(t *testing.T) {
+	h := newHarness(t, seedOpt{})
+	id, _ := h.st.StartRun(h.ctx, "trade", "")
+	_ = h.st.FinishRun(h.ctx, id, 1, "✗ 매매 실패")
+	h.app.Now = time.Now
+	if rc := h.app.Alert(h.ctx, AlertOpts{Unit: "myhome-backup.service"}); rc != 0 {
+		t.Fatalf("rc %d %s", rc, h.err)
+	}
+	got, _ := h.st.AlertsAfter(h.ctx, 0, time.Now().Add(-time.Hour), 10)
+	if len(got) != 1 || got[0].Title != "서버 백업 실패" || got[0].RunID != nil || strings.Contains(got[0].Body, "매매 실패") {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestLastLinesKeepsTheEnd(t *testing.T) {
 	long := strings.Repeat("가나다라마\n", 400) + "✗ 마지막 이유"
 	got := lastLines(long, 100)

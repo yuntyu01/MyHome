@@ -1,0 +1,18 @@
+# 매일 백업: DB 덤프 + (버킷 주소가 있으면) Object Storage로 덤프·끼니 사진. 실패하면 앱 알림.
+[Unit]
+Description=myhome 백업 (DB 덤프, 끼니 사진)
+After=network-online.target postgresql.service
+Wants=network-online.target
+OnFailure=myhome-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/myhome/backup.sh
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/backups
+TimeoutStartSec=1h
+Nice=10
+IOSchedulingClass=idle

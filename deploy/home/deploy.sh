@@ -28,12 +28,16 @@ for who in web trader; do
   [ -f "$SECRETS/$who.env" ] || { echo "✗ $SECRETS/$who.env 없음" >&2; exit 1; }
   ssh "$HOST" "sudo install -m 0600 /dev/stdin /etc/myhome/$who.app.env" < "$SECRETS/$who.env"
 done
+# 백업 버킷 쓰기 전용 주소(선택). 없으면 VM 디스크에만 백업한다 - docs/BACKUP.md 「VM」
+if [ -f "$SECRETS/backup.env" ]; then
+  ssh "$HOST" "sudo install -m 0600 /dev/stdin /etc/myhome/backup.env" < "$SECRETS/backup.env"
+fi
 CRED="$SECRETS/tunnel.json"; [ -f "$CRED" ] || CRED="$HOME/.cloudflared/$TUNNEL_ID.json"
 ssh "$HOST" "sudo install -d -m 0755 /etc/cloudflared && sudo install -m 0600 /dev/stdin /etc/cloudflared/$TUNNEL_ID.json" < "$CRED"
 
 echo "▶ 바이너리·유닛 전송"
 ssh "$HOST" "sudo install -m 0755 /dev/stdin /opt/myhome/myhome.new" < "$BIN"
-tar -C "$ROOT/deploy/home" -cf - systemd postgres-roles.sql | ssh "$HOST" "rm -rf /tmp/myhome-deploy && mkdir -p /tmp/myhome-deploy && tar -C /tmp/myhome-deploy -xf -"
+tar -C "$ROOT/deploy/home" -cf - systemd postgres-roles.sql backup.sh | ssh "$HOST" "rm -rf /tmp/myhome-deploy && mkdir -p /tmp/myhome-deploy && tar -C /tmp/myhome-deploy -xf -"
 
 ssh "$HOST" "sudo TUNNEL_ID=$TUNNEL_ID HOSTNAME_PUBLIC=$HOSTNAME_PUBLIC bash -s" <<'REMOTE'
 set -euo pipefail
@@ -51,10 +55,11 @@ set -a; . /etc/myhome/web.app.env; . /etc/myhome/owner.env; set +a
 /opt/myhome/myhome migrate up
 psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -f postgres-roles.sql
 
-# systemd 유닛: 웹만 켠다. 매매 타이머는 설치만
+# systemd 유닛: 웹과 백업만 켠다. 매매 타이머는 설치만
+install -m 0755 backup.sh /opt/myhome/backup.sh
 cp systemd/*.service systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now myhome.service >/dev/null
+systemctl enable --now myhome.service myhome-backup.timer >/dev/null
 systemctl restart myhome.service
 
 # 터널: 들어오는 포트 없이 Cloudflare로 나가는 연결만
@@ -73,6 +78,7 @@ systemctl restart cloudflared
 
 for i in $(seq 1 20); do curl -fsS -m 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break; sleep 1; done
 echo "웹: $(systemctl is-active myhome) / healthz: $(curl -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz) / 터널: $(systemctl is-active cloudflared)"
+echo "백업: 다음 $(systemctl show myhome-backup.timer -p NextElapseUSecRealtime --value) / 버킷 $( [ -s /etc/myhome/backup.env ] && echo 연결됨 || echo '없음(VM 디스크만)')"
 echo "매매 타이머(꺼져 있어야 정상): $(systemctl list-unit-files 'myhome-invest-*.timer' --no-legend | awk '{print $1"="$2}' | tr '\n' ' ')"
 rm -rf /tmp/myhome-deploy
 REMOTE

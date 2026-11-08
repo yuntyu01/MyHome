@@ -1,0 +1,11 @@
+# 매일 04:30 KST. 매매(00:17)·자동 재부팅(13:00)과 겹치지 않게
+[Unit]
+Description=myhome 매일 백업
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 Asia/Seoul
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

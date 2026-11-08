@@ -39,8 +39,8 @@ object Notifications {
                     description = "끼니 마감 30분 전·마감 시각, 헬스 도착 1시간 전, 취침 시각"
                 },
                 // 자동매매가 실패했을 때만 온다. 드물고 놓치면 안 되니 소리를 낸다
-                NotificationChannel(CH_INVEST, "자동매매 실패", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "서버의 가격 갱신·월말 판정·주문·상태 점검 작업이 실패했을 때"
+                NotificationChannel(CH_INVEST, "자동매매·서버 실패", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "서버의 자동매매 작업(가격 갱신·월말 판정·주문·상태 점검)이나 백업이 실패했을 때"
                 },
             ),
         )

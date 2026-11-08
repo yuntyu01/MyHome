@@ -32,9 +32,14 @@ func (a *App) Alert(ctx context.Context, o AlertOpts) int {
 	}
 	unit := strings.TrimSpace(o.Unit)
 	cmd := unitCmd(unit)
-	p := dbq.InsertInvestAlertParams{Unit: unit, Cmd: cmd, Title: "자동매매 " + cmdLabel(cmd, unit) + " 실패"}
+	p := dbq.InsertInvestAlertParams{Unit: unit, Cmd: cmd, Title: alertTitle(cmd, unit)}
 	var body strings.Builder
-	runs, err := a.Store.LatestRuns(ctx)
+	var runs []dbq.InvestRun
+	var err error
+	// 매매 유닛이 아닌 것(백업 등)은 매매 실행 기록과 상관없다
+	if cmd != "" || unit == "" {
+		runs, err = a.Store.LatestRuns(ctx)
+	}
 	found := false
 	if err == nil {
 		for _, r := range runs {
@@ -48,7 +53,9 @@ func (a *App) Alert(ctx context.Context, o AlertOpts) int {
 			}
 		}
 	}
-	if !found {
+	if !found && cmd == "" && unit != "" {
+		fmt.Fprintf(&body, "VM에서: journalctl -u %s -n 100", unit)
+	} else if !found {
 		fmt.Fprintf(&body, "실행 기록에 최근 실패가 없다. DB에 닿기 전에 죽었을 수 있다.\nVM에서: journalctl -u %s -n 100", orDefault(unit, "<유닛>"))
 		if err != nil {
 			fmt.Fprintf(&body, "\n실행 기록 조회 실패: %v", err)
@@ -69,6 +76,17 @@ func unitCmd(unit string) string {
 		return c
 	}
 	return ""
+}
+
+// alertTitle은 폰 알림 제목이다. 매매 유닛이 아니면(백업 등) "서버 작업 실패"로 부른다.
+func alertTitle(cmd, unit string) string {
+	if cmd == "" && unit != "" {
+		if strings.HasPrefix(unit, "myhome-backup") {
+			return "서버 백업 실패"
+		}
+		return "서버 작업 실패: " + strings.TrimSuffix(unit, ".service")
+	}
+	return "자동매매 " + cmdLabel(cmd, unit) + " 실패"
 }
 
 // cmdLabel은 알림 제목에 쓸 사람 말이다(웹 투자 화면과 같은 이름).
