@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,12 +25,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yuntyu.myhome.core.Money
 import com.yuntyu.myhome.core.api.MealView
+import com.yuntyu.myhome.core.api.MyHomeJson
 import com.yuntyu.myhome.core.api.Nutrition
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
-/** 건강 화면 사이에 넘기는 값(라이브러리 없는 상태 내비게이션). */
+/**
+ * 건강 화면 사이에 넘기는 값(라이브러리 없는 상태 내비게이션). 카메라가 열린 사이 Activity가 다시 만들어져도
+ * 같은 끼니 화면으로 돌아와 찍은 사진을 받도록 저장해 둔다(HealthNav.Saver, 촬영 화면의 key와 rememberSaveable이 이 값에 묶여 있다).
+ */
 class HealthNav {
     /** 촬영·기록 확인 화면이 열 끼니. 날짜가 null이면 오늘(끼니 일정 기준) */
     var captureDate by mutableStateOf<String?>(null)
@@ -43,6 +48,22 @@ class HealthNav {
         captureDate = date
         captureIndex = index
         editing = meal
+    }
+
+    companion object {
+        val Saver: Saver<HealthNav, List<String?>> = Saver(
+            save = { n ->
+                arrayListOf(n.captureDate, n.captureIndex?.toString(), n.editing?.let { MyHomeJson.encodeToString(MealView.serializer(), it) }, n.recordsDate)
+            },
+            restore = { v ->
+                HealthNav().apply {
+                    captureDate = v.getOrNull(0)
+                    captureIndex = v.getOrNull(1)?.toIntOrNull()
+                    editing = v.getOrNull(2)?.let { runCatching { MyHomeJson.decodeFromString(MealView.serializer(), it) }.getOrNull() }
+                    recordsDate = v.getOrNull(3)
+                }
+            },
+        )
     }
 }
 

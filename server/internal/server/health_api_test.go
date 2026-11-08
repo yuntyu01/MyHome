@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -533,9 +534,9 @@ func TestHealthAnalyzeWithMock(t *testing.T) {
 	big := bytes.Repeat([]byte{7}, 1<<20)
 	c.analyze("photo", "image/jpeg", big, big, big).is(200)
 	c.analyze("photo", "image/jpeg", big, big, big, big).code(400, "TOO_MANY_PHOTOS")
-	// 사진 한 장 5MB 초과, 전체 16MB 초과
-	c.analyze("photo", "image/jpeg", make([]byte, 5<<20+10)).code(413, "PHOTO_TOO_LARGE")
-	huge := make([]byte, 5<<20)
+	// 사진 한 장 2MB 초과, 전체 7MB 초과
+	c.analyze("photo", "image/jpeg", make([]byte, 2<<20+10)).code(413, "PHOTO_TOO_LARGE")
+	huge := make([]byte, 2<<20)
 	c.analyze("photo", "image/jpeg", huge, huge, huge, huge).code(413, "PHOTO_TOO_LARGE")
 	c.analyze("photo", "text/plain", []byte{1}).code(400, "INVALID_PHOTO")
 	c.analyze("other", "image/jpeg", []byte{1}).code(400, "INVALID_PHOTO")
@@ -556,6 +557,62 @@ func (failingAnalyzer) Analyze(context.Context, []ai.Photo) (ai.Result, error) {
 func TestHealthAnalyzeFailure(t *testing.T) {
 	c := newHealthClient(t, func(d *server.Deps) { d.Analyzer = failingAnalyzer{} })
 	c.analyze("photo", "image/jpeg", []byte{1}).code(502, "AI_FAILED")
+}
+
+// AI 크레딧이 없으면(Gemini 402) 503 AI_NO_CREDIT, 앱은 다시 알아보기 대신 직접 입력을 안내한다.
+type noCreditAnalyzer struct{}
+
+func (noCreditAnalyzer) Analyze(context.Context, []ai.Photo) (ai.Result, error) {
+	return ai.Result{}, fmt.Errorf("%w: %w", ai.ErrFailed, &ai.StatusError{Code: http.StatusPaymentRequired})
+}
+
+func TestHealthAnalyzeNoCredit(t *testing.T) {
+	c := newHealthClient(t, func(d *server.Deps) { d.Analyzer = noCreditAnalyzer{} })
+	r := c.analyze("photo", "image/jpeg", []byte{1}).code(503, "AI_NO_CREDIT")
+	r.eq("error", "AI 크레딧이 없어요 - 직접 입력해 주세요")
+}
+
+// slowAnalyzer는 동시에 몇 개가 돌았는지 센다.
+type slowAnalyzer struct {
+	mu        sync.Mutex
+	now, peak int
+}
+
+func (a *slowAnalyzer) Analyze(context.Context, []ai.Photo) (ai.Result, error) {
+	a.mu.Lock()
+	a.now++
+	a.peak = max(a.peak, a.now)
+	a.mu.Unlock()
+	time.Sleep(30 * time.Millisecond)
+	a.mu.Lock()
+	a.now--
+	a.mu.Unlock()
+	return ai.Result{Items: []ai.Item{}}, nil
+}
+
+// 분석은 한 번에 하나씩(메모리 상한): 동시에 와도 차례로 돈다.
+func TestHealthAnalyzeOneAtATime(t *testing.T) {
+	a := &slowAnalyzer{}
+	c := newHealthClient(t, func(d *server.Deps) { d.Analyzer = a })
+	var wg sync.WaitGroup
+	codes := make([]int, 4)
+	for i := range codes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			body, ct := multipartBody(t, "photo", "image/jpeg", []byte{1})
+			req := httptest.NewRequest("POST", "/v1/health/meals/analyze", body)
+			req.Header.Set("Content-Type", ct)
+			req.Header.Set("Authorization", "Bearer "+c.tok)
+			rec := httptest.NewRecorder()
+			c.h.ServeHTTP(rec, req)
+			codes[i] = rec.Code
+		}()
+	}
+	wg.Wait()
+	if a.peak != 1 || codes[0] != 200 || codes[1] != 200 || codes[2] != 200 || codes[3] != 200 {
+		t.Fatalf("peak=%d codes=%v", a.peak, codes)
+	}
 }
 
 func TestHealthRecommend(t *testing.T) {
@@ -655,11 +712,32 @@ func TestHealthMealPhotosStored(t *testing.T) {
 	c.get("/v1/health/meals/photos/2026-09-26/1/1").code(404, "NOT_FOUND")
 	// JPEG가 아니면 거절
 	put([]byte("not a jpeg")).code(400, "INVALID_PHOTO")
+	// 쓰다 만 파일(.partial)은 그 끼니 사진을 다시 올릴 때 지운다(다른 끼니 것은 그대로)
+	stale := filepath.Join(dir, "2026-09-26", "2026-09-26_1_0_abc.jpg.partial")
+	other := filepath.Join(dir, "2026-09-26", "2026-09-26_2_0_abc.jpg.partial")
+	for _, f := range []string{stale, other} {
+		if err := os.WriteFile(f, []byte{1}, 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(jpeg(2)).is(200).size("photos", 1)
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("남은 .partial: %v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("다른 끼니 .partial을 지움: %v", err)
+	}
+	_ = os.Remove(other)
 	// 끼니를 지우면 사진도
 	c.do("DELETE", "/v1/health/meals?date=2026-09-26&index=1", "").is(204)
 	c.get("/v1/health/meals/photos?date=2026-09-26&index=1").is(200).size("photos", 0)
 	if got := files(); len(got) != 0 {
 		t.Fatalf("지운 뒤 파일 %v", got)
+	}
+	// 끼니 기록이 없으면 사진을 받지 않는다(주인 없는 파일이 남지 않게)
+	put(jpeg(3)).code(404, "MEAL_NOT_FOUND")
+	if got := files(); len(got) != 0 {
+		t.Fatalf("끼니 없이 올린 뒤 파일 %v", got)
 	}
 }
 

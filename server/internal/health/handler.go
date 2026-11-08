@@ -1,17 +1,18 @@
 package health
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yuntyu01/MyHome/server/internal/ai"
@@ -19,14 +20,17 @@ import (
 	"github.com/yuntyu01/MyHome/server/internal/httpx"
 )
 
-// 사진 분석 요청 크기. 앱은 사진을 긴 변 1024px로 줄여서 보낸다. 전체 서버 본문 제한(MAX_BODY_BYTES)보다 크므로
-// 서버 조립에서 이 경로만 MaxAnalyzeBytes로 연다(httpx.LimitBodyRoutes).
+// 사진 분석 요청 크기. 앱은 사진을 긴 변 1024px·JPEG 85로 줄여서 보낸다(보통 0.3MB). 전체 서버 본문 제한(MAX_BODY_BYTES)보다
+// 크므로 서버 조립에서 이 경로만 MaxAnalyzeBytes로 연다(httpx.LimitBodyRoutes).
+// 한 장 2MB: VM 메모리(MemoryMax=200M)에서 분석 요청 하나가 사진을 base64·JSON으로 몇 번 복사해도 넉넉하게(예전 5MB·16MB).
 const (
 	AnalyzePath = "/v1/health/meals/analyze"
 	// MealPhotosPath도 사진을 받으므로 서버 조립에서 MaxAnalyzeBytes로 연다
 	MealPhotosPath  = "/v1/health/meals/photos"
-	MaxPhotoBytes   = 5 << 20
-	MaxAnalyzeBytes = ai.MaxPhotos*MaxPhotoBytes + 1<<20 // 16MB
+	MaxPhotoBytes   = 2 << 20
+	MaxAnalyzeBytes = ai.MaxPhotos*MaxPhotoBytes + 1<<20 // 7MB
+	// AnalyzeBudget은 분석 요청 하나에 쓰는 시간이다(차례 기다리기 + Gemini 두 번까지). 서버 WriteTimeout(60초)보다 짧게.
+	AnalyzeBudget = 55 * time.Second
 )
 
 // Handler는 /v1/health/* JSON API다. JSON 필드와 쿼리 이름은 핏두잉 서버와 같다(camelCase).
@@ -35,6 +39,22 @@ type Handler struct {
 	Analyzer ai.FoodAnalyzer // 사진 분석(mock 또는 gemini)
 	Foods    *foods.Lookup
 	Logger   *slog.Logger
+
+	// 사진을 메모리에 올리는 요청은 종류마다 한 번에 하나씩 한다(분석 하나, 사진 보관 하나) - 메모리 상한 때문
+	slotsOnce              sync.Once
+	analyzeSlot, photoSlot chan struct{}
+}
+
+// acquire는 slot 차례를 기다린다. 기다리다 요청이 끝나면(취소·시간 초과) 503 BUSY.
+func (h *Handler) acquire(ctx context.Context, slot func(*Handler) chan struct{}) (release func(), err error) {
+	h.slotsOnce.Do(func() { h.analyzeSlot, h.photoSlot = make(chan struct{}, 1), make(chan struct{}, 1) })
+	c := slot(h)
+	select {
+	case c <- struct{}{}:
+		return func() { <-c }, nil
+	case <-ctx.Done():
+		return nil, &Error{http.StatusServiceUnavailable, "BUSY", "다른 사진을 처리하는 중이에요. 잠시 뒤 다시 해 주세요"}
+	}
 }
 
 type handlerFunc func(w http.ResponseWriter, r *http.Request) error
@@ -164,40 +184,30 @@ func (h *Handler) weekly(w http.ResponseWriter, r *http.Request) error {
 // ── 끼니 ──────────────────────────────────────────────────────────────
 
 // analyze: 한 끼니 사진 1~3장을 "photo" 필드로 받아 한 번에 분석한다. 사진은 저장하지 않는다(메모리에서 읽고 버림).
-// 응답 헤더 X-AI-Model은 쓴 모델이다.
+// 응답 헤더 X-AI-Model은 쓴 모델이다. 한 번에 하나만 분석하고(차례를 기다린다), AI 크레딧이 없으면 503 AI_NO_CREDIT.
 func (h *Handler) analyze(w http.ResponseWriter, r *http.Request) error {
-	r.Body = http.MaxBytesReader(w, r.Body, MaxAnalyzeBytes)
-	// 제한과 같은 크기까지 메모리에서 풀어서 임시 파일을 만들지 않는다(배포 이미지에는 /tmp도 없다).
-	err := r.ParseMultipartForm(MaxAnalyzeBytes)
-	if r.MultipartForm != nil {
-		defer func() { _ = r.MultipartForm.RemoveAll() }()
-	}
+	ctx, cancel := context.WithTimeout(r.Context(), AnalyzeBudget)
+	defer cancel()
+	// 본문을 읽기 전에 차례를 기다린다: 기다리는 요청은 사진을 메모리에 올리지 않는다
+	release, err := h.acquire(ctx, func(h *Handler) chan struct{} { return h.analyzeSlot })
 	if err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
-			return photoTooLarge()
-		}
+		return err
+	}
+	defer release()
+	photos, err := readPhotos(w, r)
+	if err != nil {
+		return err
+	}
+	if len(photos) == 0 {
 		return badRequest("INVALID_PHOTO", "사진 파일이 필요해요")
 	}
-	headers := r.MultipartForm.File["photo"]
-	if len(headers) == 0 {
-		return badRequest("INVALID_PHOTO", "사진 파일이 필요해요")
-	}
-	if len(headers) > ai.MaxPhotos {
-		return badRequest("TOO_MANY_PHOTOS", fmt.Sprintf("사진은 한 번에 %d장까지예요", ai.MaxPhotos))
-	}
-	photos := make([]ai.Photo, 0, len(headers))
-	for _, fh := range headers {
-		p, err := readPhoto(fh)
-		if err != nil {
-			return err
-		}
-		photos = append(photos, p)
-	}
-	res, err := h.Analyzer.Analyze(r.Context(), photos)
+	res, err := h.Analyzer.Analyze(ctx, photos)
 	if err != nil {
 		h.Logger.Warn("음식 인식 실패", "err", err)
-		return &Error{http.StatusBadGateway, "AI_FAILED", "음식 인식에 실패했어요. 직접 입력해 주세요"}
+		if ai.NoCredit(err) {
+			return &Error{http.StatusServiceUnavailable, "AI_NO_CREDIT", "AI 크레딧이 없어요 - 직접 입력해 주세요"}
+		}
+		return &Error{http.StatusBadGateway, "AI_FAILED", "음식 인식에 실패했어요. 다시 알아보거나 직접 입력해 주세요"}
 	}
 	if res.Items == nil {
 		res.Items = []ai.Item{}
@@ -209,21 +219,57 @@ func (h *Handler) analyze(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func readPhoto(fh *multipart.FileHeader) (ai.Photo, error) {
-	if fh.Size > MaxPhotoBytes {
-		return ai.Photo{}, photoTooLarge()
+// readPhotos는 multipart 본문의 "photo" 파트를 차례로 읽는다(ai.MaxPhotos장까지, 한 장 MaxPhotoBytes까지, image/*).
+// ParseMultipartForm처럼 본문 전체를 한 번 더 버퍼에 담지 않고 파트마다 한 번만 복사한다. 다른 이름의 파트는 버린다.
+func readPhotos(w http.ResponseWriter, r *http.Request) ([]ai.Photo, error) {
+	if r.ContentLength > MaxAnalyzeBytes {
+		return nil, photoTooLarge()
 	}
-	contentType := fh.Header.Get("Content-Type")
-	f, err := fh.Open()
+	r.Body = http.MaxBytesReader(w, r.Body, MaxAnalyzeBytes)
+	mr, err := r.MultipartReader()
 	if err != nil {
-		return ai.Photo{}, badRequest("INVALID_PHOTO", "사진 파일이 필요해요")
+		return nil, badRequest("INVALID_PHOTO", "사진 파일이 필요해요")
 	}
-	defer f.Close()
-	data, err := io.ReadAll(f)
-	if err != nil || len(data) == 0 || !strings.HasPrefix(contentType, "image/") {
-		return ai.Photo{}, badRequest("INVALID_PHOTO", "사진 파일이 필요해요")
+	var photos []ai.Photo
+	for {
+		p, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			return photos, nil
+		}
+		if err != nil {
+			return nil, multipartError(err)
+		}
+		if p.FormName() != "photo" {
+			if _, err := io.Copy(io.Discard, p); err != nil {
+				return nil, multipartError(err)
+			}
+			continue
+		}
+		if len(photos) == ai.MaxPhotos {
+			return nil, badRequest("TOO_MANY_PHOTOS", fmt.Sprintf("사진은 한 번에 %d장까지예요", ai.MaxPhotos))
+		}
+		data, err := io.ReadAll(io.LimitReader(p, MaxPhotoBytes+1))
+		if err != nil {
+			return nil, multipartError(err)
+		}
+		contentType := p.Header.Get("Content-Type")
+		switch {
+		case len(data) > MaxPhotoBytes:
+			return nil, photoTooLarge()
+		case len(data) == 0 || !strings.HasPrefix(contentType, "image/"):
+			return nil, badRequest("INVALID_PHOTO", "사진 파일이 필요해요")
+		}
+		photos = append(photos, ai.Photo{Data: data, ContentType: contentType})
 	}
-	return ai.Photo{Data: data, ContentType: contentType}, nil
+}
+
+// multipartError는 본문 읽기 실패다: 전체 제한을 넘었으면 413, 아니면 형식 오류.
+func multipartError(err error) error {
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
+		return photoTooLarge()
+	}
+	return badRequest("INVALID_PHOTO", "multipart 사진이 필요해요")
 }
 
 func photoTooLarge() error {
@@ -273,25 +319,23 @@ func (h *Handler) deleteMeal(w http.ResponseWriter, r *http.Request) error {
 }
 
 // putMealPhotos: PUT /v1/health/meals/photos?date=&index= , multipart "photo" 0~3장(JPEG). 그 끼니 사진을 통째로 바꾼다.
+// 끼니 기록이 없으면 404 MEAL_NOT_FOUND(앱은 올리기를 그만둔다).
 func (h *Handler) putMealPhotos(w http.ResponseWriter, r *http.Request) error {
 	date, idx, err := mealKey(r)
 	if err != nil {
 		return err
 	}
-	if err := r.ParseMultipartForm(MaxAnalyzeBytes); err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
-			return photoTooLarge()
-		}
-		return badRequest("INVALID_PHOTO", "multipart 사진이 필요해요")
+	release, err := h.acquire(r.Context(), func(h *Handler) chan struct{} { return h.photoSlot })
+	if err != nil {
+		return err
 	}
-	defer r.MultipartForm.RemoveAll()
-	var photos [][]byte
-	for _, fh := range r.MultipartForm.File["photo"] {
-		p, err := readPhoto(fh)
-		if err != nil {
-			return err
-		}
+	defer release()
+	ps, err := readPhotos(w, r)
+	if err != nil {
+		return err
+	}
+	photos := make([][]byte, 0, len(ps))
+	for _, p := range ps {
 		photos = append(photos, p.Data)
 	}
 	out, err := h.Svc.ReplaceMealPhotos(r.Context(), date, idx, photos)

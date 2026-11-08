@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,12 +49,12 @@ import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.HealthPlan
 import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.core.api.DayCard
-import com.yuntyu.myhome.core.api.HealthMonth
 import com.yuntyu.myhome.core.api.HealthSettings
 import com.yuntyu.myhome.core.api.HealthToday
 import com.yuntyu.myhome.core.api.MyHomeJson
 import com.yuntyu.myhome.core.api.describe
 import com.yuntyu.myhome.health.MealPhotos
+import com.yuntyu.myhome.health.Reminders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -62,13 +63,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.YearMonth
 import kotlin.coroutines.resume
 
 /**
  * 헬스: 오늘 인증 상태, 이번 주 횟수, 도착까지 남은 시간, 사진 인증 / 오늘 쉬기(휴식권).
  * 인증 사진은 서버에 보내지도 폰에 남기지도 않는다(인증 표시만 보낸다).
  * 헬스장 위치를 정해 두면 그 근처에 머물 때 자동으로 출석한다(GymGeofence, 좌표는 폰에만).
+ * 이번 주 일정의 ✓는 달 기록에서 읽는데, 주가 지난달에 걸치면 두 달을 다 읽는다(HealthPlan.weekMonths).
  */
 @Composable
 fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
@@ -80,11 +81,12 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
     var settings by remember { mutableStateOf<HealthSettings?>(null) }
     var todayView by remember { mutableStateOf<HealthToday?>(null) }
     var card by remember { mutableStateOf<DayCard?>(null) }
-    var month by remember { mutableStateOf<HealthMonth?>(null) }
+    var gymDates by remember { mutableStateOf<Set<String>>(emptySet()) }
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableIntStateOf(0) }
     var confirmRest by remember { mutableStateOf(false) }
-    var pending by remember { mutableStateOf<File?>(null) }
+    // 카메라가 쓰고 있는 파일 경로(카메라가 열린 사이 Activity가 다시 만들어져도 남게)
+    var pending by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(resumeTick, reload) {
         withContext(Dispatchers.IO) {
@@ -94,19 +96,33 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
             }
             todayView = (app.api.healthToday(today.toString(), nowHhmm()) as? ApiResult.Ok)?.value
             card = (app.api.healthDay(today.toString()) as? ApiResult.Ok)?.value
-            month = (app.api.healthMonth(YearMonth.from(today).toString()) as? ApiResult.Ok)?.value
+            card?.let { c ->
+                // 오늘 인증했거나 쉬는 날이면 헬스 알림을 뺀다(서버 값으로 맞춤)
+                app.healthLocal.setGymDone(today.toString(), c.gymVerifiedBy != null)
+                Reminders.reschedule(app)
+            }
+            val months = HealthPlan.weekMonths(today).map { app.api.healthMonth(it.toString()) }
+            if (months.all { it is ApiResult.Ok }) {
+                gymDates = months.flatMap { (it as ApiResult.Ok).value.days.orEmpty() }.filter { it.gym }.map { it.date }.toSet()
+            }
         }
+    }
+
+    fun doneToday() {
+        app.healthLocal.setGymDone(today.toString(), true)
+        Reminders.reschedule(ctx)
+        reload++
     }
 
     fun checkIn(by: String) = scope.launch {
         when (val r = withContext(Dispatchers.IO) { app.api.gymCheckIn(today.toString(), by) }) {
-            is ApiResult.Ok -> { Toast.makeText(ctx, "오늘 헬스를 기록했어요", Toast.LENGTH_SHORT).show(); reload++ }
+            is ApiResult.Ok -> { Toast.makeText(ctx, "오늘 헬스를 기록했어요", Toast.LENGTH_SHORT).show(); doneToday() }
             else -> Toast.makeText(ctx, "기록하지 못했어요: ${r.describe()}", Toast.LENGTH_LONG).show()
         }
     }
 
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val f = pending
+        val f = pending?.let(::File)
         pending = null
         if (ok && f != null && f.length() > 0) {
             // 사진은 인증 표시로만 쓰고 서버에 보내지 않는다. 폰에도 남기지 않는다
@@ -162,7 +178,6 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
         }
         SectionCard("이번 주 일정") {
             val monday = today.minusDays(HealthPlan.weekdayMon0(today).toLong())
-            val gymDates = month?.days.orEmpty().filter { it.gym }.map { it.date }.toSet()
             Row(Modifier.fillMaxWidth()) {
                 for (i in 0..6) {
                     val d = monday.plusDays(i.toLong())
@@ -187,7 +202,7 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
         if (verified == null) {
             Button(onClick = {
                 val (f, uri) = MealPhotos.newCapture(ctx)
-                pending = f
+                pending = f.path
                 camera.launch(uri)
             }, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("사진으로 인증") }
             val rest = todayView?.coupons?.rest
@@ -208,7 +223,7 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
                     confirmRest = false
                     scope.launch {
                         when (val r = withContext(Dispatchers.IO) { app.api.useRest(today.toString()) }) {
-                            is ApiResult.Ok -> reload++
+                            is ApiResult.Ok -> doneToday()
                             else -> Toast.makeText(ctx, "쓰지 못했어요: ${r.describe()}", Toast.LENGTH_LONG).show()
                         }
                     }
@@ -236,6 +251,9 @@ private fun GymLocationSection(onChanged: () -> Unit) {
     val enabled = remember(tick) { GymGeofence.enabled(ctx) }
     val fg = remember(tick) { GymGeofence.hasForeground(ctx) }
     val bg = remember(tick) { GymGeofence.hasBackground(ctx) }
+    // 지오펜스를 걸지 못한 이유(위치 꺼짐 등)와 아직 못 보낸 자동 출석
+    val regError = remember(tick) { GymGeofence.registrationError(ctx) }
+    val pendingCheckIn = remember(tick) { GymGeofence.pendingCheckIn(ctx) }
 
     fun saveHere() {
         busy = true
@@ -258,13 +276,13 @@ private fun GymLocationSection(onChanged: () -> Unit) {
     }
     val askBackground = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         tick++
-        GymGeofence.register(ctx)
+        GymGeofence.register(ctx) { tick++ }
         onChanged()
     }
-    // 설정 화면에서 "항상 허용"을 고르고 돌아오면 다시 확인한다
+    // 설정 화면에서 "항상 허용"을 고르거나 위치를 켜고 돌아오면 다시 건다(결과가 오면 다시 그린다)
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
-        lifecycle.currentStateFlow.collect { if (it == androidx.lifecycle.Lifecycle.State.RESUMED) { GymGeofence.register(ctx); tick++ } }
+        lifecycle.currentStateFlow.collect { if (it == androidx.lifecycle.Lifecycle.State.RESUMED) { GymGeofence.register(ctx) { tick++ }; tick++ } }
     }
 
     SectionCard(if (BuildConfig.GYM_AUTO) "헬스장 위치로 자동 출석" else "헬스장 위치로 출석") {
@@ -296,8 +314,10 @@ private fun GymLocationSection(onChanged: () -> Unit) {
                         is GymGeofence.HereResult.Done -> "출석했어요 (헬스장에서 ${r.distanceM}m)"
                         is GymGeofence.HereResult.TooFar -> "헬스장에서 ${r.distanceM}m 떨어져 있어요 (${r.allowedM}m 안이어야 해요)"
                         is GymGeofence.HereResult.Failed -> r.why
+                        is GymGeofence.HereResult.Queued -> "헬스장에서 ${r.distanceM}m예요. 지금은 보내지 못해서 연결되면 출석을 보내요"
                     }
                     Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                    tick++
                     if (r is GymGeofence.HereResult.Done) onChanged()
                 }
             }, enabled = !busy && fg, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "위치 확인 중…" else "위치로 출석") }
@@ -311,8 +331,14 @@ private fun GymLocationSection(onChanged: () -> Unit) {
         if (BuildConfig.GYM_AUTO && enabled && !bg) {
             Text("앱이 꺼져 있어도 알려면 위치 권한을 '항상 허용'으로 바꿔야 해요.", style = MaterialTheme.typography.bodySmall, color = m.warn)
             FilledTonalButton(onClick = { disclosure = true }) { Text("'항상 허용' 켜기") }
+        } else if (BuildConfig.GYM_AUTO && enabled && regError != null) {
+            // 걸지 못했으면 "켜져 있어요" 대신 이유를 보인다(30분마다, 화면을 열 때마다 다시 건다)
+            Text(regError, style = MaterialTheme.typography.bodySmall, color = m.warn)
         } else if (BuildConfig.GYM_AUTO && enabled) {
             Text("켜져 있어요. 헬스장에 5분 머물면 출석이 남고 알림이 와요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
+        }
+        if (pendingCheckIn != null) {
+            Text("$pendingCheckIn 출석을 보내는 중이에요. 연결되면 보내요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
         if (disclosure) {
             AlertDialog(

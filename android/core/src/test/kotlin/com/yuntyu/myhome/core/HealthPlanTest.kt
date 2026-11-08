@@ -6,10 +6,12 @@ import com.yuntyu.myhome.core.api.FoodItem
 import com.yuntyu.myhome.core.api.FoodResult
 import com.yuntyu.myhome.core.api.MealSlot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
+import java.time.YearMonth
 
 // 핏두잉 앱 domain 테스트와 같은 규칙 (합성 값)
 class HealthPlanTest {
@@ -58,6 +60,59 @@ class HealthPlanTest {
         assertTrue(plan.all { it.at.isAfter(now) })
         assertEquals("2끼 마감 30분 전이에요", plan.first().title)
         assertEquals("14:00까지 사진을 찍어 주세요", plan.first().body)
+    }
+
+    @Test fun extraChipPicksNextFreeExtra() {
+        // 기타 1이 있으면 기타 2로(예전에는 늘 7이라 첫 간식을 덮어썼다)
+        assertEquals(8, HealthPlan.extraChipIndex(current = 2, used = listOf(1, 2, 7)))
+        assertEquals(7, HealthPlan.extraChipIndex(current = null, used = listOf(1)))
+        // 이미 기타를 골라 두었으면 그대로
+        assertEquals(9, HealthPlan.extraChipIndex(current = 9, used = listOf(7, 8)))
+        // 셋 다 차면 기타 1(저장할 때 묻는다)
+        assertEquals(7, HealthPlan.extraChipIndex(current = 1, used = listOf(7, 8, 9)))
+    }
+
+    @Test fun overwriteConfirmOnlyForNewCaptureOnUsedSlot() {
+        assertTrue(HealthPlan.needsOverwriteConfirm(7, used = listOf(7), editingIndex = null))
+        assertTrue(HealthPlan.needsOverwriteConfirm(2, used = listOf(1, 2), editingIndex = null))
+        assertFalse(HealthPlan.needsOverwriteConfirm(8, used = listOf(7), editingIndex = null))
+        // 그 끼니를 고치는 중이면 묻지 않는다
+        assertFalse(HealthPlan.needsOverwriteConfirm(2, used = listOf(1, 2), editingIndex = 2))
+    }
+
+    @Test fun gymReminderSkippedOnDoneOrRestDay() {
+        val input = HealthPlan.ReminderInput(four, gymEnabled = true, gymDays = listOf(0, 1), arriveBy = "19:00", sleepEnabled = false, bedTime = "23:30")
+        val plan = HealthPlan.planReminders(input, day.atTime(9, 0), emptySet(), days = 2, gymDone = setOf(day.toString()))
+        val gym = plan.filter { it.kind == Kind.GYM }.map { it.at.toLocalDate() }
+        // 월요일은 이미 인증(또는 휴식권), 화요일만 남는다
+        assertEquals(listOf(day.plusDays(1)), gym)
+    }
+
+    @Test fun lateRemindersDropStaleOnes() {
+        val pre = HealthPlan.Planned("meal-pre", day.atTime(13, 30), Kind.MEAL_PRE, 2, "14:00")
+        val due = HealthPlan.Planned("meal-due", day.atTime(14, 0), Kind.MEAL_DUE, 2, "14:00")
+        val gym = HealthPlan.Planned("gym", day.atTime(18, 0), Kind.GYM, time = "19:00")
+        val sleep = HealthPlan.Planned("sleep", day.atTime(23, 30), Kind.SLEEP, time = "23:30")
+        val all = listOf(pre, due, gym, sleep)
+        // 제때: 30분 전 알림
+        assertEquals(listOf(pre), HealthPlan.dueReminders(all, day.atTime(13, 31)))
+        // 마감 뒤에 울리면 "30분 전"은 빼고 마감 알림만
+        assertEquals(listOf(due), HealthPlan.dueReminders(all, day.atTime(14, 5)))
+        // 1시간 넘게 늦으면 버린다
+        assertEquals(emptyList<HealthPlan.Planned>(), HealthPlan.dueReminders(listOf(due), day.atTime(15, 1)))
+        // 헬스 알림은 도착 시각(19:00)이 지나면 버린다
+        assertEquals(listOf(gym), HealthPlan.dueReminders(listOf(gym), day.atTime(18, 50)))
+        assertEquals(emptyList<HealthPlan.Planned>(), HealthPlan.dueReminders(listOf(gym), day.atTime(19, 0)))
+        assertEquals(listOf(sleep), HealthPlan.dueReminders(listOf(sleep), day.atTime(23, 45)))
+    }
+
+    @Test fun weekMonthsSpansMonthBoundary() {
+        // 2026-12-02(수): 그 주 월요일은 11-30이라 11월과 12월
+        assertEquals(listOf(YearMonth.of(2026, 11), YearMonth.of(2026, 12)), HealthPlan.weekMonths(LocalDate.of(2026, 12, 2)))
+        // 2026-11-09(월)~15(일)은 11월만
+        assertEquals(listOf(YearMonth.of(2026, 11)), HealthPlan.weekMonths(day))
+        // 일요일 2026-11-01: 월요일 10-26부터
+        assertEquals(listOf(YearMonth.of(2026, 10), YearMonth.of(2026, 11)), HealthPlan.weekMonths(LocalDate.of(2026, 11, 1)))
     }
 
     @Test fun perFoodPortionSum() {

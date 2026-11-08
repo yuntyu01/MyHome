@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/yuntyu01/MyHome/server/internal/config"
 )
@@ -80,6 +82,7 @@ func TestGeminiFailureIsErrFailed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }))
 	defer srv.Close()
 	g, _ := NewGemini("k", "m", srv.Client())
+	g.retryWait = 0
 	_, err := g.WithBase(srv.URL).Analyze(context.Background(), []Photo{{Data: []byte{1}, ContentType: "image/png"}})
 	if !errors.Is(err, ErrFailed) {
 		t.Fatalf("got %v", err)
@@ -101,9 +104,74 @@ func TestGeminiErrorHasNoURL(t *testing.T) {
 	base := srv.URL
 	srv.Close()
 	g, _ := NewGemini("k", "m", nil)
+	g.retryWait = 0
 	_, err := g.WithBase(base).Analyze(context.Background(), []Photo{{Data: []byte{1}, ContentType: "image/png"}})
 	if err == nil || strings.Contains(err.Error(), base) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// 5xx·연결 실패는 한 번만 더 부르고, 4xx(402 크레딧 없음 포함)는 다시 부르지 않는다.
+func TestGeminiRetriesOnceOnServerError(t *testing.T) {
+	ok := `{"candidates":[{"content":{"parts":[{"text":"{\"items\":[],\"confidence\":0}"}]}}]}`
+	for _, tc := range []struct {
+		name     string
+		statuses []int // 차례로 답할 상태 코드(200이면 ok 본문)
+		calls    int
+		success  bool
+		noCredit bool
+	}{
+		{"503 다음 성공", []int{503, 200}, 2, true, false},
+		{"500 두 번", []int{500, 500, 200}, 2, false, false},
+		{"402 크레딧 없음", []int{402, 200}, 1, false, true},
+		{"400", []int{400, 200}, 1, false, false},
+		{"429", []int{429, 200}, 1, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				n := int(calls.Add(1)) - 1
+				if code := tc.statuses[min(n, len(tc.statuses)-1)]; code != 200 {
+					w.WriteHeader(code)
+					return
+				}
+				_, _ = w.Write([]byte(ok))
+			}))
+			defer srv.Close()
+			g, _ := NewGemini("k", "m", srv.Client())
+			g.retryWait = time.Millisecond
+			_, err := g.WithBase(srv.URL).Analyze(context.Background(), []Photo{{Data: []byte{1}, ContentType: "image/png"}})
+			if int(calls.Load()) != tc.calls || (err == nil) != tc.success || NoCredit(err) != tc.noCredit {
+				t.Fatalf("calls=%d err=%v noCredit=%v", calls.Load(), err, NoCredit(err))
+			}
+		})
+	}
+}
+
+// 한 번 부르기 제한 시간을 넘기면(응답 없음) 한 번 더 부른다. 부르는 쪽이 취소했으면 다시 부르지 않는다.
+func TestGeminiRetriesOnTimeoutButNotOnCancel(t *testing.T) {
+	var calls atomic.Int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+	g, _ := NewGemini("k", "m", srv.Client())
+	g.timeout, g.retryWait = 50*time.Millisecond, time.Millisecond
+	if _, err := g.WithBase(srv.URL).Analyze(context.Background(), []Photo{{Data: []byte{1}, ContentType: "image/png"}}); err == nil || calls.Load() != 2 {
+		t.Fatalf("시간 초과: calls=%d err=%v", calls.Load(), err)
+	}
+	calls.Store(0)
+	g.timeout = time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := g.Analyze(ctx, []Photo{{Data: []byte{1}, ContentType: "image/png"}}); err == nil || calls.Load() != 1 {
+		t.Fatalf("취소: calls=%d err=%v", calls.Load(), err)
 	}
 }
 

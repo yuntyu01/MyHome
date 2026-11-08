@@ -2,7 +2,10 @@ package com.yuntyu.myhome.ui
 
 import android.Manifest
 import android.app.TimePickerDialog
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -105,6 +109,14 @@ fun HealthSettingsScreen(modifier: Modifier, onDone: () -> Unit) {
         }
     }
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    // "알람 및 리마인더"(정확한 알람)는 설정 화면에서 허용하고 돌아온다. 돌아오면 다시 확인하고 알림을 다시 건다
+    var exactTick by remember { mutableIntStateOf(0) }
+    val exact = remember(exactTick) { Reminders.canExact(ctx) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.currentStateFlow.collect { if (it == androidx.lifecycle.Lifecycle.State.RESUMED) exactTick++ }
+    }
+    LaunchedEffect(exact) { Reminders.reschedule(ctx) }
 
     fun time(initial: String, onPick: (String) -> Unit) {
         val mins = runCatching { HealthPlan.minutes(initial) }.getOrDefault(12 * 60)
@@ -219,6 +231,18 @@ fun HealthSettingsScreen(modifier: Modifier, onDone: () -> Unit) {
                     s = st.copy(notifications = it)
                     if (it && Build.VERSION.SDK_INT >= 33 && !Notifications.canPost(ctx)) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 })
+            }
+            if (st.notifications != false && !exact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                Text(
+                    "알림을 정해진 시각에 받으려면 '알람 및 리마인더'를 허용해 주세요. 허용하지 않으면 폰이 쉬는 동안 알림이 늦어져서, 마감 30분 전 알림이 마감 뒤에 올 수 있어요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = m.warn,
+                )
+                FilledTonalButton(onClick = {
+                    runCatching {
+                        ctx.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${ctx.packageName}")))
+                    }.onFailure { Toast.makeText(ctx, "설정 화면을 열지 못했어요", Toast.LENGTH_SHORT).show() }
+                }) { Text("알람 및 리마인더 허용") }
             }
         }
         SectionCard("폰에 사진 보관") {

@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.R
@@ -17,11 +18,17 @@ import java.time.ZoneId
 
 /**
  * 끼니 마감 30분 전·마감, 헬스 도착 1시간 전, 취침 알림(핏두잉과 같은 규칙).
- * 다음 알림 하나만 AlarmManager에 걸고, 울리면 띄운 뒤 그다음 것을 건다. 이미 찍은 끼니는 빠진다.
- * 정확한 알람 권한 없이 setAndAllowWhileIdle을 쓰므로 절전 중에는 몇 분 늦을 수 있다.
+ * 다음 알림 하나만 AlarmManager에 걸고, 울리면 띄운 뒤 그다음 것을 건다. 이미 찍은 끼니, 헬스를 이미 한(쉰) 날은 빠진다.
+ * "알람 및 리마인더"(SCHEDULE_EXACT_ALARM)를 허용하면 setExactAndAllowWhileIdle로 제시각에 울린다. 허용하지 않으면
+ * setAndAllowWhileIdle이라 절전 중에 늦을 수 있고(최대 1시간쯤), 늦게 울려 뜻이 없어진 알림은 띄우지 않는다(HealthPlan.dueReminders).
+ * USE_EXACT_ALARM은 쓰지 않는다(Play가 알람·캘린더 앱에만 허용).
  */
 object Reminders {
     private const val REQUEST = 7301
+
+    /** 제시각 알람을 걸 수 있는지. Android 12 미만은 늘 된다. */
+    fun canExact(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S || context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
 
     fun reschedule(context: Context) {
         val app = context.applicationContext
@@ -34,10 +41,12 @@ object Reminders {
             local.scheduledAt = 0
             return
         }
-        val next = HealthPlan.planReminders(s.reminderInput(), LocalDateTime.now(), local.logged).firstOrNull() ?: return
+        val next = HealthPlan.planReminders(s.reminderInput(), LocalDateTime.now(), local.logged, gymDone = local.gymDone).firstOrNull() ?: return
         val at = next.at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         local.scheduledAt = at
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+        // 권한을 확인한 뒤에 걸어도 그사이 회수되면 SecurityException이라 그때는 부정확한 알람으로
+        val exact = canExact(app) && runCatching { am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi) }.isSuccess
+        if (!exact) am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
     }
 
     /** 예약한 시각부터 지금까지 울려야 할 알림을 띄운다(같은 분에 겹친 알림도 함께). */
@@ -49,9 +58,8 @@ object Reminders {
         val fromTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(from), zone)
         val now = LocalDateTime.now()
         if (s.notifications) {
-            HealthPlan.planReminders(s.reminderInput(), fromTime.minusSeconds(1), local.logged)
-                .filter { !it.at.isAfter(now) && now.minusHours(1).isBefore(it.at) }
-                .forEach { post(context, it) }
+            val planned = HealthPlan.planReminders(s.reminderInput(), fromTime.minusSeconds(1), local.logged, gymDone = local.gymDone)
+            HealthPlan.dueReminders(planned, now).forEach { post(context, it) }
         }
         reschedule(context)
     }
@@ -97,7 +105,10 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) = Reminders.fire(context)
 }
 
-/** 재부팅·앱 업데이트·시각 변경 뒤 알림과 헬스장 지오펜스를 다시 건다(지오펜스는 재부팅 때 지워진다). */
+/**
+ * 재부팅·앱 업데이트·시각 변경·"알람 및 리마인더" 허용이 바뀐 뒤 알림과 헬스장 지오펜스를 다시 건다
+ * (지오펜스는 재부팅 때 지워진다).
+ */
 class ReminderBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Reminders.reschedule(context)

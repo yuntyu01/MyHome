@@ -13,6 +13,8 @@ import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.notify.BudgetAlertNotifier
 import com.yuntyu.myhome.notify.InvestAlertNotifier
+import com.yuntyu.myhome.health.GymGeofence
+import com.yuntyu.myhome.health.MealOutbox
 import com.yuntyu.myhome.health.MealPhotos
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,8 +33,11 @@ object WidgetRefresher {
         if (r is ApiResult.Ok) BudgetAlertNotifier.check(context, r.value)
         // 매매 실패 알림도 같은 주기(30분·결제 전송 직후)에 확인한다. 서버가 푸시를 보내지 않으므로 여기서 가져온다
         if (r is ApiResult.Ok) InvestAlertNotifier.check(context)
-        // 올리지 못한 끼니 사진 다시 올리기
+        // 못 보낸 끼니 기록 보내기(작업으로 건다), 올리지 못한 끼니 사진 다시 올리기
+        MealOutbox.flush(context)
         if (r is ApiResult.Ok) withContext(Dispatchers.IO) { MealPhotos.retryPending(context) }
+        // 헬스장 지오펜스 다시 걸기: 위치를 껐다 켜면 시스템이 지운 채로 두므로(실패 이유는 남겨서 헬스 화면에 보인다)
+        GymGeofence.register(context)
         return r is ApiResult.Ok
     }
 

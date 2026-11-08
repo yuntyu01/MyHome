@@ -110,6 +110,13 @@ ORDER BY used_at, id;
 INSERT INTO rest_coupon_uses (used_on, week_key)
 VALUES ($1, $2);
 
+-- name: LockMealLog :one
+-- 사진 바꾸기는 끼니 행을 잠근 채 한다: 끼니 지우기·다른 사진 올리기와 겹치지 않게(행이 없으면 끼니가 없는 것).
+SELECT id
+FROM meal_logs
+WHERE meal_date = $1 AND meal_index = $2
+FOR UPDATE;
+
 -- name: ListMealPhotos :many
 SELECT meal_date, meal_index, n, file, bytes, sha256, created_at
 FROM meal_photos

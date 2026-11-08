@@ -7,6 +7,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.YearMonth
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -102,6 +103,17 @@ object HealthPlan {
     /** 그날 아직 안 쓴 기타 번호(7→8→9), 다 썼으면 null */
     fun nextExtraIndex(used: Collection<Int>): Int? = (EXTRA_BASE until EXTRA_BASE + MAX_EXTRA).firstOrNull { it !in used }
 
+    /**
+     * "기타" 칩을 눌렀을 때 고를 번호: 이미 기타를 골라 두었으면 그대로, 아니면 그날 비어 있는 다음 기타 번호.
+     * 셋 다 찼으면 기타 1(저장할 때 "바꿀까요?"를 묻는다). 늘 7을 쓰면 두 번째 간식이 첫 간식을 덮어썼다.
+     */
+    fun extraChipIndex(current: Int?, used: Collection<Int>): Int =
+        if (current != null && isExtra(current)) current else nextExtraIndex(used) ?: EXTRA_BASE
+
+    /** 새로 찍는 끼니가 이미 기록이 있는 번호면 저장 전에 덮어쓸지 묻는다(기록을 고치는 중이면 묻지 않는다). */
+    fun needsOverwriteConfirm(index: Int, used: Collection<Int>, editingIndex: Int?): Boolean =
+        index != editingIndex && index in used
+
     fun mealKey(day: LocalDate, index: Int) = "$day#$index"
 
     enum class Kind { MEAL_PRE, MEAL_DUE, GYM, SLEEP }
@@ -134,9 +146,15 @@ object HealthPlan {
 
     /**
      * 앞으로 며칠치 알림을 날짜별 일회성으로 펼친다(이미 찍은 끼니는 뺀다). 지난 것은 버리고 시각 순.
-     * logged는 mealKey(날짜, 끼니) 모음.
+     * logged는 mealKey(날짜, 끼니) 모음. gymDone은 헬스를 이미 인증했거나 휴식권을 쓴 날("yyyy-MM-dd")로, 그날은 헬스 알림을 뺀다.
      */
-    fun planReminders(input: ReminderInput, now: LocalDateTime, logged: Set<String>, days: Int = HORIZON_DAYS): List<Planned> {
+    fun planReminders(
+        input: ReminderInput,
+        now: LocalDateTime,
+        logged: Set<String>,
+        days: Int = HORIZON_DAYS,
+        gymDone: Set<String> = emptySet(),
+    ): List<Planned> {
         val out = mutableListOf<Planned>()
         val first = scheduleDay(input.meals, now)
         for (i in 0 until days) {
@@ -147,7 +165,7 @@ object HealthPlan {
                 out += Planned("meal-pre-${d.day}-${d.index}", d.at.minusMinutes(PRE_DEADLINE_MIN.toLong()), Kind.MEAL_PRE, d.index, time)
                 out += Planned("meal-due-${d.day}-${d.index}", d.at, Kind.MEAL_DUE, d.index, time)
             }
-            if (input.gymEnabled && weekdayMon0(day) in input.gymDays) {
+            if (input.gymEnabled && weekdayMon0(day) in input.gymDays && day.toString() !in gymDone) {
                 val at = day.atStartOfDay().plusMinutes((minutes(input.arriveBy) - GYM_LEAD_MIN).toLong())
                 out += Planned("gym-$day", at, Kind.GYM, time = input.arriveBy)
             }
@@ -156,6 +174,28 @@ object HealthPlan {
             }
         }
         return out.filter { it.at.isAfter(now) }.sortedBy { it.at }
+    }
+
+    /** 늦게 울린 알림(알람이 밀림)을 얼마나 늦을 때까지 띄울지 */
+    const val LATE_LIMIT_MIN = 60L
+
+    /**
+     * 알람이 울린 지금 띄울 알림. 시각이 지났고 [LATE_LIMIT_MIN] 안에 늦은 것만 띄우되, 이미 의미가 없어진 것은 뺀다:
+     * "마감 30분 전"이 마감 뒤에 오거나, "헬스 갈 시간"이 도착 시각 뒤에 오는 경우.
+     */
+    fun dueReminders(planned: List<Planned>, now: LocalDateTime): List<Planned> = planned.filter { p ->
+        val stale = when (p.kind) {
+            Kind.MEAL_PRE -> !now.isBefore(p.at.plusMinutes(PRE_DEADLINE_MIN.toLong()))
+            Kind.GYM -> !now.isBefore(p.at.plusMinutes(GYM_LEAD_MIN.toLong()))
+            else -> false
+        }
+        !p.at.isAfter(now) && now.minusMinutes(LATE_LIMIT_MIN).isBefore(p.at) && !stale
+    }
+
+    /** 오늘이 든 주(월~일)가 걸친 달. 주가 두 달에 걸치면 두 달 다(달력 API가 달 단위라서). */
+    fun weekMonths(today: LocalDate): List<YearMonth> {
+        val monday = today.minusDays(weekdayMon0(today).toLong())
+        return listOf(YearMonth.from(monday), YearMonth.from(monday.plusDays(6))).distinct()
     }
 
     /** 0=월 … 6=일 */

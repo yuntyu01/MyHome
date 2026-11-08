@@ -74,7 +74,7 @@
 | `DATA_GO_KR_API_KEY` | | 공공데이터포털 키(식품의약품안전처 식품영양성분DB) |
 
 - 헬스장 위치 기능(장소 검색, 위치 도착 인증)은 없앴다(2026-11-08). 헬스 인증은 사진과 휴식권만 쓴다.
-- 끼니 사진 분석(`POST /v1/health/meals/analyze`)만 본문을 16MB(사진 3장 × 5MB + 여유)까지 받는다. `MAX_BODY_BYTES`는 그 밖의 요청에만 적용된다. 사진은 메모리에서 분석하고 버린다(저장하지 않음).
+- 끼니 사진 분석(`POST /v1/health/meals/analyze`)과 사진 보관(`PUT /v1/health/meals/photos`)만 본문을 7MB(사진 3장 × 2MB + 여유)까지 받는다. `MAX_BODY_BYTES`는 그 밖의 요청에만 적용된다. 분석 사진은 메모리에서 분석하고 버린다(저장하지 않음). 분석과 사진 보관은 종류마다 한 번에 하나씩 하고, VM 유닛은 `GOMEMLIMIT=150MiB`(`MemoryMax=200M`)다.
 - 역할을 나눈 DB(`deploy/home/postgres-roles.sql`)를 쓰면 마이그레이션 뒤에 그 파일을 다시 돌려야 새 테이블(건강, 앱 연결 코드 `app_link_codes`, AI 분류 추천 `merchant_suggestions`)에 웹 역할 권한이 붙는다.
 
 전체 목록과 예시는 `.env.example`에 있다.
