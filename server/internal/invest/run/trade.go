@@ -207,6 +207,11 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	if len(sells) > 0 {
 		book.Stage = "sell"
 	}
+	if bookp != nil && bookp.YM != ym && len(bookp.Orders) == 0 {
+		// 주문이 하나도 접수되지 않은 지난달 기록(전 유형 거절 등)은 남은 것이 없다 — 버리고 새로 시작한다
+		a.printf("지난 적용월(%s)의 빈 주문 기록을 버린다", bookp.YM)
+		bookp = nil
+	}
 	if bookp != nil {
 		book = *bookp
 	}

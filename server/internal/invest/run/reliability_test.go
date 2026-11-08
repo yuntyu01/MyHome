@@ -462,3 +462,18 @@ func TestAWeekdayMonthEndIsCaughtUpBeforeTheNextOpen(t *testing.T) {
 		t.Fatalf("9월 매수 rc %d %s", rc, h.err)
 	}
 }
+
+// 주문 기록은 이제 보내기 전에 저장된다. 전 유형이 거절된 달은 주문 없는 기록만 남는데,
+// 남은 주문이 없으니 다음 달을 막지 않는다.
+func TestAnEmptyBookFromLastMonthDoesNotBlock(t *testing.T) {
+	h := newHarness(t, seedOpt{})
+	if err := h.st.SaveOrders(h.ctx, invest.OrderBook{YM: "2026-07", Stage: "buy", StyleIdx: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if rc := h.trade(execDay, false); rc != 0 || len(h.fb.placed) != 1 || h.fb.placed[0].Style != broker.MOC {
+		t.Fatalf("빈 기록이 막았다: rc %d %s %+v", rc, h.err, h.fb.placed)
+	}
+	if b := h.book(); b.YM != "2026-08" {
+		t.Fatalf("%+v", b)
+	}
+}
