@@ -18,6 +18,8 @@ HOST=${MYHOME_HOST:-home}
 SECRETS=${MYHOME_SECRETS:-/root/myhome-secrets}
 TUNNEL_ID=${MYHOME_TUNNEL_ID:-280ce9be-1905-4682-a380-cad5682e50d9}
 HOSTNAME_PUBLIC=${MYHOME_HOSTNAME:-myhome.kodeploy.com}
+# SSH도 같은 터널로 받는다(들어오는 포트 없음, KoDeploy 관리 노드를 거치지 않음). PC는 cloudflared access ssh로 붙는다
+HOSTNAME_SSH=${MYHOME_SSH_HOSTNAME:-myhome-ssh.kodeploy.com}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
 echo "▶ 빌드 (linux/amd64)"
@@ -40,7 +42,7 @@ echo "▶ 바이너리·유닛 전송"
 ssh "$HOST" "sudo install -m 0755 /dev/stdin /opt/myhome/myhome.new" < "$BIN"
 tar -C "$ROOT/deploy/home" -cf - systemd postgres-roles.sql backup.sh enable-invest.sh disable-invest.sh | ssh "$HOST" "rm -rf /tmp/myhome-deploy && mkdir -p /tmp/myhome-deploy && tar -C /tmp/myhome-deploy -xf -"
 
-ssh "$HOST" "sudo TUNNEL_ID=$TUNNEL_ID HOSTNAME_PUBLIC=$HOSTNAME_PUBLIC bash -s" <<'REMOTE'
+ssh "$HOST" "sudo TUNNEL_ID=$TUNNEL_ID HOSTNAME_PUBLIC=$HOSTNAME_PUBLIC HOSTNAME_SSH=$HOSTNAME_SSH bash -s" <<'REMOTE'
 set -euo pipefail
 cd /tmp/myhome-deploy
 # 환경 파일 합치기 (DB 주소 + 앱 설정)
@@ -71,6 +73,8 @@ credentials-file: /etc/cloudflared/$TUNNEL_ID.json
 ingress:
   - hostname: $HOSTNAME_PUBLIC
     service: http://127.0.0.1:8080
+  - hostname: $HOSTNAME_SSH
+    service: ssh://127.0.0.1:22
   - service: http_status:404
 EOF
 if [ ! -f /etc/systemd/system/cloudflared.service ]; then

@@ -47,6 +47,14 @@ effective_cache_size = 256MB
 EOF
 systemctl restart postgresql
 
+# --- SSH: 키로만, root 로그인 금지 (SSH는 Cloudflare 터널로 들어온다 - deploy.sh의 HOSTNAME_SSH) ---
+cat > /etc/ssh/sshd_config.d/90-myhome.conf <<'EOF'
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+EOF
+sshd -t && systemctl reload ssh
+
 # --- OS 사용자 ---
 id myhome-web >/dev/null 2>&1 || useradd --system --home /var/lib/myhome-web --shell /usr/sbin/nologin myhome-web
 id myhome-trader >/dev/null 2>&1 || useradd --system --home /var/lib/myhome-trader --shell /usr/sbin/nologin myhome-trader
