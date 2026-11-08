@@ -567,6 +567,26 @@ func (q *Queries) ListTargetHistory(ctx context.Context) ([]HealthTargetHistory,
 	return items, nil
 }
 
+const lockMealLog = `-- name: LockMealLog :one
+SELECT id
+FROM meal_logs
+WHERE meal_date = $1 AND meal_index = $2
+FOR UPDATE
+`
+
+type LockMealLogParams struct {
+	MealDate  time.Time `json:"meal_date"`
+	MealIndex int32     `json:"meal_index"`
+}
+
+// 사진 바꾸기는 끼니 행을 잠근 채 한다: 끼니 지우기·다른 사진 올리기와 겹치지 않게(행이 없으면 끼니가 없는 것).
+func (q *Queries) LockMealLog(ctx context.Context, arg LockMealLogParams) (int64, error) {
+	row := q.db.QueryRow(ctx, lockMealLog, arg.MealDate, arg.MealIndex)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const upsertGymCheckIn = `-- name: UpsertGymCheckIn :one
 INSERT INTO gym_logs (gym_date, check_in_at, verified_by)
 VALUES ($1, $2, $3)

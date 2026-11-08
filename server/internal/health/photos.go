@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -50,7 +51,9 @@ func checkMealIndex(index int) error {
 // isJPEG는 JPEG 시작 표식(FF D8 FF)을 본다. 폰은 늘 JPEG로 줄여 보낸다(MealPhotos.downscaled).
 func isJPEG(b []byte) bool { return len(b) > 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF }
 
-// ReplaceMealPhotos는 그 끼니의 사진을 photos로 바꾼다(0장이면 지우기만).
+// ReplaceMealPhotos는 그 끼니의 사진을 photos로 바꾼다(0장이면 지우기만). 끼니 기록이 없으면 404다.
+// 끼니 행을 잠근(SELECT ... FOR UPDATE) 트랜잭션 안에서 파일을 쓰고 행을 바꾼다. 그래서 같은 끼니의 지우기·다른 올리기와
+// 겹쳐도 주인 없는 파일이나 행이 남지 않는다(지우기가 먼저 끝나면 이쪽은 404, 이쪽이 먼저면 지우기가 새 파일까지 지운다).
 func (s *Service) ReplaceMealPhotos(ctx context.Context, d Date, index int, photos [][]byte) ([]MealPhotoView, error) {
 	base, err := s.photoDir()
 	if err != nil {
@@ -62,36 +65,45 @@ func (s *Service) ReplaceMealPhotos(ctx context.Context, d Date, index int, phot
 	if len(photos) > MaxMealPhotos {
 		return nil, badRequest("TOO_MANY_PHOTOS", fmt.Sprintf("사진은 %d장까지예요", MaxMealPhotos))
 	}
-	day := string(d)
-	if err := os.MkdirAll(filepath.Join(base, day), 0o750); err != nil {
-		return nil, err
-	}
-	rows := make([]dbq.InsertMealPhotoParams, 0, len(photos))
-	var written []string // 이번에 새로 쓴 파일(실패하면 지운다)
-	keep := map[string]bool{}
-	for n, b := range photos {
+	for _, b := range photos {
 		if !isJPEG(b) {
 			return nil, badRequest("INVALID_PHOTO", "JPEG 사진이어야 해요")
 		}
 		if len(b) > MaxPhotoBytes {
 			return nil, photoTooLarge()
 		}
-		sum := sha256.Sum256(b)
-		rel := filepath.Join(day, fmt.Sprintf("%s_%d_%d_%s.jpg", day, index, n, hex.EncodeToString(sum[:6])))
-		keep[rel] = true
-		path := filepath.Join(base, rel)
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			if err := writeFileAtomic(path, b); err != nil {
-				removeFiles(base, written)
-				return nil, err
-			}
-			written = append(written, rel)
-		}
-		rows = append(rows, dbq.InsertMealPhotoParams{MealDate: d.Time(), MealIndex: int32(index), N: int32(n), File: rel, Bytes: int32(len(b)), Sha256: sum[:]})
 	}
+	day := string(d)
+	var written []string // 이번에 새로 쓴 파일(실패하면 지운다)
 	var old []string
+	keep := map[string]bool{}
 	err = s.tx(ctx, func(q *dbq.Queries) error {
-		var err error
+		_, err := q.LockMealLog(ctx, dbq.LockMealLogParams{MealDate: d.Time(), MealIndex: int32(index)})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &Error{http.StatusNotFound, "MEAL_NOT_FOUND", "끼니 기록이 없어요"}
+		}
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Join(base, day), 0o750); err != nil {
+			return err
+		}
+		// 잠금을 쥔 동안 이 끼니 파일을 쓰는 곳은 여기뿐이라, 남은 .partial은 전에 쓰다 멈춘 것이다
+		removeStalePartials(filepath.Join(base, day), fmt.Sprintf("%s_%d_", day, index))
+		rows := make([]dbq.InsertMealPhotoParams, 0, len(photos))
+		for n, b := range photos {
+			sum := sha256.Sum256(b)
+			rel := filepath.Join(day, fmt.Sprintf("%s_%d_%d_%s.jpg", day, index, n, hex.EncodeToString(sum[:6])))
+			keep[rel] = true
+			path := filepath.Join(base, rel)
+			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+				if err := writeFileAtomic(path, b); err != nil {
+					return err
+				}
+				written = append(written, rel)
+			}
+			rows = append(rows, dbq.InsertMealPhotoParams{MealDate: d.Time(), MealIndex: int32(index), N: int32(n), File: rel, Bytes: int32(len(b)), Sha256: sum[:]})
+		}
 		if old, err = q.DeleteMealPhotos(ctx, dbq.DeleteMealPhotosParams{MealDate: d.Time(), MealIndex: int32(index)}); err != nil {
 			return err
 		}
@@ -159,11 +171,27 @@ func (s *Service) deleteMealPhotoFiles(files []string) {
 }
 
 func writeFileAtomic(path string, b []byte) error {
-	tmp := path + ".partial"
+	tmp := path + partialSuffix
 	if err := os.WriteFile(tmp, b, 0o640); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+const partialSuffix = ".partial"
+
+// removeStalePartials는 dir에서 prefix로 시작하는 쓰다 만 파일(*.partial)을 지운다(서버가 쓰는 중에 죽으면 남는다).
+func removeStalePartials(dir, prefix string) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		if name := e.Name(); !e.IsDir() && strings.HasPrefix(name, prefix) && strings.HasSuffix(name, partialSuffix) {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }
 
 // removeFiles는 base 아래 상대 경로 파일을 지운다. 이미 없으면 넘어간다.

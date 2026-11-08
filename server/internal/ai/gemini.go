@@ -23,7 +23,25 @@ const geminiBase = "https://generativelanguage.googleapis.com/v1beta"
 type Gemini struct {
 	key, model, base string
 	http             *http.Client
-	timeout          time.Duration
+	timeout          time.Duration // 한 번 부를 때 제한
+	retryWait        time.Duration // 5xx·시간 초과·연결 실패 뒤 한 번 더 부르기 전에 기다리는 시간
+}
+
+// 한 번 부를 때 25초, 실패하면 1초 쉬고 한 번 더. 끼니 분석 전체(health.AnalyzeBudget 55초)와 서버 WriteTimeout(60초) 안에 끝나게 잡았다.
+const (
+	callTimeout = 25 * time.Second
+	retryWait   = time.Second
+)
+
+// StatusError는 Gemini가 2xx가 아닌 상태 코드로 답한 것이다. 402는 선불 크레딧이 떨어졌다는 뜻이다(2026-11 운영에서 본 응답).
+type StatusError struct{ Code int }
+
+func (e *StatusError) Error() string { return fmt.Sprintf("gemini status %d", e.Code) }
+
+// NoCredit는 AI 크레딧(선불 잔액)이 없어서 실패했는지다. 다시 불러도 소용없다.
+func NoCredit(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Code == http.StatusPaymentRequired
 }
 
 // NewGemini는 키가 없으면 에러다.
@@ -37,7 +55,7 @@ func NewGemini(key, model string, client *http.Client) (*Gemini, error) {
 	if client == nil {
 		client = &http.Client{}
 	}
-	return &Gemini{key: key, model: model, base: geminiBase, http: client, timeout: 30 * time.Second}, nil
+	return &Gemini{key: key, model: model, base: geminiBase, http: client, timeout: callTimeout, retryWait: retryWait}, nil
 }
 
 // WithBase는 API 주소를 바꾼다(테스트).
@@ -84,21 +102,45 @@ func requestBody(parts []Part, schema Schema) map[string]any {
 	}
 }
 
-// GenerateJSON은 parts와 응답 스키마로 한 번 호출하고 첫 후보의 텍스트(JSON)를 돌려준다.
+// GenerateJSON은 parts와 응답 스키마로 호출하고 첫 후보의 텍스트(JSON)를 돌려준다. 5xx·시간 초과·연결 실패면
+// retryWait 뒤에 한 번만 더 부른다(4xx는 다시 불러도 같아서 바로 실패, 402 크레딧 없음도 여기).
 // 실패하면 ErrFailed를 감싼 에러다. 응답 내용 검증은 부르는 쪽이 한다.
 func (g *Gemini) GenerateJSON(ctx context.Context, parts []Part, schema Schema) (string, error) {
-	text, err := g.call(ctx, requestBody(parts, schema))
+	payload, err := json.Marshal(requestBody(parts, schema))
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrFailed, err)
+	}
+	text, err := g.call(ctx, payload)
+	if err != nil && retryable(err) && ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+		case <-time.After(g.retryWait):
+			text, err = g.call(ctx, payload)
+		}
+	}
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrFailed, err)
 	}
 	return text, nil
 }
 
-func (g *Gemini) call(ctx context.Context, body map[string]any) (string, error) {
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return "", err
+// retryable은 한 번 더 불러 볼 만한 실패인지다: 5xx, 연결·시간 초과(상태 코드를 못 받음). 4xx와 응답 해석 실패는 아니다.
+func retryable(err error) bool {
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.Code >= 500
 	}
+	var te *transportError
+	return errors.As(err, &te)
+}
+
+// transportError는 응답을 받지 못한 실패다(연결 실패, 한 번 부르기 제한 시간 초과).
+type transportError struct{ err error }
+
+func (e *transportError) Error() string { return "gemini 요청 실패: " + e.err.Error() }
+func (e *transportError) Unwrap() error { return e.err }
+
+func (g *Gemini) call(ctx context.Context, payload []byte) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, g.timeout)
 	defer cancel()
 	u := fmt.Sprintf("%s/models/%s:generateContent", g.base, url.PathEscape(g.model))
@@ -112,17 +154,17 @@ func (g *Gemini) call(ctx context.Context, body map[string]any) (string, error) 
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {
-			return "", fmt.Errorf("gemini 요청 실패: %w", ue.Err)
+			err = ue.Err // 주소(키는 헤더에만 있다)를 빼고 원인만
 		}
-		return "", err
+		return "", &transportError{err}
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return "", &transportError{err}
 	}
 	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("gemini status %d", resp.StatusCode)
+		return "", &StatusError{resp.StatusCode}
 	}
 	var out struct {
 		Candidates []struct {

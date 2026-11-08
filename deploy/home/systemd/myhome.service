@@ -29,6 +29,8 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 MemoryMax=200M
+# Go GC가 MemoryMax(200M)에 닿기 전에 더 자주 돌게(사진 분석 요청이 몰려도 OOM으로 죽지 않게)
+Environment=GOMEMLIMIT=150MiB
 
 [Install]
 WantedBy=multi-user.target
