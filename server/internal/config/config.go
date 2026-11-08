@@ -27,6 +27,8 @@ type Config struct {
 
 	// ParserPackages는 패키지명 → 파서 매핑이다. 형식: "kb=패키지1,패키지2;toss=패키지3"
 	ParserPackages string
+	// ParserIgnorePatterns는 결제 알림이 아니라서 무시할 문구를 더한다(내장 광고·증권 규칙 외). 형식: "문구1;문구2"
+	ParserIgnorePatterns string
 
 	// AppEnv: production(기본) 또는 development
 	AppEnv string
@@ -126,6 +128,7 @@ func Load() (Config, error) {
 		TrustProxyHeaders:    boolean("TRUST_PROXY_HEADERS", false, &errs),
 		CLITokenIssueEnabled: boolean("CLI_TOKEN_ISSUE_ENABLED", true, &errs),
 		ParserPackages:       os.Getenv("PARSER_PACKAGES"),
+		ParserIgnorePatterns: os.Getenv("PARSER_IGNORE_PATTERNS"),
 		AppEnv:               str("APP_ENV", "production"),
 		CFAccessAUD:          strings.TrimSpace(os.Getenv("CF_ACCESS_AUD")),
 		AllowedEmails:        emailList("ALLOWED_EMAILS", &errs),

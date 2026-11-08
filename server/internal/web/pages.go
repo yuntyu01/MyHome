@@ -310,6 +310,10 @@ func (wb *Web) budgets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := wb.API.Q()
+	if err := wb.API.EnsureBudgets(r.Context(), p); err != nil {
+		wb.fail(w, err)
+		return
+	}
 	cur, err := q.ListBudgets(r.Context(), p.StartDate())
 	if err != nil {
 		wb.fail(w, err)

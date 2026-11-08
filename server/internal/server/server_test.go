@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/yuntyu01/MyHome/server/internal/auth"
 	"github.com/yuntyu01/MyHome/server/internal/config"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
@@ -28,6 +30,7 @@ type client struct {
 	h     http.Handler
 	token string
 	q     *dbq.Queries
+	pool  *pgxpool.Pool
 }
 
 func newClient(t *testing.T) *client { t.Helper(); return newClientWith(t, nil) }
@@ -48,7 +51,7 @@ func newClientWith(t *testing.T, mutate func(*config.Config)) *client {
 		mutate(&cfg)
 	}
 	h := server.New(server.Deps{Config: cfg, Pool: pool, Logger: logger, Processor: &pipeline.Processor{Pool: pool, Registry: reg, Logger: logger}})
-	return &client{t: t, h: h, token: tok, q: q}
+	return &client{t: t, h: h, token: tok, q: q, pool: pool}
 }
 
 func (c *client) do(method, path string, body any, out any) int {
@@ -195,7 +198,8 @@ func TestManualEntryAndValidation(t *testing.T) {
 
 func TestFailedRawEventsAndAnalytics(t *testing.T) {
 	c := newClient(t)
-	c.event("test.toss", "토스", "이번 주 혜택을 확인해 보세요", time.Now())
+	c.event("test.toss", "토스", "결제 내역을 확인해 주세요", time.Now())
+	c.event("test.toss", "토스", "이번 주 혜택을 확인해 보세요", time.Now()) // 광고: 무시(실패 아님)
 	var raw struct {
 		RawEvents []struct {
 			ParseError *string `json:"parse_error"`
@@ -204,6 +208,26 @@ func TestFailedRawEventsAndAnalytics(t *testing.T) {
 	c.do("GET", "/v1/raw-events?failed=true", nil, &raw)
 	if len(raw.RawEvents) != 1 || raw.RawEvents[0].ParseError == nil {
 		t.Errorf("해석 실패 원문 목록: %+v", raw)
+	}
+	// 요약에 읽지 못한 알림 수가 나온다(앱 홈·위젯 표시용). 처리 못 하고 오래 남은 원문도 센다.
+	ctx := context.Background()
+	stuck, err := c.q.InsertRawEvent(ctx, dbq.InsertRawEventParams{SourcePackage: "test.kb", Title: "KB국민카드", Text: "홍*동님 1,000원 일시불 GS25", PostedAt: time.Now(), ContentHash: "stuck-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sum struct {
+		FailedEvents int64 `json:"failed_events"`
+	}
+	c.do("GET", "/v1/summary", nil, &sum)
+	if sum.FailedEvents != 1 {
+		t.Errorf("failed_events = %d, want 1(방금 받은 미처리 원문은 아직 안 셈)", sum.FailedEvents)
+	}
+	if _, err := c.pool.Exec(ctx, "UPDATE raw_events SET received_at = now() - interval '1 hour' WHERE id = $1", stuck.ID); err != nil {
+		t.Fatal(err)
+	}
+	c.do("GET", "/v1/summary", nil, &sum)
+	if sum.FailedEvents != 2 {
+		t.Errorf("failed_events = %d, want 2", sum.FailedEvents)
 	}
 	var an struct {
 		Daily []struct{ Day string }
@@ -276,5 +300,58 @@ func TestMonthlyReportAndReconcile(t *testing.T) {
 	}
 	if len(rc.History) != 6 || rc.History[0].Sum != 20000 {
 		t.Errorf("최근 6개 기간: %+v", rc.History)
+	}
+}
+
+// 새 기간에 예산이 없으면 예산이 있던 가장 최근 기간의 예산을 한 번 복사한다(위젯이 '예산 없음'이 되지 않게).
+func TestBudgetRolloverToNewPeriod(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+	cur := period.Containing(time.Now(), 1)
+	twoAgo := cur.Prev(1).Prev(1) // 지난달은 비어 있어도 그 전 예산을 가져온다
+	cafe := c.catID("카페·간식")
+	if err := c.q.UpsertBudget(ctx, dbq.UpsertBudgetParams{PeriodStart: twoAgo.StartDate(), CategoryID: cafe, Amount: 100000}); err != nil {
+		t.Fatal(err)
+	}
+	var sum struct {
+		Totals     struct{ Budget int64 } `json:"totals"`
+		Categories []struct {
+			ID     int64 `json:"id"`
+			Budget int64 `json:"budget"`
+		} `json:"categories"`
+	}
+	c.do("GET", "/v1/summary", nil, &sum)
+	if sum.Totals.Budget != 100000 {
+		t.Fatalf("이월된 예산 총계 = %d", sum.Totals.Budget)
+	}
+	// 사용자가 이번 기간 예산을 바꾸면 다시 덮어쓰지 않는다.
+	if err := c.q.UpsertBudget(ctx, dbq.UpsertBudgetParams{PeriodStart: cur.StartDate(), CategoryID: cafe, Amount: 50000}); err != nil {
+		t.Fatal(err)
+	}
+	c.do("GET", "/v1/summary", nil, &sum)
+	if sum.Totals.Budget != 50000 {
+		t.Errorf("사용자가 정한 예산 유지 = %d", sum.Totals.Budget)
+	}
+	// 지난 기간을 볼 때는 복사하지 않는다.
+	prev := cur.Prev(1)
+	c.do("GET", "/v1/summary?month="+prev.Label, nil, &sum)
+	if has, _ := c.q.HasBudgets(ctx, prev.StartDate()); has || sum.Totals.Budget != 0 {
+		t.Errorf("지난 기간에 예산을 만들면 안 됨: %d", sum.Totals.Budget)
+	}
+}
+
+// /healthz는 DB까지 확인한다.
+func TestHealthzChecksDB(t *testing.T) {
+	c := newClient(t)
+	rec := httptest.NewRecorder()
+	c.h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != 200 {
+		t.Fatalf("DB가 살아 있으면 200: %d", rec.Code)
+	}
+	c.pool.Close()
+	rec = httptest.NewRecorder()
+	c.h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("DB에 못 닿으면 503: %d", rec.Code)
 	}
 }

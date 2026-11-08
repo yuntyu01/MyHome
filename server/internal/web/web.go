@@ -345,6 +345,7 @@ var reasonLabels = map[string]string{
 	pipeline.ReviewUnknownKind:    "어떤 거래인지 모름",
 	pipeline.ReviewCancelNoMatch:  "원래 결제를 못 찾은 취소",
 	pipeline.ReviewCancelPartial:  "부분 취소",
+	pipeline.ReviewForeign:        "외화 결제(원화 금액 확인)",
 	pipeline.ExcludeCardPayment:   "카드대금",
 	pipeline.ExcludePrepaid:       "머니 충전",
 	pipeline.ExcludeDuplicate:     "중복",

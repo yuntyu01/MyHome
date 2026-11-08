@@ -28,6 +28,7 @@ func newProcessor(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) (*
 	if err != nil {
 		return nil, err
 	}
+	reg.SetIgnorePatterns(cfg.ParserIgnorePatterns)
 	return &pipeline.Processor{Pool: pool, Registry: reg, Logger: logger}, nil
 }
 
@@ -72,7 +73,7 @@ func reprocessCmd(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 	fmt.Fprintf(out, "기간 %s ~ %s\n원문 %d건 재처리%s, 수동 수정으로 건너뜀 %d건, 자동 거래 %d건 삭제 후 재생성\n",
 		*from, *to, rep.RawEvents, map[bool]string{true: "함", false: " 예정"}[rep.Applied], rep.SkippedManual, rep.DeletedDerived)
 	if rep.Applied {
-		fmt.Fprintf(out, "새 거래 %d건, 해석 실패 %d건\n", rep.Created, rep.ParseErrors)
+		fmt.Fprintf(out, "새 거래 %d건, 해석 실패 %d건, 결제 아님(무시) %d건\n", rep.Created, rep.ParseErrors, rep.Ignored)
 	} else {
 		fmt.Fprintln(out, "적용하려면 --apply를 붙이세요.")
 	}
@@ -117,6 +118,7 @@ func exportRawCmd(ctx context.Context, cfg config.Config, args []string, stdout 
 	if err != nil {
 		return err
 	}
+	reg.SetIgnorePatterns(cfg.ParserIgnorePatterns)
 	raws, err := dbq.New(pool).ListRawEventsInRange(ctx, dbq.ListRawEventsInRangeParams{FromAt: f, ToAt: t})
 	if err != nil {
 		return err

@@ -37,27 +37,35 @@ func rules(reason string, pats ...string) []ignoreRule {
 }
 
 // hardIgnore는 결제 문구가 같이 있어도 무시한다. 실제 결제 알림에는 나오지 않는 표현만 둔다.
-var hardIgnore = append(append(append(
+var hardIgnore = concat(
 	rules(IgnoreAd,
-		`^\s*\(광고\)`,
+		`(?m)^\s*\(광고\)`,
 		`적립해\s?드`, // 적립해드려요, 적립해 드립니다
 		`(결제|구매|가입|이용|사용|충전|송금)하면\s`,
 	),
 	rules(IgnoreSecurities,
 		`[0-9,]+\s*주를?\s*[0-9,]+\s*원에\s*(구매|판매|매수|매도)`,
 		`[0-9.]+\s*%\s*(올랐|내렸|상승|하락)`,
-	)...),
+	),
 	rules(IgnoreNotice,
 		`취소(는|하려면|하시려면|할\s?수)`,
-	)...),
+	),
 )
 
+func concat(groups ...[]ignoreRule) []ignoreRule {
+	var out []ignoreRule
+	for _, g := range groups {
+		out = append(out, g...)
+	}
+	return out
+}
+
 // softIgnore는 돈이 실제로 움직였다는 문구(paidMarker)가 없을 때만 무시한다.
-var softIgnore = append(
+var softIgnore = concat(
 	rules(IgnoreAd,
 		`혜택`, `쿠폰`, `이벤트`, `받기`, `받으세요`, `받아\s?가세요`, `[0-9]+\s*%\s*(할인|적립|캐시백)`, `만보기`,
 	),
-	rules(IgnoreNotice, `예정`, `수\s?있어요`)...,
+	rules(IgnoreNotice, `예정`, `수\s?있어요`),
 )
 
 // paidMarker는 실제 승인·입출금이 일어났다는 표현이다.

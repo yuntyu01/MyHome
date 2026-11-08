@@ -198,11 +198,119 @@ func TestDuplicate_KBFirstThenToss_ImprovesMerchant(t *testing.T) {
 
 func TestNoDuplicate_SameAppOrOutsideWindow(t *testing.T) {
 	h := newHarness(t)
-	a, _ := h.event("test.kb", "KB국민카드", "홍*동님 4,500원 일시불 메가커피", base)
-	b, _ := h.event("test.kb", "KB국민카드", "홍*동님 4,500원 일시불 메가커피", base.Add(time.Minute))
+	// 같은 앱이라도 본문이 다르면(승인 시각이 다름) 두 번 결제한 것이다.
+	a, _ := h.event("test.kb", "KB국민카드", "홍*동님 11/10 12:00 4,500원 일시불 메가커피", base)
+	b, _ := h.event("test.kb", "KB국민카드", "홍*동님 11/10 12:01 4,500원 일시불 메가커피", base.Add(time.Minute))
 	c, _ := h.event("test.toss", "토스페이", "메가커피에서 4,500원 결제했어요", base.Add(10*time.Minute))
 	for _, tx := range []*dbq.Transaction{a, b, c} {
 		h.wantStatus(*tx, "confirmed", "카페·간식")
+	}
+}
+
+// 같은 앱이 같은 알림을 다시 올리면(postTime만 다름) 10분 안이면 앞의 거래에 합친다.
+func TestSameAppRepostIsDuplicate(t *testing.T) {
+	h := newHarness(t)
+	body := "홍*동님 11/10 12:00 12,500원 일시불 스타벅스강남점"
+	a, _ := h.event("test.kb", "KB국민카드", body, base)
+	b, _ := h.event("test.kb", "KB국민카드", body, base.Add(7*time.Second))
+	h.wantStatus(*a, "confirmed", "카페·간식")
+	h.wantStatus(*b, "excluded", "")
+	if b.MergedInto == nil || *b.MergedInto != a.ID || deref(b.ExclusionReason) != pipeline.ExcludeDuplicate {
+		t.Errorf("재게시는 앞 거래에 합쳐야 함: %+v", b)
+	}
+	if s := h.summary(nil); s["카페·간식"].Spent != 12500 {
+		t.Errorf("한 번만 세야 함: %d", s["카페·간식"].Spent)
+	}
+	// 10분이 지나면 다른 결제로 본다.
+	c, _ := h.event("test.kb", "KB국민카드", body, base.Add(11*time.Minute))
+	h.wantStatus(*c, "confirmed", "카페·간식")
+	// 이체도 두 번 세지 않는다(예외 규칙보다 먼저 본다).
+	inv := "토스증권으로 500,000원을 옮겼어요"
+	x, _ := h.event("test.toss", "토스뱅크", inv, base.Add(time.Hour))
+	y, _ := h.event("test.toss", "토스뱅크", inv, base.Add(time.Hour+30*time.Second))
+	h.wantStatus(*x, "confirmed", "투자·저축")
+	if y.MergedInto == nil || *y.MergedInto != x.ID {
+		t.Errorf("이체 재게시도 합쳐야 함: %+v", y)
+	}
+}
+
+// 중복 합치기는 같은 종류끼리만 한다: 같은 금액의 송금과 카드 승인은 따로다.
+func TestDuplicateOnlySameKind(t *testing.T) {
+	h := newHarness(t)
+	pay, _ := h.event("test.kb", "KB국민카드", "홍*동님 25,000원 일시불 올리브영 강남점", base)
+	send, _ := h.event("test.toss", "토스", "김민수님에게 25,000원을 보냈어요", base.Add(40*time.Second))
+	h.wantStatus(*pay, "confirmed", "쇼핑")
+	h.wantStatus(*send, "needs_review", "")
+	if send.MergedInto != nil {
+		t.Errorf("송금이 승인에 합쳐지면 안 됨: %+v", send)
+	}
+	// 환불(취소)과 같은 금액 입금도 따로다.
+	h.event("test.kb", "KB국민카드", "홍*동님 9,000원 일시불 테스트서점", base.Add(time.Hour))
+	cancel, _ := h.event("test.kb", "KB국민카드 승인취소", "홍*동님 9,000원 테스트서점", base.Add(2*time.Hour))
+	dep, _ := h.event("test.toss", "토스", "이영희님이 9,000원을 보냈어요", base.Add(2*time.Hour+time.Minute))
+	h.wantStatus(*cancel, "excluded", "")
+	if dep.MergedInto != nil || dep.Status != "needs_review" {
+		t.Errorf("입금이 취소에 합쳐지면 안 됨: %+v", dep)
+	}
+}
+
+// KB와 토스가 같은 환불을 각각 알리면(10분 차이) 두 번째는 중복이다. 다른 결제에서 또 빼면 안 된다.
+func TestCancelFromSecondSourceIsDuplicate(t *testing.T) {
+	h := newHarness(t)
+	a, _ := h.event("test.kb", "KB국민카드", "홍*동님 12,500원 일시불 스타벅스강남점", base)
+	b, _ := h.event("test.kb", "KB국민카드", "홍*동님 15,000원 일시불 스타벅스강남점", base.Add(48*time.Hour))
+	c, _ := h.event("test.kb", "KB국민카드 승인취소", "홍*동님 12,500원 스타벅스강남점", base.Add(72*time.Hour))
+	d, _ := h.event("test.toss", "토스페이", "12,500원 결제 취소 | 스타벅스 강남점", base.Add(72*time.Hour+10*time.Minute))
+	if c.CancelsID == nil || *c.CancelsID != a.ID {
+		t.Fatalf("첫 취소가 12,500원 결제를 상계해야 함: %+v", c)
+	}
+	h.wantStatus(h.get(b.ID), "confirmed", "카페·간식")
+	h.wantStatus(*d, "excluded", "")
+	if d.MergedInto == nil || *d.MergedInto != c.ID || d.CancelsID != nil {
+		t.Errorf("두 번째 취소는 첫 취소의 중복: merged=%v cancels=%v", deref(d.MergedInto), deref(d.CancelsID))
+	}
+	if s := h.summary(nil); s["카페·간식"].Spent != 15000 {
+		t.Errorf("15,000원 결제는 그대로여야 함: spent=%d", s["카페·간식"].Spent)
+	}
+}
+
+// 광고·증권 알림은 거래를 만들지 않고 무시로 남는다(해석 실패 목록에도 없음).
+func TestNonPaymentNotificationIgnored(t *testing.T) {
+	h := newHarness(t)
+	for i, text := range []string{"스타벅스에서 결제하면 1,000원 적립해드려요", "테스트전자 1주를 71,000원에 구매했어요"} {
+		tx, res := h.event("test.toss", "토스", text, base.Add(time.Duration(i)*time.Minute))
+		if tx != nil || res.Ignored == "" || res.ParseError != "" {
+			t.Errorf("%q: 무시해야 함 tx=%v res=%+v", text, tx, res)
+		}
+		raw, err := h.q.GetRawEvent(context.Background(), res.RawEventID)
+		if err != nil || raw.IgnoreReason == nil || raw.ProcessedAt == nil {
+			t.Errorf("원문에 무시 사유가 남아야 함: %v %+v", err, raw)
+		}
+	}
+	if failed, _ := h.q.ListFailedRawEvents(context.Background(), 10); len(failed) != 0 {
+		t.Errorf("무시는 해석 실패가 아님: %d건", len(failed))
+	}
+	if s := h.summary(nil); s["카페·간식"].Spent != 0 {
+		t.Errorf("광고가 지출로 잡힘: %d", s["카페·간식"].Spent)
+	}
+}
+
+// 외화만 있는 승인은 금액 0인 확인 필요 거래가 되고 외화 금액은 메모에 남는다.
+func TestForeignCurrencyNeedsReview(t *testing.T) {
+	h := newHarness(t)
+	tx, res := h.event("test.kb", "KB국민카드", "KB국민카드 승인 USD 12.34 TESTSHOP", base)
+	if tx == nil {
+		t.Fatalf("거래가 만들어져야 함: %+v", res)
+	}
+	h.wantStatus(*tx, "needs_review", "")
+	if tx.Amount != 0 || tx.Memo != "외화 USD 12.34" || deref(tx.ReviewReason) != pipeline.ReviewForeign || tx.Merchant != "TESTSHOP" {
+		t.Errorf("외화 승인: amount=%d memo=%q review=%v merchant=%q", tx.Amount, tx.Memo, deref(tx.ReviewReason), tx.Merchant)
+	}
+	// 금액 0인 외화 취소는 아무 결제나 상계하지 않는다.
+	h.event("test.kb", "KB국민카드", "홍*동님 3,000원 일시불 GS25 역삼점", base.Add(time.Hour))
+	c, _ := h.event("test.kb", "KB국민카드 승인취소", "USD 12.34 TESTSHOP", base.Add(2*time.Hour))
+	if c.CancelsID != nil || c.Status != "needs_review" {
+		t.Errorf("외화 취소는 확인 필요: %+v", c)
 	}
 }
 
@@ -304,12 +412,12 @@ func TestFriendTransferNeedsReview(t *testing.T) {
 
 func TestParseFailureKeepsRaw(t *testing.T) {
 	h := newHarness(t)
-	tx, res := h.event("test.toss", "토스", "이번 주 혜택을 확인해 보세요", base)
+	tx, res := h.event("test.toss", "토스", "결제 내역을 확인해 주세요", base)
 	if tx != nil || res.ParseError == "" {
 		t.Fatalf("해석 실패 기대: tx=%v res=%+v", tx, res)
 	}
 	failed, err := h.q.ListFailedRawEvents(context.Background(), 10)
-	if err != nil || len(failed) != 1 || failed[0].Text != "이번 주 혜택을 확인해 보세요" {
+	if err != nil || len(failed) != 1 || failed[0].Text != "결제 내역을 확인해 주세요" {
 		t.Fatalf("실패 원문 목록: %v %+v", err, failed)
 	}
 }
@@ -470,5 +578,41 @@ func TestReprocessKeepsDuplicateAndCancelLinksConsistent(t *testing.T) {
 	n, _ := h.q.CountNeedsReview(ctx)
 	if n != 0 {
 		t.Errorf("확인 필요 %d건", n)
+	}
+}
+
+// 처리에 실패해 남은 원문은 서버를 다시 띄우지 않아도 주기 작업이 처리하고, ctx가 끝나면 작업도 끝난다.
+func TestRunPendingProcessesLeftovers(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	req := ingest.Request{SourcePackage: "test.kb", Title: "KB국민카드", Text: "홍*동님 3,000원 일시불 GS25 역삼점", PostedAt: base.UnixMilli()}
+	raw, err := h.q.InsertRawEvent(ctx, dbq.InsertRawEventParams{SourcePackage: req.SourcePackage, Title: req.Title, Text: req.Text, PostedAt: base, ContentHash: ingest.ContentHash(req)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { h.p.RunPending(ctx, 20*time.Millisecond, 100); close(done) }()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		r, err := h.q.GetRawEvent(context.Background(), raw.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.ProcessedAt != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("주기 작업이 원문을 처리하지 않음")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ctx가 끝났는데 작업이 멈추지 않음")
+	}
+	if txs, _ := h.q.ListTransactionsByRawEvent(context.Background(), &raw.ID); len(txs) != 1 {
+		t.Errorf("거래 %d건", len(txs))
 	}
 }
