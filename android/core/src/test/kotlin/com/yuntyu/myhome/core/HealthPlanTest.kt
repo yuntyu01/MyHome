@@ -134,4 +134,13 @@ class HealthPlanTest {
         assertEquals(0.5, portion, 0.0)
         assertNull(ai.items.single().portion)
     }
+
+    // 먹은 시각: 자정 넘긴 끼니(전날 끼니 날)의 새벽 시각은 다음 날로, 그 외는 끼니 날 그대로
+    @Test fun eatenAtCrossesMidnightOnlyForEarlyMorning() {
+        val day = java.time.LocalDate.of(2026, 11, 7)
+        val today = java.time.LocalDate.of(2026, 11, 8)
+        assertEquals(java.time.LocalDateTime.of(2026, 11, 8, 0, 40), HealthPlan.eatenAt(day, "00:40", today))
+        assertEquals(java.time.LocalDateTime.of(2026, 11, 7, 21, 10), HealthPlan.eatenAt(day, "21:10", today))
+        assertEquals(java.time.LocalDateTime.of(2026, 11, 8, 3, 0), HealthPlan.eatenAt(today, "03:00", today))
+    }
 }

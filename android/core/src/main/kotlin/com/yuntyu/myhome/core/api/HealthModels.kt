@@ -58,6 +58,8 @@ data class MealRequest(
     val portion: Double = 1.0,
     val sharedMeal: Boolean = false,
     val barcode: String? = null,
+    /** 먹은 시각(ISO-8601, 오프셋 포함). 없으면 서버가 저장한 시각으로 */
+    val loggedAt: String? = null,
 )
 
 /** 오늘 식단 표 한 줄. 아직 안 먹은 끼니는 target(남은 목표를 남은 끼니로 나눈 값), 놓친 끼니는 둘 다 없다. */

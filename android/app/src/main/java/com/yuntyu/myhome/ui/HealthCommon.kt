@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yuntyu.myhome.core.Money
 import com.yuntyu.myhome.core.api.MealView
 import com.yuntyu.myhome.core.api.MyHomeJson
@@ -84,29 +85,33 @@ fun remainText(minutes: Long): String = when {
     else -> "${minutes / 60}시간 ${minutes % 60}분"
 }
 
-/** 약 1,160 / 1,600 kcal 같은 줄과 막대. 목표를 넘어도 경고색을 쓰지 않는다(핏두잉 규칙: 많이 먹은 것을 탓하지 않는다). */
+/**
+ * 하루 합계: 탄수화물·단백질·지방을 크게, 칼로리는 그 아래 한 줄로. 목표를 넘어도 경고색을 쓰지 않는다
+ * (핏두잉 규칙: 많이 먹은 것을 탓하지 않는다).
+ */
 @Composable
 fun NutritionTotals(total: Nutrition, targets: Nutrition, title: String, trailing: String?) {
     val m = LocalModo.current
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).padding(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
             if (trailing != null) Text(trailing, style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text("칼로리", Modifier.weight(1f), color = m.muted, style = MaterialTheme.typography.bodyMedium)
-            Text("약 ", color = m.muted, style = MaterialTheme.typography.bodySmall)
-            Text(num(total.kcal), style = MaterialTheme.typography.titleLarge)
-            Text(" / ${num(targets.kcal)} kcal", color = m.muted, style = MaterialTheme.typography.bodySmall)
-        }
-        ModoBar(ratioOf(total.kcal, targets.kcal), m.accent)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Macro("탄수화물", total.carbs, targets.carbs, Modifier.weight(1f))
             Macro("단백질", total.protein, targets.protein, Modifier.weight(1f))
             Macro("지방", total.fat, targets.fat, Modifier.weight(1f))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("칼로리", Modifier.weight(1f), color = m.muted, style = MaterialTheme.typography.bodyMedium)
+                Text(num(total.kcal), style = MaterialTheme.typography.titleMedium)
+                Text(" / ${num(targets.kcal)} kcal", color = m.muted, style = MaterialTheme.typography.bodySmall)
+            }
+            ModoBar(ratioOf(total.kcal, targets.kcal), m.accent)
         }
     }
 }
@@ -116,15 +121,19 @@ private fun ratioOf(v: Int, t: Int): Double = if (t <= 0) 0.0 else v.toDouble() 
 @Composable
 private fun Macro(label: String, value: Int, target: Int, modifier: Modifier) {
     val m = LocalModo.current
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = m.muted)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = m.muted, maxLines = 1)
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(num(value), style = MaterialTheme.typography.titleMedium)
-            Text(" / ${num(target)}g", style = MaterialTheme.typography.bodySmall, color = m.muted)
+            Text(num(value), fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text("g", fontSize = 14.sp, color = m.muted, modifier = Modifier.padding(start = 2.dp, bottom = 3.dp))
         }
         ModoBar(ratioOf(value, target), m.accent)
+        Text("목표 ${num(target)}g", fontSize = 12.sp, color = m.muted, maxLines = 1)
     }
 }
+
+/** 끼니 영양 한 줄: "탄 74g · 단 28g · 지 22g · 620kcal" */
+fun macroLine(n: Nutrition): String = "탄 ${num(n.carbs)}g · 단 ${num(n.protein)}g · 지 ${num(n.fat)}g · ${num(n.kcal)}kcal"
 
 /** 식단 표 머리줄과 줄: 끼니 | kcal | 탄 | 단 | 지 */
 @Composable
@@ -154,10 +163,14 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick
     val m = LocalModo.current
     Box(
         modifier.clip(RoundedCornerShape(12.dp)).background(if (selected) m.accent else m.pill).clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = if (selected) m.onAccent else MaterialTheme.colorScheme.onSurface, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+        // 좁은 칸(weight)에서 글자가 잘리지 않게 여백을 줄이고 두 줄까지 허용한다
+        Text(
+            text, color = if (selected) m.onAccent else MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 2, textAlign = TextAlign.Center,
+        )
     }
 }
 

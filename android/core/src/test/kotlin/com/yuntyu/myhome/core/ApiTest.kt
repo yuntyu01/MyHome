@@ -186,4 +186,35 @@ class ApiTest {
         assertEquals("식비", items[0].suggestion?.category)
         assertEquals(null, items[1].suggestion)
     }
+
+    // 거래 목록 거르기·현금 입력·예산 저장·분류 숨기기가 서버 형식대로 나가는지 (합성 데이터)
+    @Test fun ledgerEditsSendServerShapes() {
+        server.enqueue(MockResponse().setBody("""{"transactions":[]}"""))
+        api().transactions(limit = 200, month = "2026-10", status = "needs_review")
+        assertEquals("/v1/transactions?limit=200&month=2026-10&status=needs_review", server.takeRequest().path)
+
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"transaction":{"id":9,"occurred_at":"2026-11-08T03:00:00Z","amount":5000,"flow":"out","merchant":"합성분식"}}"""))
+        val made = api().createTransaction(com.yuntyu.myhome.core.api.ManualTransaction(amount = 5000, merchant = "합성분식", categoryId = 3))
+        assertEquals(9L, (made as ApiResult.Ok).value.transaction.id)
+        val manual = server.takeRequest().body.readUtf8()
+        assertTrue(manual.contains("\"category_id\":3") && manual.contains("\"flow\":\"out\"") && !manual.contains("occurred_at"))
+
+        server.enqueue(MockResponse().setBody("""{"period":{"label":"2026-11","start":"2026-11-01","end":"2026-11-30"},"items":[{"category_id":3,"category":"식비","amount":300000}]}"""))
+        val saved = api().putBudgets("2026-11", listOf(com.yuntyu.myhome.core.api.BudgetItem(categoryId = 3, amount = 300000)))
+        assertEquals(300000L, (saved as ApiResult.Ok).value.items.single().amount)
+        val req = server.takeRequest()
+        assertEquals("PUT", req.method)
+        assertTrue(req.body.readUtf8().contains("\"month\":\"2026-11\""))
+
+        server.enqueue(MockResponse().setBody("""{"id":4,"name":"합성분류","kind":"expense","sort":500,"archived":true}"""))
+        api().updateCategory(4, archived = true)
+        val patch = server.takeRequest()
+        assertEquals("/v1/categories/4", patch.path)
+        val body = patch.body.readUtf8()
+        // 서버는 kind가 오면 거부한다. 이름도 안 바꿀 때는 빼고 보낸다
+        assertTrue(body.contains("\"archived\":true") && !body.contains("kind") && !body.contains("name"))
+
+        server.enqueue(MockResponse().setBody("""{"settings":{"budget_start_day":25,"own_accounts":[]}}"""))
+        assertEquals(25, (api().budgetStartDay() as ApiResult.Ok).value)
+    }
 }

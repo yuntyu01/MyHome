@@ -30,6 +30,7 @@ import com.yuntyu.myhome.R
  * - 라이트: 밝은 회색 바탕(#F6F6F5) + 흰 카드, 평소 막대·선택 상태는 무채색 #5E5E5E
  * - 색은 주의가 필요한 금액에만 쓴다. 예산 80% 이상과 확인 필요는 라벤더, 초과는 살구. 빨강·파랑은 쓰지 않는다
  * - 테두리·그림자 없이 바탕색 차이로만 구분, 둥근 모서리(카드 16dp), Pretendard 글꼴
+ * - 가계부·설정 화면은 카드 대신 가로로 꽉 찬 줄과 1dp 구분선으로 나눈다(박스 안 박스 금지). 주인공 버튼은 화면당 하나, 가로로 꽉 차게
  * 휴대폰 배경화면 색을 따라가는 동적 색(Material You)은 쓰지 않는다(디자인을 고정하기 위해).
  */
 
@@ -52,6 +53,15 @@ data class ModoColors(
     val over: Color,
     val overBar: Color,
     val income: Color,
+    /** 줄 구분선(박스 대신 1dp 선으로 나눈다) */
+    val line: Color,
+    /** 아주 옅은 글자(설명, 비활성) */
+    val faint: Color,
+    /** 화면당 하나인 주인공 버튼 바탕·글자 */
+    val cta: Color,
+    val onCta: Color,
+    /** 정상 상태 점 */
+    val ok: Color,
     val dark: Boolean,
 )
 
@@ -64,6 +74,9 @@ private val DarkModo = ModoColors(
     warn = Color(0xFFAFA5D4), warnBar = Color(0xFFAFA5D4),
     over = Color(0xFFD89777), overBar = Color(0xFFD89777),
     income = Color(0xFFCFCFCF),
+    line = Color(0xFF262626), faint = Color(0xFF6E6E6E),
+    cta = Color(0xFFEDEDED), onCta = Color(0xFF151515),
+    ok = Color(0xFF9FC2A8),
     dark = true,
 )
 
@@ -76,6 +89,9 @@ private val LightModo = ModoColors(
     warn = Color(0xFF6F6698), warnBar = Color(0xFF8F85B9),
     over = Color(0xFFA15A36), overBar = Color(0xFFC07B58),
     income = Color(0xFF5E5E5E),
+    line = Color(0xFFE4E4E2), faint = Color(0xFF9A9A9A),
+    cta = Color(0xFF1F1F1F), onCta = Color(0xFFFFFFFF),
+    ok = Color(0xFF4F8A5E),
     dark = false,
 )
 

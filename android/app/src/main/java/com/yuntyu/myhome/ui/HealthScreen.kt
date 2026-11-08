@@ -11,6 +11,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import com.yuntyu.myhome.core.api.Nutrition
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,7 +49,6 @@ import com.yuntyu.myhome.core.api.HealthSettings
 import com.yuntyu.myhome.core.api.HealthToday
 import com.yuntyu.myhome.core.api.HealthWeekly
 import com.yuntyu.myhome.core.api.MyHomeJson
-import com.yuntyu.myhome.core.api.Nutrition
 import com.yuntyu.myhome.core.api.describe
 import com.yuntyu.myhome.health.MealOutbox
 import com.yuntyu.myhome.health.Reminders
@@ -56,7 +61,7 @@ import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.max
 
-/** 건강 첫 화면(핏두잉 "오늘"): 요일 줄, 끼니 칸, 오늘 합계, 식단 표, 주간 그래프, 촬영 버튼. */
+/** 건강 첫 화면(핏두잉 "오늘"): 요일 줄, 끼니 칸, 오늘 합계(탄단지 위주), 끼니마다 박스, 헬스 한 줄, 주간 그래프, 아래 촬영 버튼. */
 data class HealthHome(
     val day: LocalDate,
     val settings: HealthSettings,
@@ -101,21 +106,17 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
         loadHealthHome().onSuccess { data = it; error = null }.onFailure { error = it.message }
     }
     val m = LocalModo.current
-    Box(modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize()) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val d = data
             if (d == null) {
-                Text(error?.let { "불러오지 못했어요: $it" } ?: "불러오는 중…", color = m.muted)
+                Text(if (error != null) "불러오지 못했어요. 인터넷 연결을 확인해 주세요" else "불러오는 중…", color = m.muted, modifier = Modifier.padding(horizontal = 6.dp))
                 return@Column
             }
-            if (error != null) Text("새로 불러오지 못했어요: $error", style = MaterialTheme.typography.bodySmall, color = m.over)
-            Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(dayTitle(d.day), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                if (d.today.streak > 0) Text("${d.today.streak}일째 기록 중", style = MaterialTheme.typography.bodySmall, color = m.muted)
-            }
+            if (error != null) Text("새로 불러오지 못했어요. 마지막으로 받은 기록이에요", style = MaterialTheme.typography.bodySmall, color = m.over, modifier = Modifier.padding(horizontal = 6.dp))
             WeekStrip(d)
             if (d.outbox.isNotEmpty()) {
                 val failed = d.outbox.values.count { it.error != null }
@@ -128,21 +129,22 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
                 )
             }
             MealTiles(d, nav, onNavigate)
-            NutritionTotals(d.today.total, d.today.targets, "오늘 합계", "${d.today.loggedCount}끼 기록")
-            MealTable(d, nav, onNavigate)
+            val streak = if (d.today.streak > 0) " · ${d.today.streak}일째" else ""
+            NutritionTotals(d.today.total, d.today.targets, "오늘 합계", "${d.today.loggedCount}끼 기록$streak")
+            MealCards(d, nav, onNavigate)
+            GymLine(d) { onNavigate(Screen.HEALTH_GYM) }
             d.weekly?.let { WeeklyCard(it) }
         }
+        // 찍기 버튼은 내용 위에 떠 있지 않고 아래에 붙인다(표·그래프를 가리지 않게)
         val d = data
         if (d != null) {
-            Box(
-                Modifier.align(Alignment.BottomEnd).padding(20.dp).size(60.dp).clip(CircleShape).background(m.accent)
-                    .clickable(onClickLabel = "끼니 촬영") {
-                        nav.openCapture(d.day.toString(), currentIndex(d))
-                        onNavigate(Screen.HEALTH_CAPTURE)
-                    },
-                contentAlignment = Alignment.Center,
+            val next = currentIndex(d)
+            PrimaryButton(
+                if (next != null) "사진 찍어서 ${HealthPlan.label(next)} 기록" else "사진 찍어서 기록",
+                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
-                Icon(CameraIcon, contentDescription = "끼니 촬영", tint = m.onAccent, modifier = Modifier.size(26.dp))
+                nav.openCapture(d.day.toString(), next)
+                onNavigate(Screen.HEALTH_CAPTURE)
             }
         }
     }
@@ -150,7 +152,7 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
 
 /** 지금 찍을 끼니: 마감 전 미기록 중 가장 이른 것, 없으면 다음 기타 번호 */
 private fun currentIndex(d: HealthHome): Int? {
-    val logged = d.card?.meals.orEmpty().map { it.index }.toSet()
+    val logged = d.card?.meals.orEmpty().map { it.index }.toSet() + d.outbox.keys
     val st = HealthPlan.statuses(HealthPlan.deadlinesFor(d.day, d.settings.meals), logged, LocalDateTime.now())
     return st.firstOrNull { it.second == HealthPlan.TileState.CURRENT }?.first?.index ?: HealthPlan.nextExtraIndex(logged)
 }
@@ -180,13 +182,17 @@ private fun WeekStrip(d: HealthHome) {
     }
 }
 
+/** 위 끼니 칸(1끼·2끼…). 헬스는 아래 따로 한 줄로 뺐다. 칸이 4개 이하면 화면 폭을 나눠 쓰고, 많으면 옆으로 넘긴다 */
 @Composable
 private fun MealTiles(d: HealthHome, nav: HealthNav, onNavigate: (Screen) -> Unit) {
-    val m = LocalModo.current
     val meals = d.card?.meals.orEmpty().associateBy { it.index }
     val now = LocalDateTime.now()
     val statuses = HealthPlan.statuses(HealthPlan.deadlinesFor(d.day, d.settings.meals), meals.keys + d.outbox.keys, now)
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val fit = statuses.size <= 4
+    Row(
+        Modifier.fillMaxWidth().then(if (fit) Modifier else Modifier.horizontalScroll(rememberScrollState())),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         for ((dl, state) in statuses) {
             val current = state == HealthPlan.TileState.CURRENT
             val waiting = d.outbox[dl.index]?.takeIf { dl.index !in meals }
@@ -200,41 +206,32 @@ private fun MealTiles(d: HealthHome, nav: HealthNav, onNavigate: (Screen) -> Uni
                     HealthPlan.TileState.UPCOMING -> HealthPlan.hhmm(dl.at.hour * 60 + dl.at.minute)
                 }
             }
-            Tile(HealthPlan.label(dl.index), sub, current, done = state == HealthPlan.TileState.LOGGED && waiting == null) {
+            Tile(
+                HealthPlan.label(dl.index), sub, current, done = state == HealthPlan.TileState.LOGGED && waiting == null,
+                modifier = if (fit) Modifier.weight(1f) else Modifier.widthIn(min = 80.dp),
+            ) {
                 nav.openCapture(d.day.toString(), dl.index, meals[dl.index])
                 onNavigate(Screen.HEALTH_CAPTURE)
-            }
-        }
-        val g = d.today.gym
-        if (g.enabled) {
-            // 휴식권을 쓴 날은 한 날로 보고 도착 시각 대신 "쉬는 날"
-            val rest = d.card?.gymVerifiedBy == "rest"
-            val sub = when {
-                rest -> "쉬는 날"
-                d.card?.gym == true -> "${g.done}/${g.planned}회"
-                else -> "${g.done}/${g.planned}회" + if (g.scheduledToday) " · ${g.arriveBy}" else ""
-            }
-            Tile("헬스", sub, current = false, done = d.card?.gym == true || rest) {
-                onNavigate(Screen.HEALTH_GYM)
             }
         }
     }
 }
 
 @Composable
-private fun Tile(title: String, sub: String, current: Boolean, done: Boolean, onClick: () -> Unit) {
+private fun Tile(title: String, sub: String, current: Boolean, done: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val m = LocalModo.current
     val fg = if (current) m.onAccent else MaterialTheme.colorScheme.onSurface
     Column(
-        Modifier.width(76.dp).height(84.dp).clip(RoundedCornerShape(16.dp)).background(if (current) m.accent else m.card)
+        modifier.heightIn(min = 84.dp).clip(RoundedCornerShape(16.dp)).background(if (current) m.accent else m.card)
             .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), color = fg, fontWeight = FontWeight.SemiBold, maxLines = 1)
             if (done) Text("✓", color = if (current) m.onAccent else m.muted, fontSize = 12.sp)
         }
-        Text(sub, color = if (current) m.onAccent else m.muted, style = MaterialTheme.typography.bodySmall, fontWeight = if (current) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
+        // "3시간 41분"이 좁은 칸에서 잘리지 않게 두 줄까지
+        Text(sub, color = if (current) m.onAccent else m.muted, style = MaterialTheme.typography.bodySmall, fontWeight = if (current) FontWeight.Bold else FontWeight.Normal, maxLines = 2)
     }
 }
 
@@ -243,36 +240,142 @@ fun localHhmm(iso: String): String? = runCatching {
     OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()).toLocalTime().toString().take(5)
 }.getOrNull()
 
+/**
+ * 끼니마다 박스 하나: 먹은 끼니는 사진·음식·먹은 시각·탄단지, 보내는 중인 끼니는 그 상태,
+ * 아직 안 먹은 끼니는 점선 박스로 목표량을 보여준다(먹은 끼니 박스 아래).
+ */
 @Composable
-private fun MealTable(d: HealthHome, nav: HealthNav, onNavigate: (Screen) -> Unit) {
-    val m = LocalModo.current
+private fun MealCards(d: HealthHome, nav: HealthNav, onNavigate: (Screen) -> Unit) {
+    val day = d.day.toString()
     val meals = d.card?.meals.orEmpty().associateBy { it.index }
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).padding(horizontal = 18.dp, vertical = 12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("오늘 식단", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = { nav.recordsDate = d.day.toString(); onNavigate(Screen.HEALTH_RECORDS) }) { Text("전체 보기 ›", color = m.muted) }
+    val rows = d.today.rows.orEmpty().associateBy { it.index }
+    val statuses = HealthPlan.statuses(HealthPlan.deadlinesFor(d.day, d.settings.meals), meals.keys + d.outbox.keys, LocalDateTime.now())
+    fun open(i: Int) { nav.openCapture(day, i, meals[i]); onNavigate(Screen.HEALTH_CAPTURE) }
+    // 먹은 끼니(설정한 끼니 + 기타), 먹은 시각 순
+    val eaten = meals.values.sortedWith(compareBy({ it.loggedAt }, { it.index }))
+    for (meal in eaten) EatenMealCard(day, meal) { open(meal.index) }
+    // 못 보낸 끼니
+    for ((i, e) in d.outbox.filterKeys { it !in meals }.toSortedMap()) {
+        PlanCard(HealthPlan.label(i), if (e.error != null) "보내지 못했어요. 눌러서 다시 저장해 주세요" else "보내는 중이에요. 연결되면 자동으로 보내요", null, dashed = false) { open(i) }
+    }
+    // 아직 안 먹은 끼니: 점선 박스
+    for ((dl, state) in statuses) {
+        if (dl.index in meals || dl.index in d.outbox) continue
+        val label = HealthPlan.label(dl.index)
+        val until = HealthPlan.hhmm(dl.at.hour * 60 + dl.at.minute)
+        when (state) {
+            HealthPlan.TileState.MISSED -> PlanCard("$label 놓침", "${until}까지였어요. 지금이라도 기록할 수 있어요", null, dashed = true, faint = true) { open(dl.index) }
+            HealthPlan.TileState.CURRENT, HealthPlan.TileState.UPCOMING ->
+                PlanCard("$label 예정", "${until}까지", rows[dl.index]?.target, dashed = true) { open(dl.index) }
+            HealthPlan.TileState.LOGGED -> Unit
         }
-        NutritionTableRow("끼니", null, header = true)
-        for (r in d.today.rows.orEmpty()) {
-            val open = { nav.openCapture(d.day.toString(), r.index, meals[r.index]); onNavigate(Screen.HEALTH_CAPTURE) }
-            when {
-                r.logged -> NutritionTableRow(HealthPlan.label(r.index), r.nutrition, onClick = open)
-                r.missed -> NutritionTableRow("${HealthPlan.label(r.index)} 놓침", null, faint = true, onClick = open)
-                else -> NutritionTableRow("${HealthPlan.label(r.index)} 예정", r.target, faint = true, onClick = open)
-            }
-        }
-        for (e in meals.values.filter { HealthPlan.isExtra(it.index) }.sortedBy { it.index }) {
-            NutritionTableRow(HealthPlan.label(e.index), e.nutrition) {
-                nav.openCapture(d.day.toString(), e.index, e); onNavigate(Screen.HEALTH_CAPTURE)
-            }
-        }
-        NutritionTableRow("합계", d.today.total, bold = true)
     }
 }
 
-private val METRICS = listOf("kcal" to "칼로리", "protein" to "단백질", "carbs" to "탄수화물", "fat" to "지방")
+@Composable
+private fun EatenMealCard(day: String, meal: com.yuntyu.myhome.core.api.MealView, onClick: () -> Unit) {
+    val ctx = LocalContext.current
+    val m = LocalModo.current
+    // 폰에 사진이 없으면 서버에서 받아 온다(받으면 다시 그린다)
+    var photosTick by remember { mutableStateOf(0) }
+    LaunchedEffect(day, meal.index, meal.loggedAt) {
+        if (withContext(Dispatchers.IO) { com.yuntyu.myhome.health.MealPhotos.ensureLocal(ctx, day, meal.index) }) photosTick++
+    }
+    val photos = remember(day, meal.index, photosTick) { com.yuntyu.myhome.health.MealPhotos.photosOf(ctx, day, meal.index) }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(HealthPlan.label(meal.index), style = MaterialTheme.typography.titleMedium)
+            Text(localHhmm(meal.loggedAt)?.let { "  ${it}에 먹음" } ?: "", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = m.muted)
+            Text("${num(meal.nutrition.kcal)} kcal", style = MaterialTheme.typography.bodyMedium, color = m.muted)
+        }
+        if (photos.isNotEmpty()) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (f in photos) Thumb(f, 76)
+            }
+        }
+        val foods = meal.items.orEmpty().map { it.name }.filter { it.isNotBlank() }
+        if (foods.isNotEmpty()) Text(foods.joinToString(", "), style = MaterialTheme.typography.bodyLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            MacroCell("탄수화물", meal.nutrition.carbs)
+            MacroCell("단백질", meal.nutrition.protein)
+            MacroCell("지방", meal.nutrition.fat)
+        }
+    }
+}
+
+@Composable
+private fun MacroCell(label: String, grams: Int) {
+    val m = LocalModo.current
+    Row(verticalAlignment = Alignment.Bottom) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = m.muted)
+        Text(" ${num(grams)}g", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** 아직 안 먹은 끼니(점선) 또는 보내는 중인 끼니 박스. target이 있으면 이 끼니에 먹으면 좋은 양 */
+@Composable
+private fun PlanCard(title: String, sub: String, target: Nutrition?, dashed: Boolean, faint: Boolean = false, onClick: () -> Unit) {
+    val m = LocalModo.current
+    val shape = RoundedCornerShape(16.dp)
+    val lineColor = m.faint
+    Column(
+        Modifier.fillMaxWidth().clip(shape)
+            .then(
+                if (dashed) Modifier.drawBehind {
+                    val w = 1.5.dp.toPx()
+                    drawRoundRect(
+                        color = lineColor,
+                        topLeft = androidx.compose.ui.geometry.Offset(w / 2, w / 2),
+                        size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+                        style = Stroke(width = w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 6.dp.toPx()))),
+                    )
+                } else Modifier.background(m.card),
+            )
+            .clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = if (faint) m.muted else MaterialTheme.colorScheme.onSurface)
+            Icon(CameraIcon, contentDescription = "기록", tint = m.muted, modifier = Modifier.size(20.dp))
+        }
+        Text(sub, style = MaterialTheme.typography.bodySmall, color = m.muted)
+        if (target != null && target.kcal > 0) {
+            Text("이만큼 먹으면 좋아요 · ${macroLine(target)}", style = MaterialTheme.typography.bodySmall, color = m.muted)
+        }
+    }
+}
+
+/** 헬스: 위 끼니 칸에서 빼서 여기 한 줄로 */
+@Composable
+private fun GymLine(d: HealthHome, onClick: () -> Unit) {
+    val g = d.today.gym
+    if (!g.enabled) return
+    val m = LocalModo.current
+    val rest = d.card?.gymVerifiedBy == "rest"
+    val today = when {
+        rest -> "오늘은 쉬는 날"
+        d.card?.gym == true -> "오늘 다녀왔어요"
+        g.scheduledToday -> "오늘 ${g.arriveBy}까지 가는 날"
+        else -> "오늘은 안 가는 날"
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("헬스", style = MaterialTheme.typography.titleMedium)
+            Text(today, style = MaterialTheme.typography.bodySmall, color = m.muted)
+        }
+        Text("이번 주 ${g.done}/${g.planned}회", style = MaterialTheme.typography.bodyMedium, color = m.muted)
+    }
+}
+
+private val METRICS = listOf("carbs" to "탄수화물", "protein" to "단백질", "fat" to "지방", "kcal" to "칼로리")
 
 private fun pick(n: Nutrition?, key: String): Int? = n?.let {
     when (key) {
@@ -287,7 +390,7 @@ private fun pick(n: Nutrition?, key: String): Int? = n?.let {
 @Composable
 private fun WeeklyCard(w: HealthWeekly) {
     val m = LocalModo.current
-    var metric by rememberSaveable { mutableStateOf("kcal") }
+    var metric by rememberSaveable { mutableStateOf("carbs") }
     val unit = if (metric == "kcal") "kcal" else "g"
     val target = pick(w.targets, metric) ?: 0
     val days = w.days.orEmpty().sortedBy { it.index }
@@ -318,9 +421,7 @@ private fun WeeklyCard(w: HealthWeekly) {
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for ((k, label) in METRICS) Chip(label, metric == k, Modifier.weight(1f)) { metric = k }
-        }
+        MetricTabs(metric) { metric = it }
         val label = METRICS.first { it.first == metric }.second
         s?.furthest?.let { f ->
             val more = f.diff > 0
@@ -344,3 +445,19 @@ private fun Bar(value: Int?, top: Int, color: androidx.compose.ui.graphics.Color
     Box(Modifier.width(9.dp).height(h.dp).clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp)).background(color))
 }
 
+
+/** 주간 그래프 기준: 글자 탭(고른 것은 진하게 + 밑줄). 좁은 폰에서도 잘리지 않는다 */
+@Composable
+private fun MetricTabs(metric: String, onPick: (String) -> Unit) {
+    val m = LocalModo.current
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        for ((k, label) in METRICS) {
+            val on = metric == k
+            Column(Modifier.clickable { onPick(k) }.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(label, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, color = if (on) MaterialTheme.colorScheme.onSurface else m.muted, maxLines = 1)
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.height(2.dp).width(24.dp).background(if (on) MaterialTheme.colorScheme.onSurface else androidx.compose.ui.graphics.Color.Transparent))
+            }
+        }
+    }
+}

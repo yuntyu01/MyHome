@@ -74,6 +74,11 @@ class AppSettings(context: Context) {
         if (postedAt > lastCapturedAt) prefs.edit { putLong(KEY_LAST_CAPTURED, postedAt) }
     }
 
+    /** 처음 설정을 마친 뒤 앱 알림 권한(Android 13+)을 한 번 물어봤는지 */
+    var notifAsked: Boolean
+        get() = prefs.getBoolean(KEY_NOTIF_ASKED, false)
+        set(v) = prefs.edit { putBoolean(KEY_NOTIF_ASKED, v) }
+
     /** 마지막 인증 실패 메시지(토큰 폐기 등). 홈 화면 경고용. */
     var authProblem: String?
         get() = prefs.getString(KEY_AUTH_PROBLEM, null)
@@ -87,5 +92,6 @@ class AppSettings(context: Context) {
         const val KEY_AUTH_PROBLEM = "auth_problem"
         const val KEY_LAST_CAPTURED = "last_captured_at"
         const val KEY_LISTENER_CONNECTED = "listener_connected_at"
+        const val KEY_NOTIF_ASKED = "notif_asked"
     }
 }

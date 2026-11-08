@@ -246,4 +246,14 @@ object HealthPlan {
     fun ratio(value: Int, target: Int): Double = if (target <= 0) 0.0 else value.toDouble() / target
 
     fun percent(value: Int, target: Int): Int = (ratio(value, target) * 100).roundToInt()
+
+    /**
+     * 끼니 날짜와 먹은 시각("HH:mm")으로 실제 먹은 순간을 만든다. 끼니 날은 자정을 넘긴 끼니도 전날로 치므로(scheduleDay),
+     * 끼니 날이 오늘보다 앞이고 시각이 새벽(05시 전)이면 다음 날 새벽에 먹은 것으로 본다.
+     */
+    fun eatenAt(mealDay: LocalDate, hhmm: String, today: LocalDate): LocalDateTime {
+        val t = java.time.LocalTime.of(minutes(hhmm) / 60, minutes(hhmm) % 60)
+        val dayAfterMidnight = mealDay.isBefore(today) && t.isBefore(java.time.LocalTime.of(5, 0))
+        return LocalDateTime.of(if (dayAfterMidnight) mealDay.plusDays(1) else mealDay, t)
+    }
 }

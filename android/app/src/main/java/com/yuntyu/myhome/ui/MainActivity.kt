@@ -13,28 +13,27 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -63,19 +62,19 @@ import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.auth.AppLink
 import kotlinx.coroutines.launch
 
-/** 앱 화면 목록. 단순한 상태 기반 내비게이션(라이브러리 없음). */
+/** 앱 화면 목록. 단순한 상태 기반 내비게이션(라이브러리 없음). 제목이 빈 화면은 화면이 직접 머리를 그린다. */
 enum class Screen(val title: String) {
-    HOME("내 가계부"),
-    STATUS("수집 상태"),
-    REVIEW("확인 필요"),
-    TRANSACTIONS("이번 달 거래"),
-    PERMISSIONS("권한 안내"),
-    APPS("최근 알림 · 수집 대상"),
-    SETTINGS("설정"),
-    LOGS("전송 로그"),
-    INVEST("투자"),
-    INVEST_VALUE("평가"),
+    HOME(""),
+    TRANSACTIONS("거래"),
     HEALTH("건강"),
+    INVEST("투자"),
+    SETTINGS("설정"),
+    STATUS("문제 해결"),
+    PERMISSIONS("절전 설정 안내"),
+    APPS("알림 읽을 앱"),
+    LOGS("보낸 기록"),
+    BUDGETS("분류와 예산"),
+    INVEST_VALUE("평가"),
     HEALTH_CAPTURE("끼니 기록"),
     HEALTH_RECORDS("기록"),
     HEALTH_GYM("헬스"),
@@ -86,14 +85,18 @@ enum class Screen(val title: String) {
     val topLevel: Boolean
         get() = this == HOME || this == TRANSACTIONS || this == HEALTH || this == INVEST || this == SETTINGS
 
+    /** 제목 줄을 화면이 직접 그리는 첫 화면(홈은 제목 없음, 거래는 달 넘기기가 제목 줄에 있다) */
+    val ownHeader: Boolean
+        get() = this == HOME || this == TRANSACTIONS
+
     /** 뒤로 가기 대상(지나온 화면 기록이 없을 때) */
     val parent: Screen?
         get() = when (this) {
             HOME -> null
-            PERMISSIONS, APPS, LOGS -> STATUS
+            PERMISSIONS, LOGS -> STATUS
+            STATUS, APPS, BUDGETS, HEALTH_SETTINGS -> SETTINGS
             INVEST_VALUE -> INVEST
             HEALTH_CAPTURE, HEALTH_RECORDS, HEALTH_GYM -> HEALTH
-            HEALTH_SETTINGS -> SETTINGS
             else -> HOME
         }
 }
@@ -117,7 +120,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readIntent(intent: Intent?) {
-        // 브라우저 로그인 뒤 myhome://auth?code&state로 돌아온 경우: 코드를 기기 토큰으로 바꾸고 설정 화면을 연다
+        // 브라우저 로그인 뒤 myhome://auth?code&state로 돌아온 경우: 코드를 기기 토큰으로 바꾸고 홈(처음 설정 순서)을 연다
         val data = intent?.data
         if (data != null && AppLink.isRedirect(data)) {
             intent.data = null
@@ -125,7 +128,7 @@ class MainActivity : ComponentActivity() {
                 val msg = AppLink.complete(this@MainActivity, data)
                 Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
             }
-            launchRequest.value = "settings" to null
+            launchRequest.value = "home" to null
             return
         }
         val screen = intent?.getStringExtra(EXTRA_SCREEN) ?: return
@@ -142,13 +145,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     // 지나온 화면(하단바 칸으로 가면 비운다). 뒤로 가기는 여기서 꺼내고, 없으면 parent로 간다
     val backStack = remember { mutableStateListOf<Screen>() }
     val healthNav = rememberSaveable(saver = HealthNav.Saver) { HealthNav() }
+    // 거래 화면 탭(0 전체, 1 분류 고를 것, 2 들어온 돈)과 바로 열 거래(위젯에서 확인 필요 항목을 탭했을 때)
+    var txTab by rememberSaveable { mutableIntStateOf(0) }
+    var openTxId by remember { mutableStateOf<Long?>(null) }
     fun go(to: Screen) {
         if (to == screen) return
         if (to.topLevel) backStack.clear() else backStack.add(screen)
@@ -157,14 +162,13 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
     fun back() {
         screen = backStack.removeLastOrNull() ?: screen.parent ?: Screen.HOME
     }
-    var openTxId by remember { mutableStateOf<Long?>(null) }
-    // 위젯·알림 탭: 확인 필요 항목이면 분류 화면으로, 건강 알림이면 촬영·헬스로, 그 외는 해당 화면으로
+    // 위젯·알림 탭: 확인 필요 항목이면 거래 화면의 분류 고르기로, 건강 알림이면 촬영·헬스로, 그 외는 해당 화면으로
     LaunchedEffect(launchRequest.value) {
         val req = launchRequest.value ?: return@LaunchedEffect
         backStack.clear()
         when (req.first) {
-            "review" -> { screen = Screen.HOME; go(Screen.REVIEW); openTxId = req.second }
-            "transactions" -> screen = Screen.TRANSACTIONS
+            "review" -> { txTab = 1; openTxId = req.second; screen = Screen.TRANSACTIONS }
+            "transactions" -> { txTab = 0; screen = Screen.TRANSACTIONS }
             "settings" -> screen = Screen.SETTINGS
             "health" -> screen = Screen.HEALTH
             "invest" -> screen = Screen.INVEST
@@ -189,6 +193,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
 
     BackHandler(enabled = screen.parent != null || backStack.isNotEmpty()) { back() }
     val summaryState by MyHomeApp.instance.summaryRepo.state.collectAsState()
+    val m = LocalModo.current
 
     ModoBackground {
         Scaffold(
@@ -196,49 +201,41 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             // 바탕이 투명하면 Scaffold가 글자색을 정하지 못해 기본값(검정)이 된다. 다크 모드에서도 보이게 직접 준다.
             contentColor = MaterialTheme.colorScheme.onBackground,
             topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            screen.title,
-                            style = if (screen.topLevel) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
-                        )
-                    },
-                    navigationIcon = {
-                        if (!screen.topLevel && (screen.parent != null || backStack.isNotEmpty())) {
-                            IconButton(onClick = { back() }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                when {
+                    !screen.topLevel -> SubTopBar(screen.title, showBack = screen.parent != null || backStack.isNotEmpty()) { back() }
+                    screen.ownHeader -> Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
+                    else -> Column(Modifier.statusBarsPadding()) {
+                        PageTitle(screen.title) {
+                            if (screen == Screen.HEALTH) {
+                                IconButton(onClick = { healthNav.recordsDate = null; go(Screen.HEALTH_RECORDS) }) {
+                                    Icon(Icons.Filled.DateRange, contentDescription = "지난 기록", tint = m.muted)
+                                }
+                                IconButton(onClick = { go(Screen.HEALTH_SETTINGS) }) {
+                                    Icon(GearLineIcon, contentDescription = "건강 설정", tint = m.muted)
+                                }
                             }
                         }
-                    },
-                    actions = {
-                        if (screen == Screen.HEALTH) {
-                            IconButton(onClick = { healthNav.recordsDate = null; go(Screen.HEALTH_RECORDS) }) {
-                                Icon(Icons.Filled.DateRange, contentDescription = "기록 달력")
-                            }
-                            IconButton(onClick = { go(Screen.HEALTH_SETTINGS) }) {
-                                Icon(Icons.Filled.Settings, contentDescription = "건강 설정")
-                            }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
-                )
+                    }
+                }
             },
             bottomBar = {
                 if (screen.topLevel) {
-                    ModoBottomBar(screen, summaryState.summary?.needsReview ?: 0L) { go(it) }
+                    FlatBottomBar(screen, summaryState.summary?.needsReview ?: 0L) { go(it) }
                 }
             },
         ) { padding ->
             val mod = Modifier.padding(padding)
             when (screen) {
-                Screen.HOME -> HomeScreen(mod, resumeTick, onNavigate = { go(it) })
+                Screen.HOME -> HomeScreen(mod, resumeTick, onNavigate = { go(it) }, onTransactions = { txTab = it; go(Screen.TRANSACTIONS) })
                 Screen.STATUS -> StatusScreen(mod, resumeTick, onNavigate = { go(it) })
-                Screen.REVIEW -> ReviewScreen(mod, openTxId, onOpened = { openTxId = null })
-                Screen.TRANSACTIONS -> TransactionsScreen(mod, summaryState.summary?.needsReview ?: 0L, onNavigate = { go(it) })
+                Screen.TRANSACTIONS -> TransactionsScreen(
+                    mod, resumeTick, txTab, onTab = { txTab = it }, openTxId = openTxId, onOpened = { openTxId = null },
+                )
                 Screen.PERMISSIONS -> PermissionScreen(mod, resumeTick)
-                Screen.APPS -> AppsScreen(mod)
-                Screen.SETTINGS -> SettingsScreen(mod, onNavigate = { go(it) })
+                Screen.APPS -> AppsScreen(mod, onDone = { back() })
+                Screen.SETTINGS -> SettingsScreen(mod, resumeTick, onNavigate = { go(it) })
                 Screen.LOGS -> LogScreen(mod)
+                Screen.BUDGETS -> BudgetsScreen(mod)
                 Screen.INVEST -> InvestScreen(mod, resumeTick, onNavigate = { go(it) })
                 Screen.INVEST_VALUE -> InvestValueScreen(mod)
                 Screen.HEALTH -> HealthScreen(mod, resumeTick, healthNav, onNavigate = { go(it) })
@@ -253,41 +250,52 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
     }
 }
 
-/** modo처럼 화면 아래에 떠 있는 알약 모양 하단바. 선택한 칸은 옅은 강조색 알약으로 표시한다. */
+/** 하위 화면 머리: 뒤로 + 제목. 바탕과 같은 색, 선 없음 */
 @Composable
-private fun ModoBottomBar(current: Screen, reviewCount: Long, onSelect: (Screen) -> Unit) {
+private fun SubTopBar(title: String, showBack: Boolean, onBack: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(start = 4.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (showBack) {
+            IconButton(onClick = onBack) { Icon(ChevronLeftIcon, contentDescription = "뒤로", modifier = Modifier.size(24.dp)) }
+        } else {
+            Spacer(Modifier.width(20.dp))
+        }
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** 화면 아래에 붙은 평평한 하단바: 위쪽 1dp 선, 고른 칸은 진한 글자. 확인할 거래가 있으면 거래 칸에 살구색 점 */
+@Composable
+private fun FlatBottomBar(current: Screen, reviewCount: Long, onSelect: (Screen) -> Unit) {
     val m = LocalModo.current
     val items = listOf(
-        Triple(Screen.HOME, Icons.Filled.Home, "홈"),
-        Triple(Screen.TRANSACTIONS, Icons.AutoMirrored.Filled.List, "거래"),
+        Triple(Screen.HOME, HomeLineIcon, "홈"),
+        Triple(Screen.TRANSACTIONS, ListLineIcon, "거래"),
         Triple(Screen.HEALTH, HealthIcon, "건강"),
         Triple(Screen.INVEST, InvestIcon, "투자"),
-        Triple(Screen.SETTINGS, Icons.Filled.Settings, "설정"),
+        Triple(Screen.SETTINGS, GearLineIcon, "설정"),
     )
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Row(
-            Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(32.dp)).background(m.nav).padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    Column(Modifier.fillMaxWidth().background(m.bg).navigationBarsPadding()) {
+        Hairline()
+        Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
             for ((s, icon, label) in items) {
                 val selected = current == s
-                Box(
-                    // 5칸이라 고정 폭(72dp)이면 좁은 폰에서 넘친다. 칸을 똑같이 나눈다
-                    Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(26.dp))
-                        .background(if (selected) m.selected else Color.Transparent)
-                        .clickable(onClickLabel = label) { onSelect(s) },
-                    contentAlignment = Alignment.Center,
+                val tint = if (selected) MaterialTheme.colorScheme.onBackground else m.muted
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().clickable(onClickLabel = label) { onSelect(s) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    val tint = if (selected) m.accent else m.muted
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box {
                         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-                        Text(label, color = tint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, lineHeight = 14.sp)
+                        if (s == Screen.TRANSACTIONS && reviewCount > 0) {
+                            Box(Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp).size(7.dp).clip(CircleShape).background(m.over))
+                        }
                     }
-                    // 확인할 거래가 있으면 거래 칸에 점(확인 화면은 홈 카드·거래 위 띠·위젯에서 연다)
-                    if (s == Screen.TRANSACTIONS && reviewCount > 0) {
-                        Box(Modifier.align(Alignment.TopCenter).offset(x = 12.dp, y = 6.dp).size(8.dp).clip(CircleShape).background(m.accent))
-                    }
+                    Spacer(Modifier.height(3.dp))
+                    Text(label, color = tint, fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, lineHeight = 14.sp)
                 }
             }
         }

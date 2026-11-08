@@ -142,6 +142,8 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
     // 그날 이미 기록이 있는 끼니 번호(서버, 못 보낸 기록 포함). 덮어쓰기 확인과 "기타" 번호 고르기에 쓴다
     var used by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var confirmOverwrite by remember { mutableStateOf(false) }
+    // 먹은 시각("HH:mm"). 새 기록은 지금, 고칠 때는 저장된 시각. 기록을 늦게 해도 먹은 시각을 따로 남긴다
+    var eatenHhmm by rememberSaveable { mutableStateOf(editing?.loggedAt?.let(::localHhmm) ?: nowHhmm()) }
 
     // 바코드 스캐너 모듈을 미리 받아 둔다(처음 찍을 때 모듈을 받느라 실패하지 않게)
     LaunchedEffect(Unit) { if (editing == null) prefetchBarcodeScanner(ctx) }
@@ -213,7 +215,11 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
         val d = date ?: return
         val i = index ?: return
         val (aiSave, portionSave) = HealthPlan.mealToSave(ai, portion, manualTotals)
-        val req = MealRequest(d, i, aiSave, portionSave, shared, barcode)
+        val eatenAt = runCatching {
+            HealthPlan.eatenAt(java.time.LocalDate.parse(d), eatenHhmm, java.time.LocalDate.now())
+                .atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
+        }.getOrNull()
+        val req = MealRequest(d, i, aiSave, portionSave, shared, barcode, loggedAt = eatenAt)
         val bytes = photoBytes
         busy = true
         scope.launch {
@@ -368,6 +374,12 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             for (p in HealthPlan.PORTIONS) Chip(portionLabel(p), portion == p, Modifier.weight(1f)) { portion = p }
                         }
+                    }
+                }
+                SectionCard("먹은 시각") {
+                    ItemRow("${eatenHhmm}에 먹었어요", "바꾸기") {
+                        val (h, mi) = eatenHhmm.split(":").map { it.toInt() }
+                        android.app.TimePickerDialog(ctx, { _, hh, mm -> eatenHhmm = "%02d:%02d".format(hh, mm) }, h, mi, true).show()
                     }
                 }
                 SectionCard("나눠 먹었어요") {

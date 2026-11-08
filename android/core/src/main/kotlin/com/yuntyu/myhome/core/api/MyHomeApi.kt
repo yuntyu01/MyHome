@@ -43,11 +43,51 @@ class MyHomeApi(
     /** 확인 필요 거래 목록 */
     fun reviewQueue(): ApiResult<TransactionList> = call("GET", "/v1/review", null, TransactionList.serializer())
 
-    /** 이번 기간 거래 목록 */
-    fun transactions(limit: Int = 50): ApiResult<TransactionList> =
-        call("GET", "/v1/transactions?limit=$limit", null, TransactionList.serializer())
+    /**
+     * 기간 거래 목록. month는 "2026-11"처럼 기간 이름(없으면 이번 기간), status는 "needs_review" 같은 상태,
+     * direction은 "income" 같은 방향으로 거른다.
+     */
+    fun transactions(limit: Int = 50, month: String? = null, status: String? = null, direction: String? = null): ApiResult<TransactionList> {
+        val qs = buildString {
+            append("limit=").append(limit)
+            month?.let { append("&month=").append(q(it)) }
+            status?.let { append("&status=").append(q(it)) }
+            direction?.let { append("&direction=").append(q(it)) }
+        }
+        return call("GET", "/v1/transactions?$qs", null, TransactionList.serializer())
+    }
 
+    /** 현금 등 직접 적는 거래 */
+    fun createTransaction(m: ManualTransaction): ApiResult<CreatedTransaction> =
+        call("POST", "/v1/transactions", MyHomeJson.encodeToString(ManualTransaction.serializer(), m), CreatedTransaction.serializer())
+
+    /** 보관한 분류도 함께 온다(archived) */
     fun categories(): ApiResult<CategoryList> = call("GET", "/v1/categories", null, CategoryList.serializer())
+
+    fun createCategory(name: String, kind: String = "expense"): ApiResult<Category> =
+        call("POST", "/v1/categories", MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, kind = kind)), Category.serializer())
+
+    /** 이름 바꾸기·숨기기(archived). kind는 못 바꾼다. */
+    fun updateCategory(id: Long, name: String? = null, archived: Boolean? = null): ApiResult<Category> =
+        call("PATCH", "/v1/categories/$id", MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, archived = archived)), Category.serializer())
+
+    /** 기간 예산(지출 분류마다). month가 없으면 이번 기간 */
+    fun budgets(month: String? = null): ApiResult<BudgetList> =
+        call("GET", "/v1/budgets" + (month?.let { "?month=${q(it)}" } ?: ""), null, BudgetList.serializer())
+
+    fun putBudgets(month: String, items: List<BudgetItem>): ApiResult<BudgetList> =
+        call("PUT", "/v1/budgets", MyHomeJson.encodeToString(BudgetsInput.serializer(), BudgetsInput(month, items)), BudgetList.serializer())
+
+    /** 예산 시작일(매달 1~28일) */
+    fun budgetStartDay(): ApiResult<Int> = when (val r = call("GET", "/v1/settings", null, ServerSettings.serializer())) {
+        is ApiResult.Ok -> ApiResult.Ok(r.value.settings["budget_start_day"]?.let { runCatching { it.toString().trim('"').toInt() }.getOrNull() } ?: 1, r.code)
+        is ApiResult.HttpError -> r
+        is ApiResult.NetworkError -> r
+        is ApiResult.NotConfigured -> r
+    }
+
+    fun putBudgetStartDay(day: Int): ApiResult<JsonElement> =
+        call("PUT", "/v1/settings/budget_start_day", day.toString(), JsonElement.serializer())
 
     /** 거래 분류 변경. rememberRule이면 "이 가맹점은 항상" 규칙을 저장한다. */
     fun editTransaction(id: Long, edit: TransactionEdit): ApiResult<EditResponse> =

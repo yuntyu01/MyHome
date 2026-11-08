@@ -97,3 +97,41 @@ data class EditResponse(
     @SerialName("rule_id") val ruleId: Long? = null,
     @SerialName("also_updated") val alsoUpdated: Int = 0,
 )
+
+/** POST /v1/transactions 요청(현금 등 직접 입력). flow는 "out"(지출) 또는 "in" */
+@Serializable
+data class ManualTransaction(
+    val amount: Long,
+    val merchant: String = "",
+    val memo: String = "",
+    @SerialName("category_id") val categoryId: Long,
+    val flow: String = "out",
+    /** ISO-8601. 없으면 서버가 지금 시각으로 */
+    @SerialName("occurred_at") val occurredAt: String? = null,
+)
+
+@Serializable
+data class CreatedTransaction(val transaction: TransactionDto)
+
+@Serializable
+data class CategoryInput(
+    val name: String? = null,
+    val kind: String? = null,
+    val archived: Boolean? = null,
+)
+
+@Serializable
+data class BudgetItem(
+    @SerialName("category_id") val categoryId: Long,
+    val category: String = "",
+    val amount: Long,
+)
+
+@Serializable
+data class BudgetList(val period: PeriodInfo? = null, val items: List<BudgetItem> = emptyList())
+
+@Serializable
+data class BudgetsInput(val month: String, val items: List<BudgetItem>)
+
+@Serializable
+data class ServerSettings(val settings: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap())

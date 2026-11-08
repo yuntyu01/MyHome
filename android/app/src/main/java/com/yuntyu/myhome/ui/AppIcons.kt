@@ -40,3 +40,45 @@ val CameraIcon: ImageVector by lazy {
         arcTo(3f, 3f, 0f, true, true, 15f, 13.5f)
     }
 }
+
+/** 홈: 지붕 있는 집 */
+val HomeLineIcon: ImageVector by lazy {
+    line("Home") {
+        moveTo(3f, 11f); lineTo(12f, 4f); lineTo(21f, 11f); lineTo(21f, 20f); lineTo(15f, 20f); lineTo(15f, 14f)
+        lineTo(9f, 14f); lineTo(9f, 20f); lineTo(3f, 20f); close()
+    }
+}
+
+/** 거래: 점과 줄 세 개 */
+val ListLineIcon: ImageVector by lazy {
+    line("List") {
+        moveTo(8f, 6f); lineTo(21f, 6f); moveTo(8f, 12f); lineTo(21f, 12f); moveTo(8f, 18f); lineTo(21f, 18f)
+        moveTo(3.5f, 6f); lineTo(3.6f, 6f); moveTo(3.5f, 12f); lineTo(3.6f, 12f); moveTo(3.5f, 18f); lineTo(3.6f, 18f)
+    }
+}
+
+/** 설정: 가운데 원과 바퀴살 */
+val GearLineIcon: ImageVector by lazy {
+    line("Gear") {
+        moveTo(15f, 12f); arcTo(3f, 3f, 0f, true, true, 9f, 12f); arcTo(3f, 3f, 0f, true, true, 15f, 12f)
+        moveTo(12f, 2.5f); lineTo(12f, 5f); moveTo(12f, 19f); lineTo(12f, 21.5f)
+        moveTo(2.5f, 12f); lineTo(5f, 12f); moveTo(19f, 12f); lineTo(21.5f, 12f)
+        moveTo(5.3f, 5.3f); lineTo(7.1f, 7.1f); moveTo(16.9f, 16.9f); lineTo(18.7f, 18.7f)
+        moveTo(5.3f, 18.7f); lineTo(7.1f, 16.9f); moveTo(16.9f, 7.1f); lineTo(18.7f, 5.3f)
+    }
+}
+
+val ChevronRightIcon: ImageVector by lazy { line("ChevronRight") { moveTo(9f, 6f); lineTo(15f, 12f); lineTo(9f, 18f) } }
+
+val ChevronLeftIcon: ImageVector by lazy { line("ChevronLeft") { moveTo(15f, 6f); lineTo(9f, 12f); lineTo(15f, 18f) } }
+
+val PlusIcon: ImageVector by lazy { line("Plus") { moveTo(12f, 5f); lineTo(12f, 19f); moveTo(5f, 12f); lineTo(19f, 12f) } }
+
+val SearchIcon: ImageVector by lazy {
+    line("Search") {
+        moveTo(18f, 11f); arcTo(7f, 7f, 0f, true, true, 4f, 11f); arcTo(7f, 7f, 0f, true, true, 18f, 11f)
+        moveTo(20f, 20f); lineTo(16.2f, 16.2f)
+    }
+}
+
+val CheckIcon: ImageVector by lazy { line("Check") { moveTo(5f, 12.5f); lineTo(9.5f, 17f); lineTo(19f, 7.5f) } }
