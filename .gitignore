@@ -43,3 +43,6 @@ export*.jsonl
 .idea/
 .vscode/
 tmp/
+
+# Claude Code 작업 공간(에이전트 worktree)
+/.claude/worktrees/
