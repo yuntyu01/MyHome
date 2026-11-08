@@ -40,6 +40,15 @@ type Store struct {
 	db   querier
 	q    *dbq.Queries
 	Cmd  string
+
+	lockID int64 // 0이면 lockKey. 테스트가 다른 키를 써서 같은 DB의 다른 테스트와 부딪치지 않게 한다
+}
+
+func (s *Store) lockKeyOf() int64 {
+	if s.lockID != 0 {
+		return s.lockID
+	}
+	return lockKey
 }
 
 // New는 풀에 붙은 저장소를 만든다.
@@ -79,12 +88,13 @@ func (s *Store) Lock(ctx context.Context, wait time.Duration) (func(), error) {
 	}
 	lctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	if _, err := conn.Exec(lctx, "SELECT pg_advisory_lock($1)", int64(lockKey)); err != nil {
+	key := s.lockKeyOf()
+	if _, err := conn.Exec(lctx, "SELECT pg_advisory_lock($1)", key); err != nil {
 		conn.Release()
 		return nil, fmt.Errorf("다른 자동매매 명령이 실행 중이다 (%s 기다림): %w", wait, err)
 	}
 	return func() {
-		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", int64(lockKey))
+		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", key)
 		conn.Release()
 	}, nil
 }
