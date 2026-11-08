@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"math"
 	"os/exec"
 	"strings"
@@ -290,5 +291,41 @@ func TestWebDoesNotDependOnBrokerOrYahoo(t *testing.T) {
 				t.Errorf("web이 %s에 의존한다", pkg)
 			}
 		}
+	}
+}
+
+// 이탈 기록: 잠금 기한은 일정에, 6개월 지난 기록은 "다시 보기"로 보여주되 사유 본문은 싣지 않는다(TQ 웹과 같다).
+func TestInvestStatusShowsLockAndResurfacingWithoutReason(t *testing.T) {
+	now := etNow(2026, 11, 2)
+	in := baseInputs(now)
+	actual := "QQQM"
+	in.Devs = []invest.Deviation{
+		// 6개월 지난 기록: 다시 보여준다(본문은 숨김)
+		{YM: "2026-03", OccurredOn: "2026-03-02", SignalTarget: "TQQQ", ActualTarget: &actual, Reason: "비밀 사유 문장", LockedUntil: "2026-04-30", ResurfaceOn: "2026-09-02"},
+		// 아직 잠금 중인 기록: 가장 늦은 해제일이 잠금 기한
+		{YM: "2026-10", OccurredOn: "2026-10-01", SignalTarget: "TQQQ", ActualTarget: &actual, Reason: "또 다른 사유", LockedUntil: "2026-12-31", ResurfaceOn: "2027-04-01"},
+		{YM: "2026-09", OccurredOn: "2026-09-01", SignalTarget: "TQQQ", Reason: "", LockedUntil: "2026-11-30", ResurfaceOn: "2026-10-01"},
+	}
+	s := buildInvestStatus(now, basePosition(), in)
+	var lock, again []investRow
+	for _, r := range s.Schedule {
+		if r.Title == "포지션 잠금" {
+			lock = append(lock, r)
+		}
+	}
+	for _, r := range s.Checks {
+		if r.Title == "이탈 기록 다시 보기" {
+			again = append(again, r)
+		}
+	}
+	if len(lock) != 1 || !strings.Contains(lock[0].Value, "12") || !strings.Contains(lock[0].Value, "31") {
+		t.Fatalf("잠금: %+v", lock)
+	}
+	if len(again) != 1 || again[0].Bad || !strings.Contains(again[0].Meta, "why") {
+		t.Fatalf("다시 보기(사유 없는 기록은 빼고 1건): %+v", again)
+	}
+	b, _ := json.Marshal(s)
+	if strings.Contains(string(b), "비밀 사유") || strings.Contains(string(b), "또 다른 사유") {
+		t.Fatal("사유 본문이 응답에 실렸다")
 	}
 }

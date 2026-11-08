@@ -217,7 +217,16 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 	case "adjust":
 		return app.Adjust(ctx, run.AdjustOpts{Date: *date, DryRun: *dry, Shares: shares.v, Paid: paid.v, Symbol: *symbol, Auto: *auto, FX: *fx, Reason: *reason})
 	case "tax":
-		return app.Tax(ctx, run.TaxOpts{Year: *year, Paid: *paidYear, DryRun: *dry})
+		// TQ와 같은 `tax --paid YEAR`. 다른 명령의 --paid는 원화라서 tax에서만 연도로 읽는다(--paid-year도 그대로 받는다)
+		py := *paidYear
+		if py == 0 && paid.v != nil {
+			if *paid.v != float64(int(*paid.v)) || *paid.v < 2000 || *paid.v > 2100 {
+				fmt.Fprintln(app.Err, "✗ tax --paid는 납부한 연도다(예: --paid 2026)")
+				return run.ExitFail
+			}
+			py = int(*paid.v)
+		}
+		return app.Tax(ctx, run.TaxOpts{Year: *year, Paid: py, DryRun: *dry})
 	case "contribute":
 		return app.Contribute(ctx, run.ContributeOpts{Date: *date, Amount: *amount, EffectiveFrom: *from, Reason: *reason})
 	case "deviate":

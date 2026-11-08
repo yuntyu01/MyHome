@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
@@ -193,6 +194,7 @@ type investInputs struct {
 	Runs       []dbq.InvestRun
 	Contrib    int64
 	ContribErr error // 적립액 미설정. 화면에 문제로 보여준다
+	Devs       []invest.Deviation
 }
 
 func loadInvestInputs(ctx context.Context, st *store.Store, pos invest.Position) (investInputs, error) {
@@ -205,6 +207,9 @@ func loadInvestInputs(ctx context.Context, st *store.Store, pos invest.Position)
 		return in, err
 	}
 	if in.Runs, err = st.LatestRuns(ctx); err != nil {
+		return in, err
+	}
+	if in.Devs, err = st.LoadDeviations(ctx); err != nil {
 		return in, err
 	}
 	// 적립액이 없다는 에러는 화면에 보여줄 문제다. DB 오류와 구분할 방법이 없어 둘 다 문제로 보여준다
@@ -267,6 +272,18 @@ func buildInvestStatus(now time.Time, pos invest.Position, in investInputs) inve
 		}
 		s.Schedule = append(s.Schedule, investRow{Title: "다음 실행일", Meta: monthNameAt(nextYM, now) + " 첫 거래일",
 			Value: shortDate(invest.FormatDay(next)) + " · " + dday(today, next), Bad: missed})
+	}
+
+	// 이탈 기록 (TQ 웹과 같게): 잠금 기한과, 6개월 지난 기록이 있다는 사실만 보여준다.
+	// 🔴 사유 본문은 화면·응답에 싣지 않는다 — "내가 왜 규칙을 어겼는가"는 돈 숫자보다 민감하다. 본문은 `myhome invest why`
+	if lock := activeLock(in.Devs, today); !lock.IsZero() {
+		s.Schedule = append(s.Schedule, investRow{Title: "포지션 잠금", Meta: "규칙 이탈 기록 · 이 날까지 종목을 바꾸지 않아요",
+			Value: shortDate(invest.FormatDay(lock)) + "까지"})
+	}
+	for _, d := range dueResurfacing(in.Devs, today) {
+		s.Checks = append(s.Checks, investRow{Title: "이탈 기록 다시 보기",
+			Meta:  shortDate(d.OccurredOn) + " · " + monthNameAt(d.YM, now) + " 이탈 때 남긴 기록(6개월 지남) · 본문은 myhome invest why",
+			Value: "읽어 보기"})
 	}
 
 	// 점검
@@ -518,4 +535,26 @@ func (wb *Web) apiInvestAlerts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, investAlert{ID: a.ID, CreatedAt: a.CreatedAt, Title: a.Title, Body: a.Body})
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"alerts": out})
+}
+
+// activeLock은 아직 풀리지 않은 잠금 중 가장 늦은 해제일이다(여럿이면 실제 잠금은 가장 늦은 날까지다). 없으면 0.
+func activeLock(devs []invest.Deviation, today time.Time) time.Time {
+	var out time.Time
+	for _, d := range devs {
+		if u, err := invest.ParseDay(d.LockedUntil); err == nil && today.Before(u) && u.After(out) {
+			out = u
+		}
+	}
+	return out
+}
+
+// dueResurfacing은 다시 보여줄 때가 된(6개월 지난) 사유 있는 이탈 기록이다 (TQ state.due_resurfacing).
+func dueResurfacing(devs []invest.Deviation, today time.Time) []invest.Deviation {
+	var out []invest.Deviation
+	for _, d := range devs {
+		if r, err := invest.ParseDay(d.ResurfaceOn); err == nil && !r.After(today) && strings.TrimSpace(d.Reason) != "" {
+			out = append(out, d)
+		}
+	}
+	return out
 }

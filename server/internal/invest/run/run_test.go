@@ -948,3 +948,24 @@ func TestLastLinesKeepsTheEnd(t *testing.T) {
 		t.Fatal("짧은 출력은 그대로")
 	}
 }
+
+// 🔴 뉴욕 휴장일(주말·공휴일)에는 주문을 내지 않고 성공으로 끝난다 — 타이머가 매월 1~8일 매일 부르므로.
+// 다음 거래일 실행이 이어받는다(TQ execution.yml 게이트와 같은 동작).
+func TestTradeSkipsNewYorkHolidays(t *testing.T) {
+	h := newHarness(t, seedOpt{})
+	for _, day := range []time.Time{d(8, 1), d(8, 2), invest.Date(2026, 9, 7)} { // 토, 일, 노동절
+		if rc := h.trade(day, false); rc != 0 {
+			t.Fatalf("%s rc %d: %s", invest.FormatDay(day), rc, h.err)
+		}
+		if !strings.Contains(h.out.String(), "휴장일") {
+			t.Fatalf("%s: 건너뛴 이유가 없다: %s", invest.FormatDay(day), h.out)
+		}
+	}
+	if len(h.fb.placed) != 0 {
+		t.Fatalf("휴장일에 주문했다: %+v", h.fb.placed)
+	}
+	// 첫 거래일에는 정상으로 주문한다
+	if rc := h.trade(execDay, false); rc != 0 || len(h.fb.placed) != 1 {
+		t.Fatalf("rc %d placed %d: %s", rc, len(h.fb.placed), h.err)
+	}
+}

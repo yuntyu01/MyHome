@@ -106,6 +106,9 @@ func (a *App) Order(ctx context.Context, o OrderOpts) int {
 	if c.LateDays > 0 {
 		a.printf("  ⚠ 실행일(%s)에서 %d일 지연 — 늦은 매수로 기록된다 (미매수보다는 낫다)", invest.FormatDay(c.ExecDay), c.LateDays)
 	}
+	// TQ와 같은 안내: 손으로 샀으면 체결을 기록한다(자동 매매는 trade가 기록한다)
+	a.printf("\n  증권사에서 주문 후:")
+	a.printf("    myhome invest execute --fill %s=<체결단가> --fx <적용환율>", target)
 	return ExitOK
 }
 
@@ -150,6 +153,13 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	today, err := a.today(o.Date)
 	if err != nil {
 		return a.fail(ExitFail, "%v", err)
+	}
+	// 🔴 뉴욕 휴장일에는 주문을 내지 않는다. TQ는 이 검사를 execution.yml 게이트에서 했고,
+	//    여기서는 타이머(매월 1~8일)가 휴장일에도 부르므로 명령이 직접 막는다. 실패가 아니라 건너뛰기다
+	//    (첫 거래일이 아닌 날 사는 것은 지연이지 위반이 아니다. 다음 거래일 실행이 이어받는다)
+	if !invest.IsTradingDay(today) {
+		a.printf("%s은 뉴욕 휴장일이다. 주문을 내지 않는다(다음 거래일에 이어서 한다)", invest.FormatDay(today))
+		return ExitOK
 	}
 	pos, prices, devs, rc := a.loadTradeState(ctx)
 	if rc != ExitOK {
