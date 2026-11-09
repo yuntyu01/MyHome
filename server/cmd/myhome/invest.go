@@ -35,7 +35,7 @@ const investUsage = `사용법: myhome invest <명령> [옵션]
   orders [--clear-stale]             진행 중인 주문 기록. --clear-stale은 지난 적용월 기록을 지운다
                                      (증권사에 살아 있을 수 있는 주문이 있거나 장부에 없는 체결이 있으면 거부)
   execute --fill SYM=PX [--fx F] [--shares N] [--paid KRW] [--dry-run]
-  amend --fill SYM=PX --fx F [--dry-run]
+  amend (--fill SYM=PX --fx F | --auto) [--dry-run]   --auto는 결제 내역의 단가·적용 환율로 정정
   adjust (--auto | --shares N --paid KRW) [--symbol S] [--fx F] --reason "..." [--dry-run]
   tax [--year Y] [--paid Y] [--dry-run]
   contribute [--amount KRW --from YYYY-MM --reason "..."]
@@ -187,7 +187,7 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 	fs.Var(&paid, "paid", "실제로 넣은 원화 (수수료 포함)")
 	symbol := fs.String("symbol", "", "종목")
 	reason := fs.String("reason", "", "사유")
-	auto := fs.Bool("auto", false, "증권사 잔고에서 수량·매입금액을 읽어 채움")
+	auto := fs.Bool("auto", false, "증권사에서 읽어 채움 (adjust: 잔고의 수량·매입금액, amend: 결제 내역의 단가·환율)")
 	retries := fs.Int("retries", 0, "결측·빈 응답일 때 다시 받을 횟수")
 	wait := fs.Duration("wait", 15*time.Minute, "재시도 간격")
 	amount := fs.Int64("amount", 0, "월 적립액(원)")
@@ -225,7 +225,7 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 	case "execute":
 		return app.Execute(ctx, run.ExecuteOpts{Date: *date, DryRun: *dry, Fills: parsedFills, FX: *fx, Shares: shares.v, Paid: paid.v})
 	case "amend":
-		return app.Amend(ctx, run.AmendOpts{Date: *date, DryRun: *dry, Fills: parsedFills, FX: *fx})
+		return app.Amend(ctx, run.AmendOpts{Date: *date, DryRun: *dry, Fills: parsedFills, FX: *fx, Auto: *auto})
 	case "adjust":
 		return app.Adjust(ctx, run.AdjustOpts{Date: *date, DryRun: *dry, Shares: shares.v, Paid: paid.v, Symbol: *symbol, Auto: *auto, FX: *fx, Reason: *reason})
 	case "tax":

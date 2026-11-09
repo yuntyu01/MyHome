@@ -178,6 +178,10 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	}
 	if pos.ExecutedThisMonth() {
 		a.printf("%s 이미 완료 (%s). 할 일 없음", ym, *pos.ExecutedOn)
+		// 추정 환율로 적은 달이면 결제가 끝났는지 보고 증권사 적용 환율로 확정한다(실패해도 매매는 정상)
+		if pos.FXEstimated {
+			_ = a.confirmFX(ctx, today, o.DryRun, false)
+		}
 		return ExitOK
 	}
 	target, _, err := allowedSymbol(pos, devs)
@@ -936,8 +940,8 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 	a.printf("  %s %d주 · 잔여 %s", newAcct.Symbol, newAcct.Shares, usd(newAcct.CashUSD))
 	a.printf("  평가 %s원 (세후)", won(newAcct.NetValueKRW(buyPx, fx)))
 	if fxEst {
-		a.printf("  ⚠ 환율 %s는 시장 환율 추정이다. 증권사 적용값이 확인되면", plain2(fx))
-		a.printf("     myhome invest amend --fill %s=<체결단가> --fx <실제환율>", target)
+		a.printf("  ⚠ 환율 %s는 시장 환율 추정이다. 결제(T+1)가 끝나면 다음 trade·refresh가 증권사 적용 환율로 확정한다", plain2(fx))
+		a.printf("     (직접: myhome invest amend --auto)")
 	}
 	return ExitOK, settleStop
 }

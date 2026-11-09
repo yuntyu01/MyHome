@@ -185,7 +185,9 @@ type AmendOpts struct {
 	Date   string
 	DryRun bool
 	Fills  map[string]float64
-	FX     float64 // 필수
+	FX     float64 // 필수 (Auto가 아니면)
+	// Auto는 단가·환율을 증권사 결제 내역에서 읽는다(결제가 끝난 뒤에만). 자동 확정과 같은 길이다 — fxconfirm.go
+	Auto bool
 }
 
 // Amend는 직전 체결의 단가·환율만 고친다.
@@ -197,9 +199,21 @@ func (a *App) Amend(ctx context.Context, o AmendOpts) int {
 	if err != nil {
 		return a.fail(ExitFail, "%v", err)
 	}
-	if o.FX <= 0 {
-		return a.fail(ExitFail, "--fx로 증권사 적용 환율을 넣을 것")
+	if o.Auto {
+		if len(o.Fills) > 0 || o.FX > 0 {
+			return a.fail(ExitFail, "--auto는 단가·환율을 증권사에서 읽는다. --fill·--fx와 같이 쓰지 않는다")
+		}
+		return a.confirmFX(ctx, today, o.DryRun, true)
 	}
+	if o.FX <= 0 {
+		return a.fail(ExitFail, "--fx로 증권사 적용 환율을 넣을 것 (결제가 끝났으면 --auto)")
+	}
+	return a.amend(ctx, today, o.Fills, o.FX, o.DryRun, "")
+}
+
+// amend는 정정 본체다. why는 원금 내역 메모에 덧붙는다(자동 확정이면 그 근거).
+func (a *App) amend(ctx context.Context, today time.Time, fills map[string]float64, fx float64, dryRun bool, why string) int {
+	o := AmendOpts{Fills: fills, FX: fx, DryRun: dryRun}
 	pos, prices, devs, rc := a.loadTradeState(ctx)
 	if rc != ExitOK {
 		return rc
@@ -297,7 +311,7 @@ func (a *App) Amend(ctx context.Context, o AmendOpts) int {
 			return err
 		}
 		return s.AppendLedger(ctx, invest.LedgerEntry{On: invest.FormatDay(today), YM: ym, AmountKRW: newMoneyKRW, Source: "amend",
-			Symbol: newAcct.Symbol, Shares: &shares, Note: "정정 " + itoa(n) + "회차"})
+			Symbol: newAcct.Symbol, Shares: &shares, Note: strings.TrimSuffix("정정 "+itoa(n)+"회차 · "+why, " · ")})
 	})
 	if err != nil {
 		return a.fail(ExitFail, "저장 실패: %v", err)

@@ -137,6 +137,37 @@ type Broker interface {
 	AccountMasked() string
 }
 
+// Settlement는 결제 내역의 매매 1건이다(증권사가 주문별로 합산해 준다). 원화로 실제 얼마였는지를 알려 준다.
+type Settlement struct {
+	Day     time.Time // 결제일(미결제면 예상 결제일), KST 날짜
+	Symbol  string
+	Side    Side
+	Qty     int
+	Price   float64 // 평균 체결단가 USD. 모르면 0
+	Amount  float64 // 거래금액 USD (수수료 전)
+	Net     float64 // 수수료·세금을 반영한 정산 금액 USD (절대값)
+	FX      float64 // 적용 환율 (원/달러). 미결제면 0
+	Settled bool
+}
+
+// FXQuote는 그 시각의 원/달러 환율이다.
+type FXQuote struct {
+	Rate float64 // 증권사가 달러를 살 때 쓰는 환율
+	Mid  float64 // 매매기준율
+	At   time.Time
+}
+
+// Settlements는 선택 계약이다. 결제된 매매의 적용 환율과 시점 환율을 준다.
+//
+// Broker에 넣지 않는다 — 계약은 좁게 둔다. 없는 증권사는 이것을 구현하지 않고, 호출부는 타입 단언으로
+// 확인해 없으면 추정 환율을 그대로 둔다(사람이 amend --fx로 확정한다).
+type Settlements interface {
+	// Settlements는 기간(결제일 기준 KST 날짜, 양끝 포함)·종목의 매수·매도다. 미결제도 Settled=false로 담는다. 읽기 전용.
+	Settlements(ctx context.Context, symbol string, from, to time.Time) ([]Settlement, error)
+	// FXAt은 그 시각의 원/달러 환율이다. 읽기 전용.
+	FXAt(ctx context.Context, at time.Time) (FXQuote, error)
+}
+
 // KST는 국내 증권사 달력의 시간대다.
 var KST = time.FixedZone("KST", 9*60*60)
 

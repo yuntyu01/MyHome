@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yuntyu01/MyHome/server/internal/invest"
+	"github.com/yuntyu01/MyHome/server/internal/invest/broker"
 	"github.com/yuntyu01/MyHome/server/internal/invest/store"
 	"github.com/yuntyu01/MyHome/server/internal/invest/yahoo"
 )
@@ -31,6 +32,10 @@ func (a *App) Refresh(ctx context.Context, o RefreshOpts) int {
 	rc := ExitOK
 	for i := 1; i <= tries; i++ {
 		rc = a.refreshOnce(ctx)
+		if rc == ExitOK {
+			// 지난 매수가 추정 환율로 남아 있으면 결제 내역으로 확정한다. 실행일 창(1~7일) 끝에 산 달도 여기서 잡힌다
+			a.confirmFXQuietly(ctx, invest.TodayET(a.now()))
+		}
 		if rc != ExitRetry || i == tries {
 			return rc
 		}
@@ -139,6 +144,22 @@ func (a *App) refreshOnce(ctx context.Context) int {
 		a.printf("  앵커 %s: %d일 오차 %.4f%% ✓", c, len(overlap), worst*100)
 	}
 
+	// 환율은 증권사 매매기준율(미국 장 마감 시각)이 우선이다. 못 받은 날만 야후 시장 환율을 쓴다
+	need := []time.Time{}
+	for _, d := range days {
+		if old, ok := byDay[d]; ok && !math.IsNaN(old.USDKRWMkt) {
+			continue // 이미 있는 값은 바꾸지 않는다
+		}
+		if _, ok := byDay[d]; !ok && (math.IsNaN(fresh[d].SPX) || math.IsNaN(fresh[d].NDX)) {
+			continue // 미국 휴장일 — 행을 만들지 않는다
+		}
+		need = append(need, d)
+	}
+	brokerFX := a.brokerFX(ctx, need)
+	for d, v := range brokerFX {
+		fresh[d].USDKRWMkt = v
+	}
+
 	// 시장 환율은 보호할 과거값이 없다. 조회된 날짜는 기존 행의 빈칸에도 채운다
 	type fill struct {
 		day time.Time
@@ -205,7 +226,7 @@ func (a *App) refreshOnce(ctx context.Context) int {
 		return a.fail(ExitFail, "마스터 쓰기 실패: %v", err)
 	}
 	if len(add) == 0 {
-		a.printf("새 거래일 없음 (%s). USDKRW_MKT %d일 채움", invest.FormatDay(last.Day), len(fills))
+		a.printf("새 거래일 없음 (%s). USDKRW_MKT %d일 채움 (증권사 매매기준율 %d일)", invest.FormatDay(last.Day), len(fills), len(brokerFX))
 		return ExitOK
 	}
 	gotFX := 0
@@ -215,8 +236,8 @@ func (a *App) refreshOnce(ctx context.Context) int {
 		}
 	}
 	a.printf("+%d일 → %s (총 %s행)", len(add), invest.FormatDay(add[len(add)-1].Day), commas(float64(len(master)+len(add))))
-	a.printf("  환율 USDKRW_MKT +%d일 (시장 종가, 평가 전용)", gotFX)
-	a.printf("⚠ 체결 환율은 여전히 증권사 실제 적용값을 쓴다 — execute --fx (§10.1)")
+	a.printf("  환율 USDKRW_MKT +%d일 (증권사 매매기준율 %d일 · 나머지 야후, 평가·추정용)", gotFX, len(brokerFX))
+	a.printf("  체결 환율은 결제 뒤 증권사 적용값으로 확정한다 (§10.1)")
 	return ExitOK
 }
 
@@ -226,4 +247,46 @@ func joinDays(ds []time.Time) string {
 		s[i] = invest.FormatDay(d)
 	}
 	return strings.Join(s, ", ")
+}
+
+// maxBrokerFXDays는 한 번에 증권사에 묻는 환율 날짜 수다. 오래 비운 뒤라도 시세 API를 몰아치지 않는다.
+const maxBrokerFXDays = 30
+
+// brokerFX는 그날 미국 장 마감(뉴욕 16:00) 시각의 증권사 매매기준율이다.
+//
+// 증권사 연결이 없거나(자격증명 없음·결제 내역 계약 없음) 조회가 실패한 날은 비워 둔다 — 호출부가
+// 야후 값을 쓴다. 환율은 평가·추정에만 쓰여 출처가 섞여도 판정·주문은 안 바뀐다.
+func (a *App) brokerFX(ctx context.Context, days []time.Time) map[time.Time]float64 {
+	out := map[time.Time]float64{}
+	if len(days) == 0 || a.Broker == nil {
+		return out
+	}
+	client, err := a.Broker(ctx)
+	if err != nil {
+		return out
+	}
+	src, ok := client.(broker.Settlements)
+	if !ok {
+		return out
+	}
+	if len(days) > maxBrokerFXDays {
+		days = days[len(days)-maxBrokerFXDays:]
+	}
+	failed := 0
+	for _, d := range days {
+		at := time.Date(d.Year(), d.Month(), d.Day(), 16, 0, 0, 0, invest.NewYork)
+		q, err := src.FXAt(ctx, at)
+		if err != nil {
+			failed++
+			if failed == 1 {
+				a.warnf("  ⚠ 증권사 환율 조회 실패 (%s) — 그날은 야후 값을 쓴다: %v", invest.FormatDay(d), err)
+			}
+			continue
+		}
+		out[d] = q.Mid
+	}
+	if failed > 1 {
+		a.warnf("  ⚠ 증권사 환율 %d일 실패 — 야후 값을 쓴다", failed)
+	}
+	return out
 }
