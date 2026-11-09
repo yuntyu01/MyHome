@@ -1,7 +1,8 @@
 # MyHome 앱을 Play에 올린다. Play에서는 예전 핏두잉 앱 자리(com.fitdoing.app)를 쓴다 — docs/DECISIONS.md 「Play 배포」.
 #
 # 트리거
-#   - 태그 v* 푸시 → 비공개 테스트(alpha) 트랙
+#   - main에 앱 코드(android/**) push → 단위 테스트 → 비공개 테스트(alpha) 트랙 (사용자 결정 2026-11-10: 매번 배포)
+#   - 태그 v* 푸시 → 비공개 테스트(alpha) 트랙, 버전 이름은 태그
 #   - 손으로 실행 → 트랙 고르기, dry_run이면 AAB만 만들어 artifact로 남김
 #
 # 필요한 GitHub Secrets (값은 저장소에 두지 않는다)
@@ -13,7 +14,11 @@ name: CD - Android Play
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+    paths:
+      - "android/**"
+      - ".github/workflows/android-play.yml"
   workflow_dispatch:
     inputs:
       track:
@@ -60,6 +65,11 @@ jobs:
           [ -n "$KEYSTORE_BASE64" ] || { echo "::error::KEYSTORE_BASE64 Secret이 없다"; exit 1; }
           printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$RUNNER_TEMP/upload.jks"
           echo "KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+
+      - name: 단위 테스트
+        run: |
+          chmod +x gradlew
+          ./gradlew :core:test --no-daemon
 
       - name: AAB 빌드
         env:

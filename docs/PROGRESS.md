@@ -189,3 +189,10 @@
 - 체결 환율: 결제 뒤 토스 거래내역의 적용 환율로 자동 확정(trade·refresh). 사람이 적은 달은 `myhome invest amend --auto`
 - 평가 환율: 토스 매매기준율(뉴욕 16:00), 못 받은 날만 야후
 - 테스트: 토스 어댑터 4개, 확정·보류·사람 기록 보호·refresh 환율 4개. 확정 조건 3곳(미결제·수량 불일치·사람 기록)을 일부러 지워 테스트가 잡는지 확인
+- 2026-11-10 VM 배포(사람 deploy.sh), Play 비공개 테스트 업로드(run 42655442080)
+
+### 자동 배포 (2026-11-10)
+
+- 서버: main push → 테스트 → VM(`server.yml`, `ci-deploy.sh`). VM에서 `ci-deploy.sh`로 묶음을 받아 설치하는 경로는 손으로 시험함(healthz 200)
+- 앱: main push(android/**) → `:core:test` → Play alpha
+- 남은 것(사람): `deploy/home/setup-ci-deploy.sh` 실행, `HOME_DEPLOY_KEY` Secret·`HOME_KNOWN_HOSTS` 변수 등록. 그 전까지 server.yml은 테스트만 돈다

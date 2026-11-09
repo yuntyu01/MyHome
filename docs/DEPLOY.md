@@ -135,7 +135,7 @@ docker build --secret id=ca_bundle,src=/path/to/ca.crt -t myhome-server:local se
 
 ## 9. 자동매매 타이머 켜기·끄기 (운영 VM)
 
-`deploy/home/deploy.sh`는 매매 타이머를 설치만 하고 켜지 않는다. 켜고 끄는 것은 사람이 VM에서 한다(deploy.sh가 두 스크립트를 `/opt/myhome/`에 넣는다).
+배포(`deploy.sh`·CI)는 매매 타이머 유닛을 바꾸기만 하고 켜짐 상태는 건드리지 않는다. 켜고 끄는 것은 사람이 VM에서 한다(배포가 두 스크립트를 `/opt/myhome/`에 넣는다). 2026-11-09 운영 전환 때 켰다.
 
 ```bash
 sudo /opt/myhome/enable-invest.sh    # 켜기: 지난 실행 기록 정리 → 타이머 켜기 → status 한 번 → 다음 일정 출력
@@ -163,3 +163,29 @@ myhome invest orders --clear-stale   # 지난 적용월 기록 지우기
 `--clear-stale`은 증권사에 묻고, 살아 있을 수 있는 주문이 하나라도 있거나 장부에 반영되지 않은 체결이 있으면(증권사 보유와 장부가 다르면) 지우지 않는다. 이번 적용월 기록은 지우지 않는다.
 
 밖에서 보는 자동매매 신선도는 `GET /healthz/invest`다(로그인 없음, 금액 없음). 매매 전이면 200, 마지막 성공 status가 8일보다 오래됐거나 마지막 judge·trade가 실패했으면 503. `deploy/home/heartbeat.gs`가 `/healthz`와 함께 30분마다 부른다. Access 우회는 `ACCESS_SETUP.md`.
+
+## 10. 자동 배포 (운영 VM · Play)
+
+main에 push하면 GitHub Actions가 알아서 배포한다(사용자 결정 2026-11-10: 매번 배포).
+
+| 바뀐 곳 | 워크플로 | 하는 일 |
+|---|---|---|
+| `server/**`, `deploy/home/**` | `.github/workflows/server.yml` | gofmt·vet·`go test`(PostgreSQL 16 서비스) → 통과하면 VM에 배포 → 바깥 `/healthz` 확인 |
+| `android/**` | `.github/workflows/android-play.yml` | `:core:test` → 서명한 AAB → Play 비공개 테스트(alpha) |
+
+서버 배포 경로: 러너 → `cloudflared access ssh` → `myhome-deploy@myhome-ssh.kodeploy.com`. 이 키는 VM에서 `sudo /opt/myhome/ci-deploy.sh` 하나만 실행한다(`restrict,command=`, 셸·포워딩 없음). 표준입력으로 받은 묶음(바이너리·유닛·스크립트·VERSION)을 풀어 `install.sh`를 부른다 — 사람이 돌리는 `deploy.sh`와 같은 설치 단계다. 비밀값(토스 키 등)은 GitHub에 두지 않고 VM에 이미 있는 것을 쓴다. 매매 타이머 켜짐 상태는 건드리지 않는다.
+
+처음 한 번 (사람이):
+
+```bash
+deploy/home/setup-ci-deploy.sh                                   # VM에 myhome-deploy 사용자·키·sudo 한 줄
+gh secret set HOME_DEPLOY_KEY < <CI 개인키 파일>                  # 공개키는 deploy/home/ci-deploy.pub
+gh variable set HOME_KNOWN_HOSTS --body "myhome-ssh.kodeploy.com $(ssh home cat /etc/ssh/ssh_host_ed25519_key.pub | cut -d' ' -f1-2)"
+```
+
+`HOME_KNOWN_HOSTS`가 비어 있으면 server.yml은 테스트만 하고 배포는 건너뛴다.
+
+- 무엇이 깔렸는지: `ssh home cat /opt/myhome/VERSION`(커밋 7자리, CI 번호 또는 "사람 deploy.sh"), 기록은 `/var/log/myhome-ci-deploy.log`
+- 키 바꾸기: 새 키를 만들어 `ci-deploy.pub`를 바꾸고 `setup-ci-deploy.sh` → `gh secret set HOME_DEPLOY_KEY`
+- 끊기: `ssh home "sudo rm /home/myhome-deploy/.ssh/authorized_keys"` (워크플로는 접속 실패로 멈춘다)
+- 비밀값·터널 설정을 바꿀 때는 지금처럼 `deploy/home/deploy.sh`(PC, `/root/myhome-secrets/`)

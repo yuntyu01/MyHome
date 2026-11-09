@@ -1,0 +1,132 @@
+# 서버: main에 push하면 테스트하고, 통과하면 VM에 배포한다.
+#
+# 배포는 전용 키(HOME_DEPLOY_KEY)로 Cloudflare 터널 SSH(myhome-ssh.kodeploy.com)를 타고 들어가
+# 묶음을 표준입력으로 넘긴다. 그 키는 VM에서 /opt/myhome/ci-deploy.sh 하나만 실행할 수 있다(셸 없음).
+# 비밀값(토스 키 등)은 GitHub에 두지 않는다 - VM에 이미 있는 것을 쓴다. docs/DEPLOY.md 「자동 배포」
+#
+# 필요한 것
+#   Secret   HOME_DEPLOY_KEY  - CI 배포 키(개인키). 공개키는 deploy/home/ci-deploy.pub
+#   Variable HOME_KNOWN_HOSTS - VM SSH 호스트 키 한 줄(가짜 서버에 묶음을 넘기지 않게 고정)
+name: CI/CD - Server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "deploy/home/**"
+      - ".github/workflows/server.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: server-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: t
+          POSTGRES_PASSWORD: t
+          POSTGRES_DB: t
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U t" --health-interval 5s --health-timeout 5s --health-retries 20
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: gofmt
+        run: |
+          out=$(gofmt -l ./cmd ./internal)
+          [ -z "$out" ] || { echo "::error::gofmt 필요: $out"; exit 1; }
+      - run: go vet ./...
+      - name: go test
+        env:
+          TEST_DATABASE_URL: postgres://t:t@localhost:5432/t?sslmode=disable
+        run: go test -count=1 ./...
+
+  deploy:
+    needs: test
+    # VM에 CI 키를 깔고(setup-ci-deploy.sh) Secret·변수를 넣기 전에는 테스트만 돈다
+    if: github.ref == 'refs/heads/main' && vars.HOME_KNOWN_HOSTS != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: 배포 묶음 만들기
+        run: |
+          mkdir -p bundle
+          (cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../bundle/myhome ./cmd/myhome)
+          cp -r deploy/home/systemd bundle/
+          cp deploy/home/{postgres-roles.sql,backup.sh,enable-invest.sh,disable-invest.sh,install.sh,ci-deploy.sh} bundle/
+          echo "${GITHUB_SHA::7} (CI #${GITHUB_RUN_NUMBER})" > bundle/VERSION
+          tar -C bundle -czf bundle.tar.gz .
+          ls -l bundle.tar.gz
+
+      - name: cloudflared 설치
+        env:
+          CLOUDFLARED_VERSION: "2026.3.0"
+        run: |
+          curl -fsSL -o cloudflared "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+          sudo install -m 0755 cloudflared /usr/local/bin/cloudflared
+          cloudflared --version
+
+      - name: SSH 키·호스트 키
+        env:
+          HOME_DEPLOY_KEY: ${{ secrets.HOME_DEPLOY_KEY }}
+          HOME_KNOWN_HOSTS: ${{ vars.HOME_KNOWN_HOSTS }}
+        run: |
+          [ -n "$HOME_DEPLOY_KEY" ] || { echo "::error::HOME_DEPLOY_KEY Secret이 없다"; exit 1; }
+          [ -n "$HOME_KNOWN_HOSTS" ] || { echo "::error::HOME_KNOWN_HOSTS 변수가 없다"; exit 1; }
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$HOME_DEPLOY_KEY" > ~/.ssh/deploy_key && chmod 0600 ~/.ssh/deploy_key
+          printf '%s\n' "$HOME_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<'EOF'
+          Host myhome
+            HostName myhome-ssh.kodeploy.com
+            User myhome-deploy
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ProxyCommand cloudflared access ssh --hostname %h
+            ServerAliveInterval 15
+          EOF
+
+      - name: VM에 배포
+        run: |
+          for i in 1 2 3; do
+            ssh myhome < bundle.tar.gz && exit 0
+            rc=$?
+            # 75 = 다른 배포가 진행 중(잠금). 그 밖의 실패는 설치 단계 실패라 다시 하지 않는다
+            [ "$rc" = 255 ] || [ "$rc" = 75 ] || exit "$rc"
+            echo "연결 실패($rc) - 20초 뒤 다시"; sleep 20
+          done
+          exit 1
+
+      - name: 바깥에서 확인
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' https://myhome.kodeploy.com/healthz || true)
+            [ "$code" = 200 ] && { echo "healthz 200"; exit 0; }
+            sleep 3
+          done
+          echo "::error::https://myhome.kodeploy.com/healthz $code"; exit 1

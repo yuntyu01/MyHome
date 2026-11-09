@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # myhome VM 배포 (로컬에서 실행). setup-vm.sh를 먼저 한 번 돌려 둔다.
 #
-#   deploy/home/deploy.sh            # 바이너리 빌드 → 마이그레이션 → 권한 → 웹 재시작 → 터널
+#   deploy/home/deploy.sh            # 바이너리 빌드 → 비밀값 → 마이그레이션 → 권한 → 웹 재시작 → 터널
+#
+# 평소 배포는 CI가 한다(main에 push → 테스트 → .github/workflows/server.yml → ci-deploy.sh).
+# 이 스크립트는 비밀값·터널을 바꿀 때, CI가 막혔을 때 쓴다. 설치 단계는 둘이 같다(install.sh).
+# CI 키를 VM에 까는 것은 setup-ci-deploy.sh(한 번, 사람이).
 #
 # 비밀값은 저장소 밖 $MYHOME_SECRETS(기본 /root/myhome-secrets)에 둔다:
 #   web.env     웹 앱 설정(Access, Gemini …)        → VM /etc/myhome/web.app.env
@@ -38,66 +42,14 @@ fi
 CRED="$SECRETS/tunnel.json"; [ -f "$CRED" ] || CRED="$HOME/.cloudflared/$TUNNEL_ID.json"
 ssh "$HOST" "sudo install -d -m 0755 /etc/cloudflared && sudo install -m 0600 /dev/stdin /etc/cloudflared/$TUNNEL_ID.json" < "$CRED"
 
-echo "▶ 바이너리·유닛 전송"
-ssh "$HOST" "sudo install -m 0755 /dev/stdin /opt/myhome/myhome.new" < "$BIN"
-tar -C "$ROOT/deploy/home" -cf - systemd postgres-roles.sql backup.sh enable-invest.sh disable-invest.sh | ssh "$HOST" "rm -rf /tmp/myhome-deploy && mkdir -p /tmp/myhome-deploy && tar -C /tmp/myhome-deploy -xf -"
+echo "▶ 배포 묶음 전송·설치"
+STAGE=$(mktemp -d)
+cp "$BIN" "$STAGE/myhome"
+cp -r "$ROOT/deploy/home/systemd" "$STAGE/"
+cp "$ROOT/deploy/home/"{postgres-roles.sql,backup.sh,enable-invest.sh,disable-invest.sh,install.sh,ci-deploy.sh} "$STAGE/"
+(cd "$ROOT" && echo "$(git rev-parse --short HEAD)$(git diff --quiet HEAD -- server deploy || echo '+로컬수정') (사람 deploy.sh)") > "$STAGE/VERSION"
+tar -C "$STAGE" -cf - . | ssh "$HOST" "rm -rf /tmp/myhome-deploy && mkdir -p /tmp/myhome-deploy && tar -C /tmp/myhome-deploy -xf -"
+rm -rf "$STAGE"
 
-ssh "$HOST" "sudo TUNNEL_ID=$TUNNEL_ID HOSTNAME_PUBLIC=$HOSTNAME_PUBLIC HOSTNAME_SSH=$HOSTNAME_SSH bash -s" <<'REMOTE'
-set -euo pipefail
-cd /tmp/myhome-deploy
-# 환경 파일 합치기 (DB 주소 + 앱 설정)
-for who in web trader; do
-  cat /etc/myhome/$who.db.env /etc/myhome/$who.app.env > /etc/myhome/$who.env
-  chown root:myhome-$who /etc/myhome/$who.env; chmod 0640 /etc/myhome/$who.env
-done
-# 바꿔치기: 실행 중인 작업은 옛 바이너리로 끝까지 돈다
-mv -f /opt/myhome/myhome.new /opt/myhome/myhome
-
-# 마이그레이션은 소유자 역할로, 그 뒤 권한 다시 걸기 (멱등)
-set -a; . /etc/myhome/web.app.env; . /etc/myhome/owner.env; set +a
-/opt/myhome/myhome migrate up
-psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -f postgres-roles.sql
-
-# systemd 유닛: 웹과 백업만 켠다. 매매 타이머는 설치만
-install -m 0755 backup.sh /opt/myhome/backup.sh
-install -m 0755 enable-invest.sh disable-invest.sh /opt/myhome/
-cp systemd/*.service systemd/*.timer /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now myhome.service myhome-backup.timer >/dev/null
-systemctl restart myhome.service
-
-# 터널: 들어오는 포트 없이 Cloudflare로 나가는 연결만
-# SSH도 이 터널을 타므로, 설정이 바뀌었을 때만 그리고 맨 끝에 미뤄서 다시 시작한다(지금 SSH가 끊겨도 배포가 끝나게)
-NEWCFG=$(mktemp)
-cat > "$NEWCFG" <<EOF
-tunnel: $TUNNEL_ID
-credentials-file: /etc/cloudflared/$TUNNEL_ID.json
-ingress:
-  - hostname: $HOSTNAME_PUBLIC
-    service: http://127.0.0.1:8080
-  - hostname: $HOSTNAME_SSH
-    service: ssh://127.0.0.1:22
-  - service: http_status:404
-EOF
-RESTART_TUNNEL=""
-if ! cmp -s "$NEWCFG" /etc/cloudflared/config.yml; then
-  install -m 0644 "$NEWCFG" /etc/cloudflared/config.yml
-  RESTART_TUNNEL=1
-fi
-rm -f "$NEWCFG"
-if [ ! -f /etc/systemd/system/cloudflared.service ]; then
-  cloudflared --config /etc/cloudflared/config.yml service install >/dev/null 2>&1
-  RESTART_TUNNEL=""
-fi
-
-for i in $(seq 1 20); do curl -fsS -m 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break; sleep 1; done
-echo "웹: $(systemctl is-active myhome) / healthz: $(curl -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz) / 터널: $(systemctl is-active cloudflared)"
-echo "백업: 다음 $(systemctl show myhome-backup.timer -p NextElapseUSecRealtime --value) / 버킷 $( [ -s /etc/myhome/backup.env ] && echo 연결됨 || echo '없음(VM 디스크만)')"
-echo "매매 타이머(꺼져 있어야 정상): $(systemctl list-unit-files 'myhome-invest-*.timer' --no-legend | awk '{print $1"="$2}' | tr '\n' ' ')"
-rm -rf /tmp/myhome-deploy
-if [ -n "$RESTART_TUNNEL" ]; then
-  systemd-run --quiet --on-active=3 --unit="myhome-tunnel-restart-$(date +%s)" systemctl restart cloudflared
-  echo "터널 설정이 바뀌어 3초 뒤 cloudflared를 다시 시작한다(SSH가 잠깐 끊긴다)"
-fi
-REMOTE
+ssh "$HOST" "sudo TUNNEL_ID=$TUNNEL_ID HOSTNAME_PUBLIC=$HOSTNAME_PUBLIC HOSTNAME_SSH=$HOSTNAME_SSH bash /tmp/myhome-deploy/install.sh; rc=\$?; rm -rf /tmp/myhome-deploy; exit \$rc"
 echo "✓ 배포 끝"
