@@ -36,6 +36,9 @@ class MyHomeApi(
     /** 투자 평가 화면(평가액·원금·원금 내역, 읽기 전용) */
     fun investValue(): ApiResult<InvestValue> = call("GET", "/v1/invest/value", null, InvestValue.serializer())
 
+    /** 투자 → 백테스트 결과(고정 표, 읽기 전용) */
+    fun investBacktest(): ApiResult<Backtest> = call("GET", "/v1/invest/backtest", null, Backtest.serializer())
+
     /** 매매 실패 알림 중 [after] 다음 것(오래된 것부터, 7일 안). 앱 주기 작업이 폰 알림으로 띄운다. */
     fun investAlerts(after: Long): ApiResult<InvestAlerts> =
         call("GET", "/v1/invest/alerts?after=$after", null, InvestAlerts.serializer())

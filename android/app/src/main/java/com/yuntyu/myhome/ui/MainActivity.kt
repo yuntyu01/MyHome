@@ -77,6 +77,7 @@ enum class Screen(val title: String) {
     LOGS("보낸 기록"),
     BUDGETS("분류와 예산"),
     INVEST_VALUE("평가"),
+    INVEST_BACKTEST("백테스트 결과"),
     HEALTH_CAPTURE("끼니 기록"),
     HEALTH_RECORDS("기록"),
     HEALTH_GYM("헬스"),
@@ -97,7 +98,7 @@ enum class Screen(val title: String) {
             HOME -> null
             PERMISSIONS, LOGS -> STATUS
             STATUS, APPS, BUDGETS, HEALTH_SETTINGS -> SETTINGS
-            INVEST_VALUE -> INVEST
+            INVEST_VALUE, INVEST_BACKTEST -> INVEST
             HEALTH_CAPTURE, HEALTH_RECORDS, HEALTH_GYM -> HEALTH
             else -> HOME
         }
@@ -261,6 +262,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                 Screen.FOCUS -> FocusScreen(mod, resumeTick)
                 Screen.INVEST -> InvestScreen(mod, resumeTick, onNavigate = { go(it) })
                 Screen.INVEST_VALUE -> InvestValueScreen(mod)
+                Screen.INVEST_BACKTEST -> InvestBacktestScreen(mod)
                 Screen.HEALTH -> HealthScreen(mod, resumeTick, healthNav, onNavigate = { go(it) })
                 Screen.HEALTH_CAPTURE -> key(healthNav.captureDate, healthNav.captureIndex, healthNav.editing) {
                     HealthCaptureScreen(mod, healthNav, onDone = { back() })

@@ -442,3 +442,14 @@ details summary { cursor: pointer; color: var(--accent-ink); margin: 10px 0; }
 .group .danger { color: var(--over); }
 
 .tx-list .empty-row { padding: 18px; }
+
+/* 백테스트 표 (투자 → 백테스트 결과) — ★ 행은 바탕, 항목별 1등은 굵게. 색은 쓰지 않는다(무채색) */
+table.bk th, table.bk td { white-space: nowrap; }
+table.bk td:first-child, table.bk th:first-child { position: sticky; left: 0; background: var(--card-solid); }
+table.bk td.top { font-weight: 800; color: var(--text); }
+table.bk tr.me td { background: var(--raised); font-weight: 600; }
+.seg-links { display: flex; gap: 8px; margin: 18px 0 10px; }
+.seg-links a { padding: 0.35rem 0.9rem; border-radius: 999px; background: var(--raised); color: var(--muted); font-weight: 600; font-size: 0.9rem; }
+.seg-links a[aria-current="page"] { background: var(--text); color: var(--card-solid); text-decoration: none; }
+.bt-notes { margin: 0; padding-left: 1.1rem; line-height: 1.6; }
+.bt-notes li { margin: 6px 0; }

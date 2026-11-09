@@ -44,7 +44,7 @@ type Web struct {
 }
 
 // pageNames는 layout과 함께 파싱할 페이지 템플릿 목록이다.
-var pageNames = []string{"dashboard", "transactions", "review", "budgets", "analytics", "admin", "report", "reconcile", "more", "invest", "invest_value"}
+var pageNames = []string{"dashboard", "transactions", "review", "budgets", "analytics", "admin", "report", "reconcile", "more", "invest", "invest_value", "invest_backtest"}
 
 // New는 템플릿을 파싱해서 Web을 만든다.
 func New(a *api.API, authn *auth.Authenticator, devices *auth.Handlers, logger *slog.Logger, devLogin bool) (*Web, error) {
@@ -102,10 +102,12 @@ func (wb *Web) Register(mux *http.ServeMux) {
 	// 투자: 읽기 전용(DB만 읽는다). POST 라우트를 만들지 않는다
 	h("GET /invest", wb.invest)
 	h("GET /invest/value", wb.investValue)
+	h("GET /invest/backtest", wb.investBacktest)
 	// 앱 투자 탭: 기기 토큰(또는 웹 세션)으로 같은 값을 JSON으로 읽는다. 이것도 GET만 있다
 	api := func(pattern string, fn http.HandlerFunc) { mux.Handle(pattern, wb.Auth.RequireAPI(fn)) }
 	api("GET /v1/invest", wb.apiInvest)
 	api("GET /v1/invest/value", wb.apiInvestValue)
+	api("GET /v1/invest/backtest", wb.apiInvestBacktest)
 	// 매매 실패 알림: 앱 주기 작업이 마지막으로 본 id 다음을 읽어 폰 알림을 띄운다
 	api("GET /v1/invest/alerts", wb.apiInvestAlerts)
 }
@@ -215,6 +217,8 @@ func redirect(w http.ResponseWriter, r *http.Request, path, msg string, isErr bo
 // ---- 템플릿 함수 ----
 
 var funcs = template.FuncMap{
+	// btArgs는 백테스트 표 하나를 그릴 때 머리줄과 표를 같이 넘긴다(invest_backtest.html)
+	"btArgs":  func(head []string, t btTable) map[string]any { return map[string]any{"Head": head, "Table": t} },
 	"won":     func(n int64) string { return group(n) + "원" },
 	"num":     group,
 	"pct":     func(f float64) string { return strconv.Itoa(int(math.Round(f*100))) + "%" },

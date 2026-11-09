@@ -86,6 +86,18 @@ fun InvestScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
                         Text("›", color = m.muted)
                     }
                 }
+                SectionCard("전략") {
+                    Row(
+                        Modifier.fillMaxWidth().clickable(onClickLabel = "백테스트 결과 보기") { onNavigate(Screen.INVEST_BACKTEST) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("백테스트 결과")
+                            Text("숫자가 어땠는가 · TQQQ·QLD 보유와 비교", style = MaterialTheme.typography.bodySmall, color = m.muted)
+                        }
+                        Text("›", color = m.muted)
+                    }
+                }
                 Note("읽기만 하는 화면이에요. 날짜는 뉴욕 기준이고, 실행 시각은 한국 시간이에요.")
             }
         }

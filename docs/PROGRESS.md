@@ -196,3 +196,8 @@
 - 서버: main push → 테스트 → VM(`server.yml`, `ci-deploy.sh`). VM에서 `ci-deploy.sh`로 묶음을 받아 설치하는 경로는 손으로 시험함(healthz 200)
 - 앱: main push(android/**) → `:core:test` → Play alpha
 - 남은 것(사람): `deploy/home/setup-ci-deploy.sh` 실행, `HOME_DEPLOY_KEY` Secret·`HOME_KNOWN_HOSTS` 변수 등록. 그 전까지 server.yml은 테스트만 돈다
+
+### 백테스트 결과 표 복원 (2026-11-10)
+
+- TQ 뷰어에서 빠졌던 비교 표(★ vs QLD·TQQQ·QQQ 등, 5~10년 적립, 닷컴 제외/전체)를 웹 `/invest/backtest`와 앱 투자 → 백테스트 결과로 되살림. 고정 표(xlsx → JSON 내장)
+- 테스트: 표 고정값·1등 방향·읽기 전에 숫자(Go 3개), 웹·API(2개), 앱 모델·글자(2개)

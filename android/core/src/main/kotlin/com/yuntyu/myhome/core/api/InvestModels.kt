@@ -73,3 +73,81 @@ data class InvestAlert(
     val title: String = "",
     val body: String = "",
 )
+
+/**
+ * GET /v1/invest/backtest — 이 전략의 고정 백테스트 표(TQ 뷰어 「백테스트 결과」 이식). 서버가 다시 계산하지 않는다.
+ * 금액은 억원, 비율은 %. tops는 그 행이 항목별 1등인 열 키(손실%는 낮을수록, MDD는 0에 가까울수록 1등).
+ */
+@Serializable
+data class Backtest(
+    val period: String = "",
+    @SerialName("fee_rate") val feeRate: Double = 0.0,
+    val unit: String = "",
+    val columns: List<BacktestColumn> = emptyList(),
+    /** 7년 적립·전체 표본에서 ★와 TQQQ·QLD·QQQ 단순 보유 */
+    val key: List<BacktestRow> = emptyList(),
+    val horizons: List<BacktestHorizon> = emptyList(),
+    val notes: List<String> = emptyList(),
+)
+
+@Serializable
+data class BacktestColumn(
+    val key: String,
+    val label: String,
+    val percent: Boolean = false,
+    @SerialName("higher_is_better") val higherIsBetter: Boolean = true,
+)
+
+@Serializable
+data class BacktestHorizon(
+    val label: String,
+    @SerialName("ex_dotcom") val exDotcom: List<BacktestRow> = emptyList(),
+    val all: List<BacktestRow> = emptyList(),
+)
+
+@Serializable
+data class BacktestRow(
+    val name: String,
+    val star: Boolean = false,
+    val principal: Double = 0.0,
+    val worst: Double = 0.0,
+    val q10: Double = 0.0,
+    val q30: Double = 0.0,
+    val median: Double = 0.0,
+    val q70: Double = 0.0,
+    val q90: Double = 0.0,
+    val mean: Double = 0.0,
+    val best: Double = 0.0,
+    @SerialName("loss_pct") val lossPct: Double = 0.0,
+    val windows: Int = 0,
+    @SerialName("mdd_median_pct") val mddMedianPct: Double = 0.0,
+    @SerialName("mdd_worst_pct") val mddWorstPct: Double = 0.0,
+    val tops: List<String> = emptyList(),
+) {
+    fun value(key: String): Double = when (key) {
+        "worst" -> worst
+        "q10" -> q10
+        "q30" -> q30
+        "median" -> median
+        "q70" -> q70
+        "q90" -> q90
+        "loss_pct" -> lossPct
+        "mdd_median_pct" -> mddMedianPct
+        "mdd_worst_pct" -> mddWorstPct
+        else -> Double.NaN
+    }
+
+    /** 칸 글자. 금액은 억 소수 둘째 자리, 손실%는 소수 첫째, MDD는 정수 %. 음수는 진짜 빼기표(−) */
+    fun text(key: String): String {
+        val v = value(key)
+        val s = when (key) {
+            "loss_pct" -> String.format(java.util.Locale.ROOT, "%.1f%%", v)
+            "mdd_median_pct", "mdd_worst_pct" -> String.format(java.util.Locale.ROOT, "%.0f%%", v)
+            else -> String.format(java.util.Locale.ROOT, "%.2f", v)
+        }
+        return s.replaceFirst("-", "−")
+    }
+
+    /** 표에 쓰는 짧은 이름 */
+    val shortName: String get() = name.replace("+변동성", "+vol")
+}

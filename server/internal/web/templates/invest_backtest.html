@@ -1,0 +1,40 @@
+{{define "content"}}{{with .Data}}
+<div class="section-title row-between"><span>나스닥100 레버리지 적립 전략 — 백테스트</span><a href="/invest">투자 상태로</a></div>
+<p class="muted small">S&amp;P500 185일 이동평균 · 나스닥100 21일 변동성 30% · 월 1회 판정 · {{.Period}} · 단위 억원</p>
+
+<section class="card">
+  <h2>TQQQ·QLD를 그냥 들고 있는 것과 비교</h2>
+  <p class="muted small">{{.Key.Label}} · {{.Key.Hint}}</p>
+  {{template "bt-table" (btArgs $.Data.Head .Key)}}
+  <p class="muted small">이 전략의 근거는 수익이 아니라 하방이다. 최악·손실%·MDD를 먼저 보라.</p>
+</section>
+
+<nav class="seg-links" aria-label="표본">
+  <a href="/invest/backtest" {{if not .All}}aria-current="page"{{end}}>닷컴 제외</a>
+  <a href="/invest/backtest?s=all" {{if .All}}aria-current="page"{{end}}>전체 표본</a>
+</nav>
+{{if .All}}
+<div class="flash">지금 보는 것은 <strong>전체 표본</strong>이다 — 닷컴 붕괴를 포함한다. 공식 수치가 이 기준이다.</div>
+{{else}}
+<div class="flash err">지금 보는 것은 <strong>닷컴 버블을 뺀 표본</strong>이다 — 이 전략이 겪은 최악의 구간이 빠져 있다. <a href="/invest/backtest?s=all">전체 표본으로 보기</a></div>
+{{end}}
+
+{{range .Tables}}
+<section class="card">
+  <h2>{{.Label}}</h2>
+  <p class="muted small">{{.Hint}}</p>
+  {{template "bt-table" (btArgs $.Data.Head .)}}
+</section>
+{{end}}
+
+<section class="card">
+  <h2>읽기 전에</h2>
+  <ul class="bt-notes">{{range .Notes}}<li>{{.}}</li>{{end}}</ul>
+</section>
+<p class="muted small note">★가 이 전략, 굵은 칸이 항목별 1등이다. 손실%는 낮을수록, MDD는 0에 가까울수록 1등이다. 다시 계산하지 않는 고정 표다(TQ 백테스트 v2, 수수료 0.10%).</p>
+{{end}}{{end}}
+
+{{define "bt-table"}}<div class="table-wrap"><table class="bk">
+  <thead><tr><th>전략</th>{{range .Head}}<th class="num">{{.}}</th>{{end}}</tr></thead>
+  <tbody>{{range .Table.Rows}}<tr{{if .Star}} class="me"{{end}}><td>{{.Name}}</td>{{range .Cells}}<td class="num{{if .Top}} top{{end}}">{{.Text}}</td>{{end}}</tr>{{end}}</tbody>
+</table></div>{{end}}
