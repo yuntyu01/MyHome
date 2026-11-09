@@ -216,7 +216,7 @@ private fun InUseHome(
             }
             val month = WidgetModel.monthName(s.period.label)
             val spent = s.totals.spent - s.totals.settled
-            Column(Modifier.padding(start = Gutter, end = Gutter, top = 28.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.padding(start = Gutter, end = Gutter, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (s.totals.budget > 0) {
                     val over = s.totals.remaining < 0
                     Text(if (over) "${month} 예산을 넘었어요" else "${month}에 쓸 수 있는 돈", fontSize = 16.sp, color = m.muted)
@@ -283,12 +283,6 @@ private fun InUseHome(
                 Text("아직 적힌 결제가 없어요. 결제 알림이 오면 바로 적혀요.", Modifier.padding(horizontal = Gutter, vertical = 12.dp), fontSize = 14.sp, color = m.muted)
             }
             for (t in recent) TxRow(t, withDay = true) { onTransactions(if (t.status == "needs_review") 1 else 0) }
-
-            // 투자는 자동이라 볼 일이 적어 하단바 칸 대신 홈 맨 아래 한 줄로 둔다(하단바 칸은 집중 타이머)
-            Spacer(Modifier.height(16.dp))
-            Hairline()
-            FlatRow("투자", sub = "자동매매 보유와 다음 일정", leading = { Icon(InvestIcon, contentDescription = null, tint = m.muted, modifier = Modifier.size(20.dp)) }, onClick = { onNavigate(Screen.INVEST) })
-            Hairline()
 
             Text(
                 if (state.error != null) "새로 받지 못했어요. 아래로 당겨서 다시 받아 보세요" else "${agoText(state.updatedAt)} 새로 받음",

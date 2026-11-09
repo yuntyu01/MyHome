@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Icon
@@ -82,7 +83,7 @@ enum class Screen(val title: String) {
     HEALTH_SETTINGS("건강 설정"),
     ;
 
-    /** 하단바에 있는 첫 화면들. 투자는 자동이라 볼 일이 적어 홈 맨 아래 줄에서 연다(2026-11-09, 칸은 집중 타이머에) */
+    /** 하단바에 있는 첫 화면들. 투자는 자동이라 볼 일이 적어 홈 오른쪽 위 버튼으로 연다(2026-11-09, 칸은 집중 타이머에) */
     val topLevel: Boolean
         get() = this == HOME || this == TRANSACTIONS || this == HEALTH || this == FOCUS || this == SETTINGS
 
@@ -207,6 +208,23 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             topBar = {
                 when {
                     !screen.topLevel -> SubTopBar(screen.title, showBack = screen.parent != null || backStack.isNotEmpty()) { back() }
+                    // 홈: 오른쪽 위에 투자 버튼(하단바 칸은 집중 타이머가 쓴다)
+                    screen == Screen.HOME -> Row(
+                        Modifier.fillMaxWidth().statusBarsPadding().height(48.dp).padding(end = 16.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            Modifier.clip(RoundedCornerShape(12.dp)).background(m.pill)
+                                .clickable(onClickLabel = "투자 열기") { go(Screen.INVEST) }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Icon(InvestIcon, contentDescription = null, tint = m.muted, modifier = Modifier.size(16.dp))
+                            Text("투자", fontSize = 13.sp, color = m.muted)
+                        }
+                    }
                     screen.ownHeader -> Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
                     else -> Column(Modifier.statusBarsPadding()) {
                         PageTitle(screen.title) {
