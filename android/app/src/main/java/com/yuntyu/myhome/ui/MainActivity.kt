@@ -67,6 +67,7 @@ enum class Screen(val title: String) {
     HOME(""),
     TRANSACTIONS("거래"),
     HEALTH("건강"),
+    FOCUS("집중"),
     INVEST("투자"),
     SETTINGS("설정"),
     STATUS("문제 해결"),
@@ -81,13 +82,13 @@ enum class Screen(val title: String) {
     HEALTH_SETTINGS("건강 설정"),
     ;
 
-    /** 하단바에 있는 첫 화면들 */
+    /** 하단바에 있는 첫 화면들. 투자는 자동이라 볼 일이 적어 홈 맨 아래 줄에서 연다(2026-11-09, 칸은 집중 타이머에) */
     val topLevel: Boolean
-        get() = this == HOME || this == TRANSACTIONS || this == HEALTH || this == INVEST || this == SETTINGS
+        get() = this == HOME || this == TRANSACTIONS || this == HEALTH || this == FOCUS || this == SETTINGS
 
-    /** 제목 줄을 화면이 직접 그리는 첫 화면(홈은 제목 없음, 거래는 달 넘기기가 제목 줄에 있다) */
+    /** 제목 줄을 화면이 직접 그리는 첫 화면(홈은 제목 없음, 거래는 달 넘기기가 제목 줄에 있다, 집중은 가운데 날짜) */
     val ownHeader: Boolean
-        get() = this == HOME || this == TRANSACTIONS
+        get() = this == HOME || this == TRANSACTIONS || this == FOCUS
 
     /** 뒤로 가기 대상(지나온 화면 기록이 없을 때) */
     val parent: Screen?
@@ -174,6 +175,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             "apps" -> { screen = Screen.SETTINGS; go(Screen.APPS) }
             "health" -> screen = Screen.HEALTH
             "invest" -> screen = Screen.INVEST
+            "focus" -> screen = Screen.FOCUS
             "health_gym" -> { screen = Screen.HEALTH; go(Screen.HEALTH_GYM) }
             "health_capture" -> {
                 screen = Screen.HEALTH
@@ -238,6 +240,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                 Screen.SETTINGS -> SettingsScreen(mod, resumeTick, onNavigate = { go(it) })
                 Screen.LOGS -> LogScreen(mod)
                 Screen.BUDGETS -> BudgetsScreen(mod)
+                Screen.FOCUS -> FocusScreen(mod, resumeTick)
                 Screen.INVEST -> InvestScreen(mod, resumeTick, onNavigate = { go(it) })
                 Screen.INVEST_VALUE -> InvestValueScreen(mod)
                 Screen.HEALTH -> HealthScreen(mod, resumeTick, healthNav, onNavigate = { go(it) })
@@ -276,7 +279,7 @@ private fun FlatBottomBar(current: Screen, reviewCount: Long, onSelect: (Screen)
         Triple(Screen.HOME, HomeLineIcon, "홈"),
         Triple(Screen.TRANSACTIONS, ListLineIcon, "거래"),
         Triple(Screen.HEALTH, HealthIcon, "건강"),
-        Triple(Screen.INVEST, InvestIcon, "투자"),
+        Triple(Screen.FOCUS, TimerIcon, "집중"),
         Triple(Screen.SETTINGS, GearLineIcon, "설정"),
     )
     Column(Modifier.fillMaxWidth().background(m.bg).navigationBarsPadding()) {

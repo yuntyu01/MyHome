@@ -46,6 +46,33 @@ type Device struct {
 	Email      *string    `json:"email"`
 }
 
+type FocusSession struct {
+	ID        string    `json:"id"`
+	SubjectID string    `json:"subject_id"`
+	StartedAt time.Time `json:"started_at"`
+	EndedAt   time.Time `json:"ended_at"`
+	Deleted   bool      `json:"deleted"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type FocusStay struct {
+	ID        string    `json:"id"`
+	Place     string    `json:"place"`
+	EnteredAt time.Time `json:"entered_at"`
+	ExitedAt  time.Time `json:"exited_at"`
+	Deleted   bool      `json:"deleted"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type FocusSubject struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Color     string    `json:"color"`
+	Sort      int32     `json:"sort"`
+	Archived  bool      `json:"archived"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type GymLog struct {
 	GymDate    time.Time  `json:"gym_date"`
 	CheckInAt  *time.Time `json:"check_in_at"`

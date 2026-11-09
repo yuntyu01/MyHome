@@ -20,6 +20,7 @@ object Notifications {
     const val CH_BUDGET = "budget"
     const val CH_HEALTH = "health"
     const val CH_INVEST = "invest"
+    const val CH_FOCUS = "focus"
 
     const val ID_UPLOADING = 1001
     const val ID_TEST = 1002
@@ -37,6 +38,12 @@ object Notifications {
                 },
                 NotificationChannel(CH_HEALTH, "건강 알림", NotificationManager.IMPORTANCE_DEFAULT).apply {
                     description = "끼니 마감 30분 전·마감 시각, 헬스 도착 1시간 전, 취침 시각"
+                },
+                // 타이머가 도는 동안 떠 있는 알림(시계가 가고 멈추기 버튼이 있다). 소리·진동 없음
+                NotificationChannel(CH_FOCUS, "집중 타이머", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "과목 타이머가 도는 동안 떠 있는 알림"
+                    setSound(null, null)
+                    enableVibration(false)
                 },
                 // 자동매매가 실패했을 때만 온다. 드물고 놓치면 안 되니 소리를 낸다
                 NotificationChannel(CH_INVEST, "자동매매·서버 실패", NotificationManager.IMPORTANCE_HIGH).apply {

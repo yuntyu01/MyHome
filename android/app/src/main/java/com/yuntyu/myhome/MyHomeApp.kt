@@ -51,6 +51,10 @@ class MyHomeApp : Application() {
         MealPhotos.purge(this, healthLocal.photoKeepDays)
         com.yuntyu.myhome.health.MealOutbox.flush(this)
         com.yuntyu.myhome.health.GymGeofence.register(this)
+        // 집중 타이머: 돌던 타이머와 알림을 되살리고, 공부 장소 지오펜스를 다시 걸고, 못 보낸 기록을 보낸다
+        com.yuntyu.myhome.focus.FocusTimer.init(this)
+        com.yuntyu.myhome.focus.StudyPlaces.register(this)
+        com.yuntyu.myhome.focus.FocusSync.enqueue(this)
     }
 
     companion object {

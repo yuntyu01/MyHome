@@ -15,6 +15,7 @@ import (
 	"github.com/yuntyu01/MyHome/server/internal/auth"
 	"github.com/yuntyu01/MyHome/server/internal/config"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
+	"github.com/yuntyu01/MyHome/server/internal/focus"
 	"github.com/yuntyu01/MyHome/server/internal/health"
 	"github.com/yuntyu01/MyHome/server/internal/health/foods"
 	"github.com/yuntyu01/MyHome/server/internal/httpx"
@@ -78,6 +79,9 @@ func New(d Deps) http.Handler {
 	// 건강(핏두잉 이식): 기기 토큰(앱) 또는 웹 세션
 	newHealth(d).Register(mux, authn.RequireAPI)
 
+	// 집중(공부 타이머): 기기 토큰(앱) 또는 웹 세션
+	newFocus(d).Register(mux, authn.RequireAPI)
+
 	var h http.Handler = mux
 	// 끼니 사진 분석만 사진 크기(최대 16MB)까지 받는다. 나머지는 MAX_BODY_BYTES 그대로
 	h = httpx.LimitBodyRoutes(d.Config.MaxBodyBytes, map[string]int64{"POST " + health.AnalyzePath: health.MaxAnalyzeBytes, "PUT " + health.MealPhotosPath: health.MaxAnalyzeBytes}, h)
@@ -117,4 +121,9 @@ func newHealth(d Deps) *health.Handler {
 		fl = foods.New(d.Config.FoodSafetyAPIKey, d.Config.DataGoKrAPIKey, "", "").WithOFF("")
 	}
 	return &health.Handler{Svc: &health.Service{Pool: d.Pool, Now: d.Now, PhotoDir: d.Config.MealPhotoDir}, Analyzer: analyzer, Foods: fl, Logger: d.Logger}
+}
+
+// newFocus는 집중(공부 타이머) API를 조립한다. 앱이 먼저 저장하고 올리는 백업이라 바깥 의존성이 없다.
+func newFocus(d Deps) *focus.Handler {
+	return &focus.Handler{Svc: &focus.Service{Pool: d.Pool}, Logger: d.Logger}
 }

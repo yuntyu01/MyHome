@@ -106,12 +106,14 @@ class ReminderReceiver : BroadcastReceiver() {
 }
 
 /**
- * 재부팅·앱 업데이트·시각 변경·"알람 및 리마인더" 허용이 바뀐 뒤 알림과 헬스장 지오펜스를 다시 건다
+ * 재부팅·앱 업데이트·시각 변경·"알람 및 리마인더" 허용이 바뀐 뒤 알림과 헬스장·공부 장소 지오펜스를 다시 건다
  * (지오펜스는 재부팅 때 지워진다).
  */
 class ReminderBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Reminders.reschedule(context)
         GymGeofence.register(context)
+        // 공부 장소 지오펜스도 재부팅 때 지워진다. 돌던 타이머 알림도 다시 띄운다(MyHomeApp.onCreate의 FocusTimer.init)
+        com.yuntyu.myhome.focus.StudyPlaces.register(context)
     }
 }

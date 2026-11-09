@@ -82,3 +82,47 @@ val SearchIcon: ImageVector by lazy {
 }
 
 val CheckIcon: ImageVector by lazy { line("Check") { moveTo(5f, 12.5f); lineTo(9.5f, 17f); lineTo(19f, 7.5f) } }
+
+/** 칠한 아이콘(재생·멈춤처럼 면으로 그리는 것) */
+private fun filled(name: String, block: PathBuilder.() -> Unit): ImageVector =
+    ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
+        path(fill = SolidColor(Color.Black), pathBuilder = block)
+    }.build()
+
+/** 집중(하단바): 스톱워치 */
+val TimerIcon: ImageVector by lazy {
+    line("Timer") {
+        moveTo(10f, 2.5f); lineTo(14f, 2.5f)
+        moveTo(12f, 2.5f); lineTo(12f, 5f)
+        moveTo(19.5f, 13f)
+        arcTo(7.5f, 7.5f, 0f, true, true, 4.5f, 13f)
+        arcTo(7.5f, 7.5f, 0f, true, true, 19.5f, 13f)
+        moveTo(12f, 13f); lineTo(12f, 9f)
+        moveTo(18.5f, 6.5f); lineTo(17.2f, 7.8f)
+    }
+}
+
+/** 재생(과목 동그라미 안) */
+val PlayFilledIcon: ImageVector by lazy { filled("Play") { moveTo(8f, 5.5f); lineTo(19f, 12f); lineTo(8f, 18.5f); close() } }
+
+/** 멈춤(돌고 있는 과목 동그라미 안) */
+val PauseFilledIcon: ImageVector by lazy {
+    filled("Pause") {
+        moveTo(7f, 5f); lineTo(10.5f, 5f); lineTo(10.5f, 19f); lineTo(7f, 19f); close()
+        moveTo(13.5f, 5f); lineTo(17f, 5f); lineTo(17f, 19f); lineTo(13.5f, 19f); close()
+    }
+}
+
+/** 장소 핀 */
+val PinIcon: ImageVector by lazy {
+    line("Pin") {
+        moveTo(12f, 21f)
+        curveTo(12f, 21f, 5f, 14.5f, 5f, 9.5f)
+        arcTo(7f, 7f, 0f, false, true, 19f, 9.5f)
+        curveTo(19f, 14.5f, 12f, 21f, 12f, 21f)
+        close()
+        moveTo(14.5f, 9.5f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 9.5f, 9.5f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 14.5f, 9.5f)
+    }
+}

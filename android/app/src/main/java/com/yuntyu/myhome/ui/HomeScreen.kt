@@ -284,6 +284,12 @@ private fun InUseHome(
             }
             for (t in recent) TxRow(t, withDay = true) { onTransactions(if (t.status == "needs_review") 1 else 0) }
 
+            // 투자는 자동이라 볼 일이 적어 하단바 칸 대신 홈 맨 아래 한 줄로 둔다(하단바 칸은 집중 타이머)
+            Spacer(Modifier.height(16.dp))
+            Hairline()
+            FlatRow("투자", sub = "자동매매 보유와 다음 일정", leading = { Icon(InvestIcon, contentDescription = null, tint = m.muted, modifier = Modifier.size(20.dp)) }, onClick = { onNavigate(Screen.INVEST) })
+            Hairline()
+
             Text(
                 if (state.error != null) "새로 받지 못했어요. 아래로 당겨서 다시 받아 보세요" else "${agoText(state.updatedAt)} 새로 받음",
                 Modifier.padding(horizontal = Gutter, vertical = 24.dp),

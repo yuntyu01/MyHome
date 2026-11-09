@@ -77,6 +77,13 @@
         <receiver
             android:name=".health.GymGeofenceReceiver"
             android:exported="false" />
+        <!-- 집중 타이머: 알림의 멈추기, 공부 장소 지오펜스(헬스장과 따로 묶는다) -->
+        <receiver
+            android:name=".focus.FocusStopReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".focus.StudyGeofenceReceiver"
+            android:exported="false" />
         <receiver
             android:name=".health.ReminderBootReceiver"
             android:exported="false">

@@ -203,6 +203,18 @@ class MyHomeApi(
             Recommendation.serializer(),
         )
 
+    // 집중 타이머 동기화(FocusModels.kt). 과목을 먼저 보내야 기록이 그 과목을 찾는다(모르는 과목이면 400)
+    fun putFocusSubject(id: String, b: FocusSubjectBody): ApiResult<FocusSubjectDto> =
+        call("PUT", "/v1/focus/subjects/${q(id)}", MyHomeJson.encodeToString(FocusSubjectBody.serializer(), b), FocusSubjectDto.serializer())
+
+    fun putFocusSession(id: String, b: FocusSessionBody): ApiResult<FocusSessionDto> =
+        call("PUT", "/v1/focus/sessions/${q(id)}", MyHomeJson.encodeToString(FocusSessionBody.serializer(), b), FocusSessionDto.serializer())
+
+    fun putFocusStay(id: String, b: FocusStayBody): ApiResult<FocusStayDto> =
+        call("PUT", "/v1/focus/stays/${q(id)}", MyHomeJson.encodeToString(FocusStayBody.serializer(), b), FocusStayDto.serializer())
+
+    fun focusAll(): ApiResult<FocusAll> = call("GET", "/v1/focus/all", null, FocusAll.serializer())
+
     /** 바코드로 제품·영양성분 찾기(식약처 → Open Food Facts). 못 찾으면 404, 조회 불가면 503. */
     fun barcode(code: String): ApiResult<BarcodeAnswer> = call("GET", "/v1/health/foods/barcode/$code", null, BarcodeAnswer.serializer())
 

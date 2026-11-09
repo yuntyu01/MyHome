@@ -38,6 +38,9 @@ object WidgetRefresher {
         if (r is ApiResult.Ok) withContext(Dispatchers.IO) { MealPhotos.retryPending(context) }
         // 헬스장 지오펜스 다시 걸기: 위치를 껐다 켜면 시스템이 지운 채로 두므로(실패 이유는 남겨서 헬스 화면에 보인다)
         GymGeofence.register(context)
+        // 공부 장소 지오펜스도 같은 이유로 다시 걸고, 못 보낸 집중 기록을 보낸다
+        com.yuntyu.myhome.focus.StudyPlaces.register(context)
+        com.yuntyu.myhome.focus.FocusSync.enqueue(context)
         return r is ApiResult.Ok
     }
 
