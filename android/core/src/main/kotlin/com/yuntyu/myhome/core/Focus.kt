@@ -135,6 +135,14 @@ object FocusSubjects {
 
     private val HEX = Regex("^#[0-9A-Fa-f]{6}$")
     fun validColor(c: String): Boolean = HEX.matches(c)
+
+    /** 위젯에 보일 과목(최대 max개): 앱 순서대로, 도는 과목이 그 밖에 있으면 마지막 자리를 그것으로 바꾼다 */
+    fun widgetRows(ids: List<String>, runningId: String?, max: Int): List<String> {
+        if (max <= 0) return emptyList()
+        val head = ids.take(max)
+        if (runningId == null || runningId in head || runningId !in ids) return head
+        return head.dropLast(1) + runningId
+    }
 }
 
 /** "1:08:05"처럼 시:분:초(열품타와 같은 모양). 음수는 0 */

@@ -108,6 +108,18 @@ class FocusTest {
     }
 
     @Test
+    fun widgetRowsKeepRunningSubjectVisible() {
+        val ids = listOf("a", "b", "c", "d", "e")
+        assertEquals(listOf("a", "b", "c"), FocusSubjects.widgetRows(ids, null, 3))
+        assertEquals(listOf("a", "b", "c"), FocusSubjects.widgetRows(ids, "b", 3))
+        assertEquals(listOf("a", "b", "e"), FocusSubjects.widgetRows(ids, "e", 3))
+        // 숨긴 과목이 돌고 있으면(목록에 없음) 넣지 않는다
+        assertEquals(listOf("a", "b", "c"), FocusSubjects.widgetRows(ids, "z", 3))
+        assertEquals(emptyList<String>(), FocusSubjects.widgetRows(ids, "e", 0))
+        assertEquals(listOf("a", "b"), FocusSubjects.widgetRows(listOf("a", "b"), "b", 3))
+    }
+
+    @Test
     fun formats() {
         assertEquals("0:00:00", formatHms(0))
         assertEquals("1:08:05", formatHms(h + 8 * min + 5_000))

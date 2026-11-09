@@ -7,6 +7,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
+import androidx.glance.appwidget.updateAll
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.R
 import com.yuntyu.myhome.core.FocusSubjects
@@ -14,6 +15,7 @@ import com.yuntyu.myhome.data.FocusSession
 import com.yuntyu.myhome.data.FocusSubject
 import com.yuntyu.myhome.notify.Notifications
 import com.yuntyu.myhome.ui.MainActivity
+import com.yuntyu.myhome.widget.SummaryWidget
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,6 +82,7 @@ object FocusTimer {
         prefs(ctx).edit { putString("subject", r.subjectId); putLong("started", r.startedAt) }
         running.value = r
         showRunning(ctx, r, s)
+        refreshWidget(ctx)
     }
 
     /** 멈추고 기록을 남긴다(1초 미만은 버린다). 돌고 있지 않으면 아무것도 안 한다 */
@@ -91,6 +94,7 @@ object FocusTimer {
         prefs(ctx).edit { remove("subject"); remove("started") }
         running.value = null
         NotificationManagerCompat.from(ctx).cancel(NOTIFY_ID)
+        refreshWidget(ctx)
         val now = System.currentTimeMillis()
         val end = minOf(now, r.startedAt + MAX_SESSION_MS)
         if (end - r.startedAt < MIN_SESSION_MS) return null
@@ -103,6 +107,7 @@ object FocusTimer {
         )
         dao().upsertSession(session)
         FocusSync.enqueue(ctx)
+        refreshWidget(ctx)
         return session
     }
 
@@ -117,6 +122,7 @@ object FocusTimer {
         )
         dao().upsertSubject(s)
         FocusSync.enqueue(ctx)
+        refreshWidget(ctx)
         return s
     }
 
@@ -126,6 +132,7 @@ object FocusTimer {
             s.copy(name = clean, color = if (FocusSubjects.validColor(color)) color else s.color, updatedAt = System.currentTimeMillis(), synced = false),
         )
         FocusSync.enqueue(ctx)
+        refreshWidget(ctx)
         return true
     }
 
@@ -139,6 +146,7 @@ object FocusTimer {
         val changed = order.mapIndexedNotNull { k, s -> if (s.sort != (k + 1) * 10) s.copy(sort = (k + 1) * 10, updatedAt = now, synced = false) else null }
         dao().upsertSubjects(changed)
         FocusSync.enqueue(ctx)
+        refreshWidget(ctx)
     }
 
     /** 숨긴다(지난 기록은 통계에 남는다). 돌고 있던 과목이면 먼저 멈춘다 */
@@ -146,11 +154,18 @@ object FocusTimer {
         if (running.value?.subjectId == s.id) stop(ctx)
         dao().upsertSubject(s.copy(archived = true, updatedAt = System.currentTimeMillis(), synced = false))
         FocusSync.enqueue(ctx)
+        refreshWidget(ctx)
     }
 
     suspend fun deleteSession(ctx: Context, s: FocusSession) {
         dao().upsertSession(s.copy(deleted = true, updatedAt = System.currentTimeMillis(), synced = false))
         FocusSync.enqueue(ctx)
+        refreshWidget(ctx)
+    }
+
+    /** 위젯 집중 페이지를 다시 그린다(앱·알림·위젯 어디서 바꿨든). 그리는 중이면 Room·상태 구독이 먼저 반영한다 */
+    private fun refreshWidget(ctx: Context) {
+        MyHomeApp.instance.ioScope.launch { runCatching { SummaryWidget().updateAll(ctx) } }
     }
 
     private fun showRunning(ctx: Context, r: Running, s: FocusSubject) {

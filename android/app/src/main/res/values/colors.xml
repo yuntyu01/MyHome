@@ -2,4 +2,6 @@
 <resources>
     <!-- modo 바탕색: 앱이 그려지기 전 창 바탕(깜빡임 방지) -->
     <color name="window_bg">#F6F6F5</color>
+    <!-- 위젯 집중 시계(Chronometer는 Glance 밖 RemoteViews라 낮·밤 색을 리소스로 준다). SummaryWidget의 TextColor와 같다 -->
+    <color name="widget_text">#171717</color>
 </resources>

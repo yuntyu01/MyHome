@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 위젯 집중 페이지: 오늘 순공 합계(도는 동안 초가 간다). 시스템이 그리므로 앱을 깨우지 않는다 -->
+<Chronometer xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/chrono"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:fontFeatureSettings="tnum"
+    android:includeFontPadding="false"
+    android:textColor="@color/widget_text"
+    android:textSize="22sp"
+    android:textStyle="bold" />
