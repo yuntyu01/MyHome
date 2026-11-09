@@ -164,7 +164,7 @@
 - Docker 빌드 시 이 환경에서는 `--network=host --build-arg HTTPS_PROXY=... --secret id=ca_bundle,...`가 필요했다(프록시 때문). 일반 환경에서는 `make docker-build`로 충분.
 - Android SDK 다운로드 주소(dl.google.com)가 막혀 있다. Android 빌드 검증은 Phase 2에서 다시 판단.
 
-## 자동매매 이식 (2026-11-06, 진행 중)
+## 자동매매 이식 (2026-11-06, 2026-11-09 운영 전환)
 
 - 완료: `server/internal/invest` — 신호·거래일·계좌·preflight(도메인), 토스·야후 클라이언트, PostgreSQL 저장소(`00005_invest.sql`), 명령(refresh·judge·order·trade·execute·amend·adjust·tax·contribute·deviate·cancel·ledger·status·verify·why·reconcile·import-tq, `alert`는 2026-11-08에 뺌), systemd 유닛·DB 역할(`deploy/home/`)
 - 검증
@@ -174,10 +174,12 @@
   - 야후 실시세 대조(SPX·ETF 오차 0, NDX 1.4e-7)
 - 미검증: 토스 실서버 호출(모의투자가 없어 첫 주문이 실전), VM 위 systemd 실행, 외부 하트비트 실제 수신(실패 메일은 2026-11-08에 뺐다)
 
-### 운영 전환 전에 할 것
+### 운영 전환 (2026-11-09 끝)
 
-1. ~~VM 만들기~~ - 됐다(예약 IP `140.245.75.93`, 배포까지 끝)
-2. ~~토스 Open API에 VM IP 등록~~ - 됐다(2026-11-09 VM에서 `reconcile`의 잔고 조회 성공. position이 없어 대조 전에 멈춤)
-3. 11월 적립 매수 확인 - TQ의 KIS 자동 매수가 11/2~11/6 실패(주문가능 $0.17, 돈은 토스에 있음). TQ 상태는 11월 미매수. 토스 앱에서 손으로 샀는지 확인 → 샀으면 체결을 기록, 안 샀으면 전환 뒤 사기
-4. 전환 시점은 판정 창(25~31일·1일)·실행 창(1~7일)을 피해 8~24일. TQ 워크플로를 멈추고 `import-tq`로 옮긴 뒤 `reconcile`(수량 대조), VM에서 `sudo /opt/myhome/enable-invest.sh`
-5. 전환 전까지는 TQ(손으로 사고 fill.yml로 기록)를 그대로 쓴다
+1. ~~VM 만들기~~ - 됐다(예약 IP `140.245.75.93`)
+2. ~~토스 Open API에 VM IP 등록~~ - 됐다(2026-11-09)
+3. ~~배포~~ - 2026-11-09 `ee613a7` 배포, 마이그레이션 13까지
+4. ~~TQ 정기 실행 끄기~~ - GitHub Actions 5개(차트 자동 발행, 미실행 감지, 월초 자동 매매, 월말 판정, 주간 평가 갱신)를 `gh workflow disable`. 수동 워크플로·뷰어 배포는 그대로
+5. ~~`import-tq`~~ - TQ state(`6218142`)와 가격 10,356행(~2026-11-06). 판정 대조·원금 장부 대조 통과
+6. ~~11월 매수~~ - 토스 체결 조회로 11/2 16:52(KST) 토스 앱에서 직접 산 TQQQ 12주 $63.46(수수료 $0.76)을 찾았다. `execute --shares 12 --paid 1017316 --fx 1334.56`으로 11월분 기록(원금은 토스 앱 원금 5,567,291원에 맞춤). 남은 주문가능 $286.01은 `reconcile --apply-cash`로 장부 현금에 반영. `reconcile` 55주 일치, `status` 정상
+7. ~~타이머 켜기~~ - `enable-invest.sh`. 다음 실행: refresh 11/14, status 11/16, judge 11/26~, trade 12/2
