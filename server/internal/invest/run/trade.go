@@ -158,7 +158,7 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		return a.fail(ExitFail, "%v", err)
 	}
 	// 🔴 뉴욕 휴장일에는 주문을 내지 않는다. TQ는 이 검사를 execution.yml 게이트에서 했고,
-	//    여기서는 타이머(매월 1~15일)가 휴장일에도 부르므로 명령이 직접 막는다. 실패가 아니라 건너뛰기다
+	//    여기서는 타이머(매월 1~7일)가 휴장일에도 부르므로 명령이 직접 막는다. 실패가 아니라 건너뛰기다
 	//    (첫 거래일이 아닌 날 사는 것은 지연이지 위반이 아니다. 다음 거래일 실행이 이어받는다)
 	if !invest.IsTradingDay(today) {
 		a.printf("%s은 뉴욕 휴장일이다. 주문을 내지 않는다(다음 거래일에 이어서 한다)", invest.FormatDay(today))

@@ -150,7 +150,7 @@ sudo /opt/myhome/disable-invest.sh   # 끄기: 타이머만 끈다. 돌고 있�
 |---|---|---|
 | refresh | 금 22:43 | 주간 가격 갱신 |
 | judge | 25~31일·1일 22:37, 26~31일·1~3일 11:37 | 월말 판정. 11:37은 장 시작 전 만회(평일 월말 판정이 빠졌을 때) |
-| trade | 1~15일 15:17 | 주문·체결 확인 한 단계 |
+| trade | 1~7일 15:17 | 주문·체결 확인 한 단계 |
 | status | 월 02:23 | deadman. 성공하면 `INVEST_HEARTBEAT_URL`로 신호 |
 
 지난달 주문 기록이 남아 trade가 "진행 중인 주문 기록이 YYYY-MM 것이다"로 멈추면(VM에서 `myhome-trader`로):

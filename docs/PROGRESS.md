@@ -165,8 +165,8 @@
 
 ### 운영 전환 전에 할 것
 
-1. VM 만들기: kodeploy `terraform/oci-infra/home.tf` plan 확인 후 apply (예약 공인 IP 확인)
-2. 토스 WTS → 설정 → Open API에 VM 공인 IP 등록
-3. 주문 없는 읽기 전용 호출로 확인: `myhome invest reconcile` — 확인할 것: 매수가능 금액(USD)에 통합증거금 원화가 반영되는지, 평균 매입가 통화, 종료 주문 조회 날짜 기준, MOC 접수 시간
-4. 전환 시점은 판정 창(25~31일)·실행 창(1~15일)을 피해 16~24일. 그 사이 TQ 실행을 멈추고(토큰이 1개뿐이라 동시 실행 금지) `import-tq`로 옮긴 뒤 VM에서 `sudo /opt/myhome/enable-invest.sh`
-5. 그 달까지는 TQ(손으로 사고 fill.yml로 기록)를 그대로 쓴다
+1. ~~VM 만들기~~ - 됐다(예약 IP `140.245.75.93`, 배포까지 끝)
+2. ~~토스 Open API에 VM IP 등록~~ - 됐다(2026-11-09 VM에서 `reconcile`의 잔고 조회 성공. position이 없어 대조 전에 멈춤)
+3. 11월 적립 매수 확인 - TQ의 KIS 자동 매수가 11/2~11/6 실패(주문가능 $0.17, 돈은 토스에 있음). TQ 상태는 11월 미매수. 토스 앱에서 손으로 샀는지 확인 → 샀으면 체결을 기록, 안 샀으면 전환 뒤 사기
+4. 전환 시점은 판정 창(25~31일·1일)·실행 창(1~7일)을 피해 8~24일. TQ 워크플로를 멈추고 `import-tq`로 옮긴 뒤 `reconcile`(수량 대조), VM에서 `sudo /opt/myhome/enable-invest.sh`
+5. 전환 전까지는 TQ(손으로 사고 fill.yml로 기록)를 그대로 쓴다
