@@ -42,7 +42,19 @@
 {{end}}{{end}}
 
 {{define "budget-row"}}<div class="budget-card">
-  <div class="row-between"><span class="name">{{.Name}}</span><span class="left {{if lt .Remaining 0}}neg{{end}}">{{won .Remaining}}</span></div>
+  <div class="row-between"><span class="name">{{if .Children}}{{template "ic-folder"}} {{end}}{{.Name}}</span><span class="left {{if lt .Remaining 0}}neg{{end}}">{{won .Remaining}}</span></div>
   {{if .Budget}}<div class="bar" role="progressbar" aria-label="{{.Name}} 예산 사용률" aria-valuenow="{{barW .Ratio}}" aria-valuemin="0" aria-valuemax="100"><span class="fill {{barCls .Ratio}}" style="width:{{barW .Ratio}}%"></span></div>{{end}}
   <div class="meta">지출 {{num .Spent}}{{if .Settled}} · 정산 +{{num .Settled}}{{end}}{{if .Budget}} · 예산 {{num .Budget}} · {{pct .Ratio}}{{else}} · 예산 없음{{end}}</div>
+  {{if .Children}}
+  <details class="sub-cats">
+    <summary>안에 든 분류 {{len .Children}}개</summary>
+    {{range .Children}}
+    <div class="sub-cat d{{.Depth}}">
+      <div class="row-between"><span>{{.Name}}</span>{{if .Budget}}<span class="nowrap {{if lt .Remaining 0}}neg{{end}}">{{won .Remaining}}</span>{{else}}<span class="nowrap muted">지출 {{won .Spent}}</span>{{end}}</div>
+      {{if .Budget}}<div class="bar thin" role="progressbar" aria-label="{{.Path}} 예산 사용률" aria-valuenow="{{barW .Ratio}}" aria-valuemin="0" aria-valuemax="100"><span class="fill {{barCls .Ratio}}" style="width:{{barW .Ratio}}%"></span></div>
+      <div class="meta">지출 {{num .Spent}}{{if .Settled}} · 정산 +{{num .Settled}}{{end}} · 예산 {{num .Budget}} · {{pct .Ratio}}</div>{{end}}
+    </div>
+    {{end}}
+  </details>
+  {{end}}
 </div>{{end}}

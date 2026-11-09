@@ -2,6 +2,8 @@ package suggest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/yuntyu01/MyHome/server/internal/ai"
+	"github.com/yuntyu01/MyHome/server/internal/cattree"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
 	"github.com/yuntyu01/MyHome/server/internal/pipeline"
 )
@@ -153,19 +156,11 @@ func (w *Worker) RunOnce(ctx context.Context) (Stats, error) {
 	if err != nil {
 		return st, err
 	}
-	var names []string
-	byName := map[string]int64{}
-	for _, c := range cats {
-		// "모름"이라는 이름의 분류가 있으면 AI의 "모름"과 구분할 수 없어서 보내지 않는다.
-		if c.Kind != "expense" || c.Archived || c.Name == ai.UnknownCategory {
-			continue
-		}
-		names = append(names, c.Name)
-		byName[c.Name] = c.ID
-	}
+	names, byName := Choices(cats)
 	if len(names) == 0 {
 		return st, nil
 	}
+	catalog := Catalog(names)
 
 	rows, err := q.ListSuggestionMerchants(ctx, candidateLimit)
 	if err != nil {
@@ -195,7 +190,8 @@ func (w *Worker) RunOnce(ctx context.Context) (Stats, error) {
 	done := map[string]bool{}
 	for _, c := range cached {
 		// 추천한 분류가 보관(삭제)됐으면 다시 묻는다. 새 질문은 보관되지 않은 분류만 보내므로 같은 답이 반복되지 않는다.
-		stale := c.CategoryID != nil && (c.CategoryArchived == nil || *c.CategoryArchived)
+		// 분류 목록(폴더·이름·설명)이 물을 때와 달라졌어도 다시 묻는다. 설명을 고치면 추천도 따라 바뀐다.
+		stale := c.CategoryID != nil && (c.CategoryArchived == nil || *c.CategoryArchived) || c.Catalog != catalog
 		if !stale {
 			done[c.MerchantKey] = true
 		}
@@ -217,7 +213,7 @@ func (w *Worker) RunOnce(ctx context.Context) (Stats, error) {
 			break
 		}
 		chunk := todo[start:min(start+size, len(todo))]
-		if err := w.ask(ctx, q, chunk, names, byName, &st); err != nil {
+		if err := w.ask(ctx, q, chunk, names, byName, catalog, &st); err != nil {
 			return st, err
 		}
 	}
@@ -225,7 +221,7 @@ func (w *Worker) RunOnce(ctx context.Context) (Stats, error) {
 }
 
 // ask는 가맹점 한 묶음을 묻고 답을 저장한다.
-func (w *Worker) ask(ctx context.Context, q *dbq.Queries, chunk []target, names []string, byName map[string]int64, st *Stats) error {
+func (w *Worker) ask(ctx context.Context, q *dbq.Queries, chunk []target, names []ai.CategoryChoice, byName map[string]int64, catalog string, st *Stats) error {
 	ctx, cancel := context.WithTimeout(ctx, orDur(w.CallTimeout, DefaultCallTimeout))
 	defer cancel()
 	merchants := make([]string, len(chunk))
@@ -257,10 +253,39 @@ func (w *Worker) ask(ctx context.Context, q *dbq.Queries, chunk []target, names 
 			st.Suggested++
 		}
 		conf = min(max(conf, 0), 1)
-		if err := q.UpsertMerchantSuggestion(ctx, dbq.UpsertMerchantSuggestionParams{MerchantKey: chunk[i].key, CategoryID: cid, Confidence: conf, Model: model}); err != nil {
+		if err := q.UpsertMerchantSuggestion(ctx, dbq.UpsertMerchantSuggestionParams{MerchantKey: chunk[i].key, CategoryID: cid, Confidence: conf, Model: model, Catalog: catalog}); err != nil {
 			return err
 		}
 		st.Asked++
 	}
 	return nil
+}
+
+// Choices는 AI에 보낼 분류 목록이다: 숨기지 않은 지출 분류를 폴더 순서대로, 이름은 폴더 경로("생활비 › 식비"), 설명은 사용자 메모.
+// byName은 경로 이름 → 분류 id다. "모름"이라는 이름은 AI의 "모름"과 구분할 수 없어서 보내지 않는다.
+func Choices(cats []dbq.Category) ([]ai.CategoryChoice, map[string]int64) {
+	t := cattree.New(cats)
+	var out []ai.CategoryChoice
+	byName := map[string]int64{}
+	for _, c := range t.Preorder() {
+		if c.Kind != "expense" || c.Archived {
+			continue
+		}
+		label := t.Label(c.ID)
+		if label == ai.UnknownCategory {
+			continue
+		}
+		out = append(out, ai.CategoryChoice{Name: label, Memo: c.Memo})
+		byName[label] = c.ID
+	}
+	return out, byName
+}
+
+// Catalog는 분류 목록의 지문이다. 저장된 추천의 지문이 지금과 다르면 그 가맹점을 다시 묻는다.
+func Catalog(choices []ai.CategoryChoice) string {
+	h := sha256.New()
+	for _, c := range choices {
+		h.Write([]byte(c.Name + "\x00" + c.Memo + "\x00"))
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }

@@ -267,7 +267,7 @@ fun com.yuntyu.myhome.core.api.ApiResult<*>.plain(): String = when (this) {
     is com.yuntyu.myhome.core.api.ApiResult.NotConfigured -> "먼저 로그인해 주세요"
     is com.yuntyu.myhome.core.api.ApiResult.HttpError -> when {
         code == 401 || code == 403 -> "로그인이 풀렸어요. 설정에서 다시 로그인해 주세요"
-        code in 400..499 && message.isNotBlank() && message.any { it in '가'..'힣' } -> message.take(80)
+        code in 400..499 && message.isNotBlank() && message.any { it in '가'..'힣' } -> message.removePrefix("invalid input: ").take(80)
         code >= 500 -> "서버에 잠깐 문제가 있어요. 조금 뒤에 다시 해 주세요"
         else -> "요청을 처리하지 못했어요 ($code)"
     }
@@ -282,13 +282,16 @@ fun LineField(
     modifier: Modifier = Modifier,
     keyboardType: androidx.compose.ui.text.input.KeyboardType = androidx.compose.ui.text.input.KeyboardType.Text,
     secret: Boolean = false,
+    /** 1보다 크면 여러 줄(설명 같은 긴 글) */
+    maxLines: Int = 1,
 ) {
     val m = LocalModo.current
     androidx.compose.material3.TextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
-        singleLine = true,
+        singleLine = maxLines <= 1,
+        maxLines = maxLines,
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = keyboardType),
         visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         colors = androidx.compose.material3.TextFieldDefaults.colors(

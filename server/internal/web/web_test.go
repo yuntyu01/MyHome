@@ -94,3 +94,39 @@ func TestDisplayNames(t *testing.T) {
 		t.Errorf("1일 시작이면 기간 표시 없음 = %q", got)
 	}
 }
+
+// 폴더: 홈 막대는 맨 위 분류만 나누고, 안의 분류는 제 맨 위 폴더 아래에 붙는다.
+func TestSplitCategoriesTopLevelOnly(t *testing.T) {
+	id := func(n int64) *int64 { return &n }
+	cats := []api.CategoryBudget{
+		{ID: 1, Name: "생활비", Budget: 300, Spent: 120, Remaining: 180, Ratio: 0.4},
+		{ID: 2, Name: "식비", ParentID: id(1), Depth: 1, Budget: 200, Spent: 120, Remaining: 80, Ratio: 0.6},
+		{ID: 3, Name: "배달", ParentID: id(2), Depth: 2, Spent: 90, Remaining: -90},
+		{ID: 4, Name: "장보기", ParentID: id(2), Depth: 2},
+		{ID: 5, Name: "쇼핑", Budget: 100, Spent: 10, Remaining: 90, Ratio: 0.1},
+	}
+	top, rest := splitCategories(cats)
+	if len(top) != 2 || len(rest) != 0 || top[0].Name != "생활비" || top[1].Name != "쇼핑" {
+		t.Fatalf("맨 위 분류만: top=%v rest=%v", top, rest)
+	}
+	rows := withChildren(top, cats)
+	if len(rows[0].Children) != 2 || rows[0].Children[0].Name != "식비" || rows[0].Children[1].Name != "배달" || len(rows[1].Children) != 0 {
+		t.Errorf("안의 분류(예산·지출 없는 장보기는 뺌): %+v", rows)
+	}
+}
+
+// 지난 기간에만 있던 분류는 목록 끝에 붙어 오지만, 표에서는 제 폴더 아래에 놓인다.
+func TestTreeOrder(t *testing.T) {
+	id := func(n int64) *int64 { return &n }
+	got := treeOrder([]api.CategoryCompare{
+		{ID: 1, Name: "생활비"}, {ID: 2, Name: "식비", ParentID: id(1), Depth: 1}, {ID: 5, Name: "쇼핑"},
+		{ID: 3, Name: "배달", ParentID: id(2), Depth: 2}, {ID: 6, Name: "옛 분류"},
+	})
+	var names []string
+	for _, c := range got {
+		names = append(names, c.Name)
+	}
+	if s := strings.Join(names, ","); s != "생활비,식비,배달,쇼핑,옛 분류" {
+		t.Errorf("순서 = %s", s)
+	}
+}

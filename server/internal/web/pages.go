@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -55,8 +56,8 @@ func (wb *Web) appLink(w http.ResponseWriter, r *http.Request) {
 
 type dashboardData struct {
 	Summary api.Summary
-	Top     []api.CategoryBudget // 바로 보이는 분류
-	Rest    []api.CategoryBudget // 접어 둔 분류
+	Top     []dashCat // 바로 보이는 분류(맨 위 분류만, 안의 분류는 그 아래에 붙는다)
+	Rest    []dashCat // 접어 둔 분류
 }
 
 func (wb *Web) dashboard(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +74,8 @@ func (wb *Web) dashboard(w http.ResponseWriter, r *http.Request) {
 	pd := wb.base(r, "내 가계부", "dashboard")
 	wb.withPeriod(&pd, p, cfg.BudgetStartDay)
 	d := dashboardData{Summary: s}
-	d.Top, d.Rest = splitCategories(s.Categories)
+	top, rest := splitCategories(s.Categories)
+	d.Top, d.Rest = withChildren(top, s.Categories), withChildren(rest, s.Categories)
 	pd.Data = d
 	wb.render(w, "dashboard", pd)
 }
@@ -290,16 +292,21 @@ func (wb *Web) classifyReview(w http.ResponseWriter, r *http.Request) {
 
 // ---- 예산 ----
 
+// budgetRow는 예산 화면의 한 줄이다. 입력칸은 이 분류에 직접 정한 예산이다.
 type budgetRow struct {
 	Category dbq.Category
-	Amount   int64
-	Spent    int64
+	Label    string // 경로 이름("생활비 › 식비")
+	Depth    int
+	Folder   bool  // 안에 분류가 있다
+	Amount   int64 // 직접 정한 예산
+	ChildSum int64 // 안의 분류 예산 합계(직접 정하지 않은 폴더는 이 값을 쓴다)
+	Spent    int64 // 안의 분류까지 더한 지출
 	Previous int64
 }
 
 type budgetsData struct {
 	Rows     []budgetRow
-	Total    int64
+	Total    int64 // 맨 위 분류의 실제 예산 합계(홈의 예산과 같다)
 	StartDay int
 }
 
@@ -334,7 +341,7 @@ func (wb *Web) budgets(w http.ResponseWriter, r *http.Request) {
 		wb.fail(w, err)
 		return
 	}
-	amt, prevAmt, spent := map[int64]int64{}, map[int64]int64{}, map[int64]int64{}
+	amt, prevAmt, spent, childSum := map[int64]int64{}, map[int64]int64{}, map[int64]int64{}, map[int64]int64{}
 	for _, b := range cur {
 		amt[b.CategoryID] = b.Amount
 	}
@@ -343,11 +350,20 @@ func (wb *Web) budgets(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range s.Categories {
 		spent[c.ID] = c.Spent
+		if c.ParentID != nil {
+			childSum[*c.ParentID] += c.Budget
+		}
 	}
-	d := budgetsData{StartDay: cfg.BudgetStartDay}
+	folder := map[int64]bool{}
 	for _, c := range cats.Expense {
-		d.Rows = append(d.Rows, budgetRow{Category: c, Amount: amt[c.ID], Spent: spent[c.ID], Previous: prevAmt[c.ID]})
-		d.Total += amt[c.ID]
+		if c.ParentID != nil {
+			folder[*c.ParentID] = true
+		}
+	}
+	d := budgetsData{StartDay: cfg.BudgetStartDay, Total: s.Totals.Budget}
+	for _, c := range cats.Expense {
+		d.Rows = append(d.Rows, budgetRow{Category: c, Label: cats.Label(c.ID), Depth: cats.tree.Depth(c.ID), Folder: folder[c.ID],
+			Amount: amt[c.ID], ChildSum: childSum[c.ID], Spent: spent[c.ID], Previous: prevAmt[c.ID]})
 	}
 	pd := wb.base(r, "예산", "budgets")
 	wb.withPeriod(&pd, p, cfg.BudgetStartDay)
@@ -426,6 +442,7 @@ func (wb *Web) analytics(w http.ResponseWriter, r *http.Request) {
 		wb.fail(w, err)
 		return
 	}
+	an.Categories = treeOrder(an.Categories)
 	pd := wb.base(r, "분석", "analytics")
 	pd.Wide = true
 	wb.withPeriod(&pd, p, cfg.BudgetStartDay)
@@ -436,14 +453,16 @@ func (wb *Web) analytics(w http.ResponseWriter, r *http.Request) {
 // ---- 관리 ----
 
 type adminData struct {
-	Tab      string
-	Cats     categoryGroups
-	Rules    []dbq.ListRulesRow
-	Failed   []dbq.RawEvent
-	Devices  any
-	Config   pipeline.Config
-	OwnLines string
-	Now      time.Time
+	Tab        string
+	Cats       categoryGroups
+	Tree       []catNode   // 분류 탭: 폴더 나무
+	NewFolders []catOption // 새 분류를 넣을 수 있는 폴더
+	Rules      []dbq.ListRulesRow
+	Failed     []dbq.RawEvent
+	Devices    any
+	Config     pipeline.Config
+	OwnLines   string
+	Now        time.Time
 }
 
 // adminTabs는 관리 화면의 탭이다. 없는 값이면 첫 탭(현금 입력)을 보여준다.
@@ -486,7 +505,11 @@ func (wb *Web) admin(w http.ResponseWriter, r *http.Request) {
 	}
 	pd := wb.base(r, "관리", "admin")
 	pd.Wide = true
-	pd.Data = adminData{Tab: tab, Cats: cats, Rules: rules, Failed: failed, Devices: devs, Config: cfg, OwnLines: strings.Join(own, "\n"), Now: time.Now()}
+	d := adminData{Tab: tab, Cats: cats, Rules: rules, Failed: failed, Devices: devs, Config: cfg, OwnLines: strings.Join(own, "\n"), Now: time.Now()}
+	if tab == "categories" {
+		d.Tree, d.NewFolders = categoryTree(cats.All, pd.CSRF), newCategoryFolders(cats.All)
+	}
+	pd.Data = d
 	wb.render(w, "admin", pd)
 }
 
@@ -521,15 +544,52 @@ func (wb *Web) addCategory(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	kind := r.PostFormValue("kind")
-	if name == "" || (kind != "expense" && kind != "income") {
+	parent := formParent(r)
+	if name == "" || (kind != "expense" && kind != "income" && parent == nil) {
 		redirect(w, r, "/admin?tab=categories", "이름과 종류를 확인하세요", true)
 		return
 	}
-	if _, err := wb.API.Q().CreateCategory(r.Context(), dbq.CreateCategoryParams{Name: name, Kind: kind, Sort: 500}); err != nil {
-		redirect(w, r, "/admin?tab=categories", "추가 실패(같은 이름이 있을 수 있어요)", true)
+	in := api.CategoryChange{Name: &name, ParentID: parent, Memo: formMemo(r)}
+	if parent == nil || *parent == 0 {
+		in.Kind = &kind
+	}
+	if _, err := wb.API.CreateCategory(r.Context(), in); err != nil {
+		redirect(w, r, "/admin?tab=categories", "추가 실패: "+categoryErrText(err), true)
 		return
 	}
 	redirect(w, r, "/admin?tab=categories", "분류를 추가했어요", false)
+}
+
+// formParent는 폼의 폴더 값이다(키가 없으면 nil = 그대로, 빈 값이면 0 = 맨 위).
+func formParent(r *http.Request) *int64 {
+	if _, ok := r.PostForm["parent"]; !ok {
+		return nil
+	}
+	v, _ := strconv.ParseInt(r.PostFormValue("parent"), 10, 64)
+	if v < 0 {
+		v = 0
+	}
+	return &v
+}
+
+// formMemo는 폼의 설명 값이다(키가 없으면 nil = 그대로).
+func formMemo(r *http.Request) *string {
+	if _, ok := r.PostForm["memo"]; !ok {
+		return nil
+	}
+	m := r.PostFormValue("memo")
+	return &m
+}
+
+// categoryErrText는 분류 저장 실패 이유를 화면 문구로 바꾼다.
+func categoryErrText(err error) string {
+	if errors.Is(err, api.ErrDuplicateName) {
+		return api.ErrDuplicateName.Error()
+	}
+	if errors.Is(err, pipeline.ErrInvalid) {
+		return strings.TrimPrefix(err.Error(), pipeline.ErrInvalid.Error()+": ")
+	}
+	return "다시 시도해 주세요"
 }
 
 func (wb *Web) updateCategory(w http.ResponseWriter, r *http.Request) {
@@ -556,8 +616,9 @@ func (wb *Web) updateCategory(w http.ResponseWriter, r *http.Request) {
 		f := false
 		archived = &f
 	}
-	if _, err := wb.API.UpdateCategory(r, id, name, sort, archived); err != nil {
-		redirect(w, r, "/admin?tab=categories", "수정 실패(특수 분류는 보관할 수 없어요)", true)
+	in := api.CategoryChange{Name: name, Sort: sort, Archived: archived, ParentID: formParent(r), Memo: formMemo(r)}
+	if _, err := wb.API.UpdateCategory(r, id, in); err != nil {
+		redirect(w, r, "/admin?tab=categories", "수정 실패: "+categoryErrText(err), true)
 		return
 	}
 	redirect(w, r, "/admin?tab=categories", "분류를 수정했어요", false)

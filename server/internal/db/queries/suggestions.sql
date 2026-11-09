@@ -19,6 +19,7 @@ SELECT s.merchant_key,
        s.category_id,
        s.confidence,
        s.model,
+       s.catalog,
        c.name     AS category_name,
        c.kind     AS category_kind,
        c.archived AS category_archived
@@ -27,12 +28,13 @@ FROM merchant_suggestions s
 WHERE s.merchant_key = ANY (@keys::text[]);
 
 -- name: UpsertMerchantSuggestion :exec
-INSERT INTO merchant_suggestions (merchant_key, category_id, confidence, model)
-VALUES (@merchant_key, sqlc.narg(category_id), @confidence, @model)
+INSERT INTO merchant_suggestions (merchant_key, category_id, confidence, model, catalog)
+VALUES (@merchant_key, sqlc.narg(category_id), @confidence, @model, @catalog)
 ON CONFLICT (merchant_key) DO UPDATE
     SET category_id = excluded.category_id,
         confidence  = excluded.confidence,
         model       = excluded.model,
+        catalog     = excluded.catalog,
         created_at  = now();
 
 -- name: DeleteMerchantSuggestion :exec

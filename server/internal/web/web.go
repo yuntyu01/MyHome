@@ -19,7 +19,7 @@ import (
 
 	"github.com/yuntyu01/MyHome/server/internal/api"
 	"github.com/yuntyu01/MyHome/server/internal/auth"
-	"github.com/yuntyu01/MyHome/server/internal/dbq"
+	"github.com/yuntyu01/MyHome/server/internal/cattree"
 	"github.com/yuntyu01/MyHome/server/internal/period"
 	"github.com/yuntyu01/MyHome/server/internal/pipeline"
 )
@@ -274,6 +274,8 @@ var funcs = template.FuncMap{
 	"lines":    func(ss []string) string { return strings.Join(ss, "\n") },
 	"sub_":     func(a, b int64) int64 { return a - b },
 	"wonShort": wonShort,
+	"maxMemo":  func() int { return cattree.MaxMemo },
+	"catBtn":   catButton,
 	"ratio_": func(used, budget int64) float64 {
 		if budget <= 0 {
 			return 0
@@ -376,33 +378,4 @@ func formInt64(r *http.Request, key string) (int64, bool) {
 func pathID(r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	return id, err == nil && id > 0
-}
-
-// categoryGroups는 화면용 분류 묶음이다.
-type categoryGroups struct {
-	All     []dbq.Category
-	Expense []dbq.Category
-	Other   []dbq.Category // 수입·정산·내 계좌·투자
-	ByID    map[int64]dbq.Category
-}
-
-func (wb *Web) categories(r *http.Request, includeArchived bool) (categoryGroups, error) {
-	cats, err := wb.API.Q().ListCategories(r.Context())
-	if err != nil {
-		return categoryGroups{}, err
-	}
-	g := categoryGroups{ByID: map[int64]dbq.Category{}}
-	for _, c := range cats {
-		g.ByID[c.ID] = c
-		if c.Archived && !includeArchived {
-			continue
-		}
-		g.All = append(g.All, c)
-		if c.Kind == "expense" {
-			g.Expense = append(g.Expense, c)
-		} else {
-			g.Other = append(g.Other, c)
-		}
-	}
-	return g, nil
 }

@@ -47,6 +47,7 @@ import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.Money
 import com.yuntyu.myhome.core.WidgetModel
 import com.yuntyu.myhome.core.api.ApiResult
+import com.yuntyu.myhome.core.CategoryTree
 import com.yuntyu.myhome.core.api.Category
 import com.yuntyu.myhome.core.api.ManualTransaction
 import com.yuntyu.myhome.core.api.TransactionDto
@@ -271,8 +272,10 @@ fun TxRow(t: TransactionDto, withDay: Boolean, onClick: (() -> Unit)? = null) {
 private fun ClassifySheet(t: TransactionDto, cats: List<Category>, onDismiss: () -> Unit, onSubmit: (TransactionEdit) -> Unit) {
     val m = LocalModo.current
     var learn by remember { mutableStateOf(t.merchant.isNotBlank()) }
-    // 들어온 돈이면 수입·정산·내 계좌 같은 특수 분류를 먼저 보여준다
-    val ordered = if (t.flow == "in") cats.sortedBy { if (it.kind == "expense") 1 else 0 } else cats.sortedBy { if (it.kind == "expense") 0 else 1 }
+    // 폴더 순서대로 들여 쓴다. 들어온 돈이면 수입·정산·내 계좌 같은 특수 분류를 먼저 보여준다
+    val tree = remember(cats) { CategoryTree(cats) }
+    val (exp, other) = tree.preorder().partition { it.first.kind == "expense" }
+    val ordered = if (t.flow == "in") other + exp else exp + other
     val excluded = t.status == "excluded"
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = m.bg) {
         Column(Modifier.fillMaxWidth().heightIn(max = 640.dp).verticalScroll(rememberScrollState()).navigationBarsPadding()) {
@@ -303,10 +306,12 @@ private fun ClassifySheet(t: TransactionDto, cats: List<Category>, onDismiss: ()
                 Hairline(Modifier.padding(start = Gutter))
             }
             SectionLabel(if (t.flow == "in") "어떤 돈인가요?" else "어디에 쓴 돈인가요?")
-            for (c in ordered) {
+            for ((c, depth) in ordered) {
                 FlatRow(
                     c.name,
                     value = if (c.id == t.categoryId && t.status != "needs_review") "지금 분류" else null,
+                    bold = tree.children(c.id).isNotEmpty(),
+                    leading = indentLead(depth),
                     chevron = false,
                     onClick = { onSubmit(TransactionEdit(categoryId = c.id, rememberRule = learn)) },
                 )
@@ -347,8 +352,12 @@ private fun CashSheet(cats: List<Category>, onDismiss: () -> Unit, onSaved: () -
                     LineField(where, { where = it.take(40) }, "어디서 썼나요 (안 써도 돼요)")
                 }
                 SectionLabel("분류")
-                for (c in cats.filter { it.kind == "expense" }) {
-                    FlatRow(c.name, chevron = false, trailing = { CheckCircle(catId == c.id) }, onClick = { catId = c.id })
+                val tree = remember(cats) { CategoryTree(cats) }
+                for ((c, depth) in tree.preorder().filter { it.first.kind == "expense" }) {
+                    FlatRow(
+                        c.name, chevron = false, bold = tree.children(c.id).isNotEmpty(), leading = indentLead(depth),
+                        trailing = { CheckCircle(catId == c.id) }, onClick = { catId = c.id },
+                    )
                 }
                 err?.let { Text(it, Modifier.padding(horizontal = Gutter, vertical = 8.dp), fontSize = 14.sp, color = m.over) }
             }

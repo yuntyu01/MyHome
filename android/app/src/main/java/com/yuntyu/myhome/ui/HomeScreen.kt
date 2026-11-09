@@ -35,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,6 +45,7 @@ import com.yuntyu.myhome.auth.AppLink
 import com.yuntyu.myhome.core.Money
 import com.yuntyu.myhome.core.WidgetModel
 import com.yuntyu.myhome.core.api.CategoryBudget
+import com.yuntyu.myhome.core.api.Summary
 import com.yuntyu.myhome.data.SummaryRepository
 import com.yuntyu.myhome.widget.WidgetRefresher
 import kotlinx.coroutines.launch
@@ -261,8 +263,11 @@ private fun InUseHome(
                 // 펼친 분류가 없으면(기간 시작 직후) 처음부터 펼쳐 둔다
                 var showRest by rememberSaveable { mutableStateOf(false) }
                 val open = showRest || cats.top.isEmpty()
-                for (c in cats.top) CategoryLine(c)
-                if (open) for (c in cats.rest) CategoryLine(c)
+                // 폴더는 누르면 안 분류가 펼쳐진다
+                var openFolders by remember { mutableStateOf(emptySet<Long>()) }
+                val toggle: (Long) -> Unit = { id -> openFolders = if (id in openFolders) openFolders - id else openFolders + id }
+                for (c in cats.top) CategoryTreeLine(s, c, 0, openFolders, toggle)
+                if (open) for (c in cats.rest) CategoryTreeLine(s, c, 0, openFolders, toggle)
                 if (cats.rest.isNotEmpty() && cats.top.isNotEmpty()) {
                     Text(
                         if (open) "접기" else "분류 ${cats.rest.size}개 더 보기",
@@ -288,13 +293,34 @@ private fun InUseHome(
     }
 }
 
-/** 분류 한 줄: 이름과 남은 돈, 아래 얇은 막대. 예산이 없으면 쓴 돈만 */
+/** 분류와, 펼친 폴더면 그 안의 분류들(들여 써서) */
 @Composable
-private fun CategoryLine(c: CategoryBudget) {
+private fun CategoryTreeLine(s: Summary, c: CategoryBudget, depth: Int, open: Set<Long>, toggle: (Long) -> Unit) {
+    val kids = WidgetModel.childrenOf(s, c.id)
+    val isOpen = c.id in open
+    CategoryLine(c, depth, folder = if (kids.isEmpty()) null else isOpen, onClick = if (kids.isEmpty()) null else ({ toggle(c.id) }))
+    if (isOpen) for (k in kids) CategoryTreeLine(s, k, depth + 1, open, toggle)
+}
+
+/** 분류 한 줄: 이름과 남은 돈, 아래 얇은 막대. 예산이 없으면 쓴 돈만. folder가 null이 아니면 폴더(펼침 여부) */
+@Composable
+private fun CategoryLine(c: CategoryBudget, depth: Int = 0, folder: Boolean? = null, onClick: (() -> Unit)? = null) {
     val m = LocalModo.current
-    Column(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(start = Gutter + 20.dp * depth, end = Gutter, top = 10.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(c.name, Modifier.weight(1f), fontSize = 16.sp)
+            Text(c.name, fontSize = if (depth > 0) 15.sp else 16.sp, color = if (depth > 0) m.muted else MaterialTheme.colorScheme.onBackground)
+            if (folder != null) {
+                Icon(
+                    ChevronRightIcon, contentDescription = if (folder) "접기" else "펼치기", tint = m.faint,
+                    modifier = Modifier.padding(start = 4.dp).size(16.dp).rotate(if (folder) 90f else 0f),
+                )
+            }
+            Spacer(Modifier.weight(1f))
             val (text, color) = when {
                 c.budget <= 0 -> "${Money.won(c.spent)} 씀" to m.muted
                 c.remaining < 0 -> "${Money.won(-c.remaining)} 넘음" to m.over

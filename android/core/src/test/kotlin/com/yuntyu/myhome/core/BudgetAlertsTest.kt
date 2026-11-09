@@ -13,7 +13,7 @@ class BudgetAlertsTest {
         Summary(PeriodInfo("2026-11", "2026-11-01", "2026-11-30"), Totals(), cats.toList())
 
     private fun cat(id: Long, budget: Long, spent: Long, settled: Long = 0) =
-        CategoryBudget(id, "분류$id", budget, spent, settled, budget - spent + settled, if (budget > 0) (spent - settled).toDouble() / budget else 0.0)
+        CategoryBudget(id = id, name = "분류$id", budget = budget, spent = spent, settled = settled, remaining = budget - spent + settled, ratio = if (budget > 0) (spent - settled).toDouble() / budget else 0.0)
 
     @Test fun eightyPercentOnce() {
         val s = summary(cat(1, 100_000, 85_000), cat(2, 100_000, 50_000))

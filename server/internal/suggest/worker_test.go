@@ -104,6 +104,14 @@ func (h *harness) expenseNames() []string {
 	return out
 }
 
+func (h *harness) expenseChoices() []ai.CategoryChoice {
+	var out []ai.CategoryChoice
+	for _, n := range h.expenseNames() {
+		out = append(out, ai.CategoryChoice{Name: n})
+	}
+	return out
+}
+
 // lookup은 거래 하나에 보여줄 추천이다.
 func (h *harness) lookup(tx dbq.Transaction) *suggest.Suggestion {
 	h.t.Helper()
@@ -117,19 +125,25 @@ func (h *harness) lookup(tx dbq.Transaction) *suggest.Suggestion {
 
 // fake는 물어본 가맹점을 기록하고 answer로 답하는 분류기다.
 type fake struct {
-	mu     sync.Mutex
-	calls  [][]string
-	cats   [][]string
-	answer func(name string) ai.MerchantGuess
-	err    func(call int) error // nil이 아닌 에러면 실패(패닉도 여기서)
+	mu      sync.Mutex
+	calls   [][]string
+	cats    [][]string
+	choices [][]ai.CategoryChoice
+	answer  func(name string) ai.MerchantGuess
+	err     func(call int) error // nil이 아닌 에러면 실패(패닉도 여기서)
 }
 
 func (f *fake) Model() string { return "fake-model" }
 
-func (f *fake) ClassifyMerchants(_ context.Context, merchants, categories []string) ([]ai.MerchantGuess, error) {
+func (f *fake) ClassifyMerchants(_ context.Context, merchants []string, categories []ai.CategoryChoice) ([]ai.MerchantGuess, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, append([]string(nil), merchants...))
-	f.cats = append(f.cats, append([]string(nil), categories...))
+	var names []string
+	for _, c := range categories {
+		names = append(names, c.Name)
+	}
+	f.cats = append(f.cats, names)
+	f.choices = append(f.choices, append([]ai.CategoryChoice(nil), categories...))
 	n := len(f.calls)
 	f.mu.Unlock()
 	if f.err != nil {
@@ -357,7 +371,7 @@ func TestWorkerGeminiRequestHasOnlyNames(t *testing.T) {
 		t.Fatalf("글 조각 하나만: %s", raw)
 	}
 	// 가맹점 순서는 최근 거래 먼저
-	want := ai.MerchantPromptText([]string{"골목철물", "동네분식"}, h.expenseNames())
+	want := ai.MerchantPromptText([]string{"골목철물", "동네분식"}, h.expenseChoices())
 	if got := req.Contents[0].Parts[0]["text"]; got != want {
 		t.Errorf("프롬프트\n got %q\nwant %q", got, want)
 	}
@@ -471,10 +485,11 @@ func TestArchivedCategoryHiddenAndReasked(t *testing.T) {
 	if s := h.lookup(tx); s == nil || s.Category != "생활용품" || s.CategoryID != life {
 		t.Errorf("이름 바뀐 분류 %+v", s)
 	}
-	// 모르는 분류 이름 답(분류기가 목록 밖 이름을 줌)은 모름으로 저장
+	// 모르는 분류 이름 답(분류기가 목록 밖 이름을 줌)은 모름으로 저장.
+	// 분류 이름이 바뀌어 목록 지문이 달라졌으니 꽃바구니집도 다시 묻는다.
 	h.kb("이상한답가게")
 	f.answer = func(string) ai.MerchantGuess { return ai.MerchantGuess{Category: "없는분류", Confidence: 0.99} }
-	if st := h.runOnce(w); st.Unknown != 1 {
+	if st := h.runOnce(w); st.Unknown != 2 || st.Asked != 2 {
 		t.Errorf("목록 밖 이름 %+v", st)
 	}
 }
@@ -576,5 +591,57 @@ func TestMigrationDownUp(t *testing.T) {
 	}
 	if err := h.q.UpsertMerchantSuggestion(ctx, dbq.UpsertMerchantSuggestionParams{MerchantKey: "동네분식", Confidence: 2, Model: "m"}); err == nil {
 		t.Error("confidence 0~1 제약")
+	}
+}
+
+// 폴더 안 분류는 경로 이름("생활비 › 배달")으로, 설명과 함께 보낸다. 설명을 고치면 같은 가맹점을 다시 묻는다.
+// 숨긴 분류로 가는 가게 규칙은 건너뛰어서, 그 가게 결제도 AI 추천 대상이 된다.
+func TestFolderPathMemoAndReask(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	food := h.catID("식비")
+	fc, _ := h.q.GetCategory(ctx, food)
+	life, err := h.q.CreateCategory(ctx, dbq.CreateCategoryParams{Name: "생활비", Kind: "expense", Sort: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: food, Name: fc.Name, Sort: fc.Sort, ParentID: &life.ID, Memo: "밥, 배달"}); err != nil {
+		t.Fatal(err)
+	}
+	h.kb("동네분식")
+	f := &fake{answer: always("생활비 › 식비", 0.9)}
+	w := h.worker(f)
+	h.runOnce(w)
+	var sent *ai.CategoryChoice
+	for i, c := range f.choices[0] {
+		if c.Name == "생활비 › 식비" {
+			sent = &f.choices[0][i]
+		}
+		if c.Name == "식비" {
+			t.Errorf("폴더 안 분류는 경로 이름으로: %v", f.cats[0])
+		}
+	}
+	if sent == nil || sent.Memo != "밥, 배달" {
+		t.Fatalf("설명과 함께 보냄: %+v", f.choices[0])
+	}
+	if st := h.runOnce(w); st.Calls != 0 {
+		t.Fatalf("바뀐 게 없으면 다시 안 물음 %+v", st)
+	}
+	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: food, Name: fc.Name, Sort: fc.Sort, ParentID: &life.ID, Memo: "밥, 배달, 편의점"}); err != nil {
+		t.Fatal(err)
+	}
+	if st := h.runOnce(w); st.Calls != 1 || st.Asked != 1 {
+		t.Fatalf("설명을 고치면 다시 물음 %+v", st)
+	}
+
+	// 스타벅스는 기본 규칙이 카페·간식으로 보낸다. 카페·간식을 숨기면 규칙을 건너뛰고 확인 필요(no_rule)로 간다.
+	cafe := h.catID("카페·간식")
+	cc, _ := h.q.GetCategory(ctx, cafe)
+	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: cafe, Name: cc.Name, Sort: cc.Sort, Archived: true}); err != nil {
+		t.Fatal(err)
+	}
+	tx := h.kb("스타벅스강남점")
+	if tx.Status != "needs_review" || tx.ReviewReason == nil || *tx.ReviewReason != "no_rule" || tx.CategoryID != nil {
+		t.Fatalf("숨긴 분류 규칙은 건너뜀: %s %v %v", tx.Status, tx.ReviewReason, tx.CategoryID)
 	}
 }

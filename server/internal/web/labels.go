@@ -93,10 +93,12 @@ const dashboardTopCategories = 5
 // splitCategories는 홈에 바로 보일 분류와 접어 둘 분류를 나눈다.
 // 예산을 넘긴 분류를 많이 넘긴 순으로 맨 위에, 그다음 사용률 높은 순으로 둔다.
 // 80% 이상 쓴 분류는 항상 보이고, 아직 안 쓴 분류는 항상 접는다. 예산도 지출도 없는 분류는 뺀다.
+// 맨 위 분류만 나눈다(폴더 값은 안의 분류를 더한 것이라 안의 분류까지 넣으면 두 번 센다).
 func splitCategories(cats []api.CategoryBudget) (top, rest []api.CategoryBudget) {
 	var used, unused []api.CategoryBudget
 	for _, c := range cats {
 		switch {
+		case c.ParentID != nil:
 		case c.Spent == 0 && c.Settled == 0 && c.Budget == 0:
 		case c.Spent == 0 && c.Settled == 0:
 			unused = append(unused, c)

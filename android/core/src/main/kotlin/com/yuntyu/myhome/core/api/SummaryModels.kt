@@ -30,10 +30,21 @@ data class Totals(
     @SerialName("own_transfer") val ownTransfer: Long = 0,
 )
 
+/**
+ * 분류별 예산 현황. 폴더는 아래 분류까지 더한 값이고, 목록은 폴더 다음에 그 안 순서다.
+ * 맨 위 분류(parentId == null)만 더하면 총계가 된다. docs/DECISIONS.md 「분류 폴더」
+ */
 @Serializable
 data class CategoryBudget(
     val id: Long,
     val name: String,
+    @SerialName("parent_id") val parentId: Long? = null,
+    val depth: Int = 0,
+    /** "생활비 › 식비". 옛 서버는 안 주니 비어 있으면 name을 쓴다 */
+    val path: String = "",
+    /** 이 분류에 직접 정한 예산. 옛 서버는 안 준다(null이면 budget을 직접 정한 것으로 본다) */
+    @SerialName("own_budget") val ownBudget: Long? = null,
+    /** 실제로 쓰는 예산: 직접 정했으면 그 값, 안 정한 폴더면 아래 예산의 합 */
     val budget: Long = 0,
     val spent: Long = 0,
     val settled: Long = 0,
@@ -77,6 +88,10 @@ data class Category(
     val code: String? = null,
     val sort: Int = 0,
     val archived: Boolean = false,
+    /** 넣어 둔 폴더(맨 위면 null) */
+    @SerialName("parent_id") val parentId: Long? = null,
+    /** 사용자가 적은 설명. AI 분류 추천이 참고한다 */
+    val memo: String = "",
 )
 
 @Serializable
@@ -118,6 +133,9 @@ data class CategoryInput(
     val name: String? = null,
     val kind: String? = null,
     val archived: Boolean? = null,
+    /** 넣을 폴더. 0이면 맨 위로, null이면 그대로 */
+    @SerialName("parent_id") val parentId: Long? = null,
+    val memo: String? = null,
 )
 
 @Serializable

@@ -29,7 +29,8 @@ object BudgetAlerts {
     fun pending(s: Summary, sent: Set<String>): List<BudgetAlert> {
         val out = mutableListOf<BudgetAlert>()
         for (c in s.categories) {
-            if (c.budget <= 0) continue
+            // 직접 예산을 정한 분류만 알린다. 예산을 안 정한 폴더(아래 합계)까지 알리면 같은 초과를 두 번 알린다.
+            if ((c.ownBudget ?: c.budget) <= 0 || c.budget <= 0) continue
             val k100 = key(s.period.label, c.id, 100)
             val k80 = key(s.period.label, c.id, 80)
             when {

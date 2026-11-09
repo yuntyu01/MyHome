@@ -26,6 +26,7 @@ SELECT s.merchant_key,
        s.category_id,
        s.confidence,
        s.model,
+       s.catalog,
        c.name     AS category_name,
        c.kind     AS category_kind,
        c.archived AS category_archived
@@ -39,6 +40,7 @@ type ListMerchantSuggestionsRow struct {
 	CategoryID       *int64  `json:"category_id"`
 	Confidence       float64 `json:"confidence"`
 	Model            string  `json:"model"`
+	Catalog          string  `json:"catalog"`
 	CategoryName     *string `json:"category_name"`
 	CategoryKind     *string `json:"category_kind"`
 	CategoryArchived *bool   `json:"category_archived"`
@@ -59,6 +61,7 @@ func (q *Queries) ListMerchantSuggestions(ctx context.Context, keys []string) ([
 			&i.CategoryID,
 			&i.Confidence,
 			&i.Model,
+			&i.Catalog,
 			&i.CategoryName,
 			&i.CategoryKind,
 			&i.CategoryArchived,
@@ -115,12 +118,13 @@ func (q *Queries) ListSuggestionMerchants(ctx context.Context, lim int32) ([]Lis
 }
 
 const upsertMerchantSuggestion = `-- name: UpsertMerchantSuggestion :exec
-INSERT INTO merchant_suggestions (merchant_key, category_id, confidence, model)
-VALUES ($1, $2, $3, $4)
+INSERT INTO merchant_suggestions (merchant_key, category_id, confidence, model, catalog)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (merchant_key) DO UPDATE
     SET category_id = excluded.category_id,
         confidence  = excluded.confidence,
         model       = excluded.model,
+        catalog     = excluded.catalog,
         created_at  = now()
 `
 
@@ -129,6 +133,7 @@ type UpsertMerchantSuggestionParams struct {
 	CategoryID  *int64  `json:"category_id"`
 	Confidence  float64 `json:"confidence"`
 	Model       string  `json:"model"`
+	Catalog     string  `json:"catalog"`
 }
 
 func (q *Queries) UpsertMerchantSuggestion(ctx context.Context, arg UpsertMerchantSuggestionParams) error {
@@ -137,6 +142,7 @@ func (q *Queries) UpsertMerchantSuggestion(ctx context.Context, arg UpsertMercha
 		arg.CategoryID,
 		arg.Confidence,
 		arg.Model,
+		arg.Catalog,
 	)
 	return err
 }

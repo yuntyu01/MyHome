@@ -4,7 +4,7 @@
   <input type="search" name="q" value="{{.Q}}" placeholder="가맹점·메모 검색" aria-label="검색">
   <select name="category_id" aria-label="분류">
     <option value="">모든 분류</option>
-    {{$cid := .CategoryID}}{{range .Cats.All}}<option value="{{.ID}}" {{if eq .ID $cid}}selected{{end}}>{{.Name}}</option>{{end}}
+    {{$cid := .CategoryID}}{{$cats := .Cats}}{{range .Cats.All}}{{if or (not .Archived) (eq .ID $cid)}}<option value="{{.ID}}" {{if eq .ID $cid}}selected{{end}}>{{$cats.Label .ID}}{{if .Archived}} (숨김){{end}}</option>{{end}}{{end}}
   </select>
   <select name="status" aria-label="상태">
     <option value="">모든 상태</option>
@@ -27,7 +27,7 @@
       <div class="who">
         <div class="merchant">{{if .T.Merchant}}{{.T.Merchant}}{{else}}<span class="muted">(이름 없음)</span>{{end}}{{if .T.ManuallyEdited}} <span class="muted small" title="직접 수정함(재처리해도 유지)">✎</span>{{end}}</div>
         <div class="meta">{{dt .T.OccurredAt}} ·
-          {{if eq .T.Status "confirmed"}}<span class="accent">{{if .T.Category}}{{.T.Category}}{{else}}확정{{end}}</span>{{else if eq .T.Status "needs_review"}}<span class="warn">확인 필요 · {{reason .T.ReviewReason}}</span>{{else}}제외 · {{reason .T.ExclusionReason}}{{end}}{{if .T.Memo}} · {{.T.Memo}}{{end}}
+          {{if eq .T.Status "confirmed"}}<span class="accent">{{with .Cats.Label (derefID .T.CategoryID)}}{{.}}{{else}}{{if .T.Category}}{{.T.Category}}{{else}}확정{{end}}{{end}}</span>{{else if eq .T.Status "needs_review"}}<span class="warn">확인 필요 · {{reason .T.ReviewReason}}</span>{{else}}제외 · {{reason .T.ExclusionReason}}{{end}}{{if .T.Memo}} · {{.T.Memo}}{{end}}
         </div>
       </div>
       <span class="amount {{if eq .T.Flow "in"}}in{{end}}">{{signed .T}}</span>
@@ -39,7 +39,7 @@
         <form hx-post="/web/transactions/{{.T.ID}}" hx-target="#tx-{{.T.ID}}" hx-swap="outerHTML" hx-trigger="change from:find select">
           <select name="category_id" aria-label="분류">
             <option value="">분류 선택</option>
-            {{$cur := derefID .T.CategoryID}}{{range .Cats.All}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{.Name}}{{if .Archived}} (보관){{end}}</option>{{end}}
+            {{$cur := derefID .T.CategoryID}}{{$cats := .Cats}}{{range .Cats.All}}{{if or (not .Archived) (eq .ID $cur)}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{$cats.Label .ID}}{{if .Archived}} (숨김){{end}}</option>{{end}}{{end}}
           </select>
           <label class="toggle small nowrap" title="켜고 분류를 고르면 다음부터 이 가맹점을 자동으로 분류해요"><input type="checkbox" class="switch" name="remember"> 이 가맹점은 항상</label>
         </form>

@@ -36,20 +36,21 @@ object WidgetModel {
     }
 
     /**
-     * 위젯에 보여줄 분류: 예산이 있는 분류 중 사용률이 높은 순(가장 신경 써야 할 것부터).
+     * 위젯에 보여줄 분류: 예산이 있는 맨 위 분류(폴더는 안의 합계) 중 사용률이 높은 순(가장 신경 써야 할 것부터).
      * 사용률이 같으면 지출이 큰 순.
      */
     fun topCategories(s: Summary, n: Int): List<CategoryBudget> =
-        s.categories.filter { it.budget > 0 }
+        s.categories.filter { it.parentId == null && it.budget > 0 }
             .sortedWith(compareByDescending<CategoryBudget> { it.ratio }.thenByDescending { it.spent })
             .take(n)
 
     /**
-     * 앱 홈에 보여줄 분류. 웹 홈과 같은 규칙이다: 예산을 넘긴 분류를 많이 넘긴 순으로 맨 위에, 그다음 사용률 높은 순.
+     * 앱 홈에 보여줄 맨 위 분류(폴더는 안의 합계, 안은 [childrenOf]로 펼친다). 웹 홈과 같은 규칙이다: 예산을 넘긴 분류를 많이 넘긴 순으로 맨 위에, 그다음 사용률 높은 순.
      * 80% 이상 쓴 분류는 항상 보이고, 아직 안 쓴 분류는 항상 접는다. 예산도 지출도 없는 분류는 뺀다.
      */
     fun homeCategories(s: Summary, topCount: Int = 5): HomeCategories {
         val (used, unused) = s.categories
+            .filter { it.parentId == null }
             .filter { it.budget > 0 || it.spent != 0L || it.settled != 0L }
             .partition { it.spent != 0L || it.settled != 0L }
         val sorted = used.sortedWith(
@@ -60,6 +61,10 @@ object WidgetModel {
         val (top, rest) = sorted.withIndex().partition { (i, c) -> i < topCount || c.remaining < 0 || c.ratio >= 0.8 }
         return HomeCategories(top.map { it.value }, rest.map { it.value } + unused)
     }
+
+    /** 폴더 바로 안의 분류(서버 순서 그대로). 예산도 지출도 없는 분류는 뺀다. */
+    fun childrenOf(s: Summary, parentId: Long): List<CategoryBudget> =
+        s.categories.filter { it.parentId == parentId && (it.budget > 0 || it.spent != 0L || it.settled != 0L) }
 
     /** 기간 라벨 "2026-10" → 올해면 "10월", 아니면 "2025년 10월". 형식이 다르면 그대로. */
     fun monthName(label: String, currentYear: Int = java.time.LocalDate.now().year): String {

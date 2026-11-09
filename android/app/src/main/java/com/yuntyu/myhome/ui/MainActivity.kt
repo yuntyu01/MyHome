@@ -170,6 +170,8 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             "review" -> { txTab = 1; openTxId = req.second; screen = Screen.TRANSACTIONS }
             "transactions" -> { txTab = 0; screen = Screen.TRANSACTIONS }
             "settings" -> screen = Screen.SETTINGS
+            "budgets" -> { screen = Screen.SETTINGS; go(Screen.BUDGETS) }
+            "apps" -> { screen = Screen.SETTINGS; go(Screen.APPS) }
             "health" -> screen = Screen.HEALTH
             "invest" -> screen = Screen.INVEST
             "health_gym" -> { screen = Screen.HEALTH; go(Screen.HEALTH_GYM) }

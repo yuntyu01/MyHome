@@ -31,6 +31,8 @@ type Category struct {
 	Sort      int32     `json:"sort"`
 	Archived  bool      `json:"archived"`
 	CreatedAt time.Time `json:"created_at"`
+	ParentID  *int64    `json:"parent_id"`
+	Memo      string    `json:"memo"`
 }
 
 type Device struct {
@@ -213,6 +215,7 @@ type MerchantSuggestion struct {
 	Confidence  float64   `json:"confidence"`
 	Model       string    `json:"model"`
 	CreatedAt   time.Time `json:"created_at"`
+	Catalog     string    `json:"catalog"`
 }
 
 type RawEvent struct {

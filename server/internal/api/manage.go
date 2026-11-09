@@ -3,12 +3,16 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/yuntyu01/MyHome/server/internal/cattree"
 	"github.com/yuntyu01/MyHome/server/internal/classify"
 	"github.com/yuntyu01/MyHome/server/internal/db"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
@@ -32,6 +36,9 @@ type categoryInput struct {
 	Kind     *string `json:"kind"`
 	Sort     *int32  `json:"sort"`
 	Archived *bool   `json:"archived"`
+	// ParentID는 넣을 폴더다. 0이면 맨 위, 빼면 그대로.
+	ParentID *int64  `json:"parent_id"`
+	Memo     *string `json:"memo"`
 }
 
 func (a *API) createCategory(w http.ResponseWriter, r *http.Request) {
@@ -40,22 +47,10 @@ func (a *API) createCategory(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	kind := "expense"
-	if in.Kind != nil {
-		kind = *in.Kind
-	}
-	if kind != "expense" && kind != "income" {
-		httpx.Error(w, http.StatusBadRequest, "kind는 expense 또는 income")
-		return
-	}
-	var sort int32 = 500
-	if in.Sort != nil {
-		sort = *in.Sort
-	}
-	c, err := a.q().CreateCategory(r.Context(), dbq.CreateCategoryParams{Name: strings.TrimSpace(*in.Name), Kind: kind, Sort: sort})
+	c, err := a.CreateCategory(r.Context(), CategoryChange{Name: in.Name, Kind: in.Kind, Sort: in.Sort, ParentID: in.ParentID, Memo: in.Memo})
 	if err != nil {
-		if strings.Contains(err.Error(), "duplicate key") {
-			httpx.Error(w, http.StatusConflict, "같은 이름의 분류가 있습니다")
+		if errors.Is(err, ErrDuplicateName) {
+			httpx.Error(w, http.StatusConflict, err.Error())
 			return
 		}
 		a.fail(w, err)
@@ -75,35 +70,163 @@ func (a *API) patchCategory(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "invalid json (kind는 바꿀 수 없음)")
 		return
 	}
-	c, err := a.UpdateCategory(r, id, in.Name, in.Sort, in.Archived)
+	c, err := a.UpdateCategory(r, id, CategoryChange{Name: in.Name, Sort: in.Sort, Archived: in.Archived, ParentID: in.ParentID, Memo: in.Memo})
 	if err != nil {
+		if errors.Is(err, ErrDuplicateName) {
+			httpx.Error(w, http.StatusConflict, err.Error())
+			return
+		}
 		a.fail(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, c)
 }
 
-// UpdateCategory는 분류 이름·순서·보관 여부를 바꾼다. 특수 분류는 보관할 수 없다.
-func (a *API) UpdateCategory(r *http.Request, id int64, name *string, sort *int32, archived *bool) (dbq.Category, error) {
-	q := a.q()
-	c, err := q.GetCategory(r.Context(), id)
+// CategoryChange는 분류 만들기·고치기 입력이다. nil인 필드는 바꾸지 않는다(만들 때는 기본값).
+// ParentID가 0이면 맨 위로 옮긴다. Kind는 만들 때만 쓴다(폴더 안에 만들면 폴더 종류를 따른다).
+type CategoryChange struct {
+	Name     *string
+	Kind     *string
+	Sort     *int32
+	Archived *bool
+	ParentID *int64
+	Memo     *string
+}
+
+// ErrDuplicateName은 같은 폴더에 같은 이름이 있을 때다(HTTP 409).
+var ErrDuplicateName = errors.New("같은 폴더에 같은 이름의 분류가 있어요")
+
+func placeErr(err error) error { return fmt.Errorf("%w: %w", pipeline.ErrInvalid, err) }
+
+func cleanMemo(m *string) (string, error) {
+	if m == nil {
+		return "", nil
+	}
+	s := strings.TrimSpace(*m)
+	if utf8.RuneCountInString(s) > cattree.MaxMemo {
+		return "", placeErr(fmt.Errorf("설명은 %d자까지예요", cattree.MaxMemo))
+	}
+	return s, nil
+}
+
+func dupErr(err error) error {
+	if err != nil && strings.Contains(err.Error(), "duplicate key") {
+		return ErrDuplicateName
+	}
+	return err
+}
+
+// CreateCategory는 분류를 만든다. 폴더(ParentID) 안에 만들면 종류는 폴더를 따르고, 3단계를 넘으면 거절한다.
+func (a *API) CreateCategory(ctx context.Context, in CategoryChange) (dbq.Category, error) {
+	var out dbq.Category
+	name := ""
+	if in.Name != nil {
+		name = strings.TrimSpace(*in.Name)
+	}
+	if name == "" {
+		return out, placeErr(errors.New("이름을 넣어 주세요"))
+	}
+	memo, err := cleanMemo(in.Memo)
 	if err != nil {
-		return c, err
+		return out, err
 	}
-	p := dbq.UpdateCategoryParams{ID: id, Name: c.Name, Sort: c.Sort, Archived: c.Archived}
-	if name != nil && strings.TrimSpace(*name) != "" {
-		p.Name = strings.TrimSpace(*name)
-	}
-	if sort != nil {
-		p.Sort = *sort
-	}
-	if archived != nil {
-		if *archived && c.Code != nil {
-			return c, pipeline.ErrInvalid
+	err = db.InTx(ctx, a.Pool, func(tx pgx.Tx) error {
+		q := dbq.New(tx)
+		cats, err := q.ListCategories(ctx)
+		if err != nil {
+			return err
 		}
-		p.Archived = *archived
-	}
-	return q.UpdateCategory(r.Context(), p)
+		t := cattree.New(cats)
+		kind := "expense"
+		if in.Kind != nil {
+			kind = *in.Kind
+		}
+		var parent *int64
+		if in.ParentID != nil && *in.ParentID != 0 {
+			pid := *in.ParentID
+			if pc, ok := t.ByID[pid]; ok && in.Kind == nil {
+				kind = pc.Kind
+			}
+			parent = &pid
+		}
+		if kind != "expense" && kind != "income" {
+			return placeErr(errors.New("kind는 expense 또는 income"))
+		}
+		if parent != nil {
+			if err := t.CheckPlace(0, kind, *parent); err != nil {
+				return placeErr(err)
+			}
+		}
+		var sort int32 = 500
+		if in.Sort != nil {
+			sort = *in.Sort
+		}
+		out, err = q.CreateCategory(ctx, dbq.CreateCategoryParams{Name: name, Kind: kind, Sort: sort, ParentID: parent, Memo: memo})
+		return dupErr(err)
+	})
+	return out, err
+}
+
+// UpdateCategory는 분류 이름·순서·설명·폴더·숨김을 바꾼다. 특수 분류는 숨기거나 폴더에 넣을 수 없다.
+// 폴더를 숨기면 안의 분류도 숨기고, 되살리면 안의 분류와 위 폴더도 되살린다(지난 거래는 그대로 남는다).
+func (a *API) UpdateCategory(r *http.Request, id int64, in CategoryChange) (dbq.Category, error) {
+	ctx := r.Context()
+	var out dbq.Category
+	err := db.InTx(ctx, a.Pool, func(tx pgx.Tx) error {
+		q := dbq.New(tx)
+		cats, err := q.ListCategories(ctx)
+		if err != nil {
+			return err
+		}
+		t := cattree.New(cats)
+		c, ok := t.ByID[id]
+		if !ok {
+			return pgx.ErrNoRows
+		}
+		p := dbq.UpdateCategoryParams{ID: id, Name: c.Name, Sort: c.Sort, Archived: c.Archived, ParentID: c.ParentID, Memo: c.Memo}
+		if in.Name != nil && strings.TrimSpace(*in.Name) != "" {
+			p.Name = strings.TrimSpace(*in.Name)
+		}
+		if in.Sort != nil {
+			p.Sort = *in.Sort
+		}
+		if in.Memo != nil {
+			if p.Memo, err = cleanMemo(in.Memo); err != nil {
+				return err
+			}
+		}
+		// 폴더가 그대로면 검사하지 않는다(이름·설명만 고칠 때 위치 검사로 막히지 않게)
+		if in.ParentID != nil && *in.ParentID != t.Parent(id) {
+			if err := t.CheckPlace(id, c.Kind, *in.ParentID); err != nil {
+				return placeErr(err)
+			}
+			p.ParentID = nil
+			if *in.ParentID != 0 {
+				pid := *in.ParentID
+				p.ParentID = &pid
+			}
+		}
+		if in.Archived != nil {
+			if *in.Archived && c.Code != nil {
+				return placeErr(errors.New("이 분류는 계산에 쓰여서 지울 수 없어요"))
+			}
+			p.Archived = *in.Archived
+		}
+		if out, err = q.UpdateCategory(ctx, p); err != nil {
+			return dupErr(err)
+		}
+		if in.Archived != nil && *in.Archived != c.Archived {
+			ids := t.Descendants(id) // 숨기면 아래까지, 되살리면 아래와 위 폴더까지
+			if !*in.Archived && p.ParentID != nil {
+				ids = append(ids, t.Ancestors(id)...)
+			}
+			if len(ids) > 0 {
+				return q.SetCategoriesArchived(ctx, dbq.SetCategoriesArchivedParams{Archived: *in.Archived, Ids: ids})
+			}
+		}
+		return nil
+	})
+	return out, err
 }
 
 // archiveCategory: 데이터를 지우지 않기 위해 DELETE는 보관(archived)으로 처리한다.
@@ -114,7 +237,7 @@ func (a *API) archiveCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := true
-	c, err := a.UpdateCategory(r, id, nil, nil, &t)
+	c, err := a.UpdateCategory(r, id, CategoryChange{Archived: &t})
 	if err != nil {
 		a.fail(w, err)
 		return

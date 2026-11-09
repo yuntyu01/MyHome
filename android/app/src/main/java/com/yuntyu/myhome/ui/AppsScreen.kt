@@ -3,7 +3,9 @@ package com.yuntyu.myhome.ui
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -95,6 +97,28 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
                     Text("고른 앱의 알림만 읽어요. 다른 앱 알림은 보지 않아요.", fontSize = 15.sp, color = m.muted, lineHeight = 22.sp)
                 }
             }
+            // 고른 앱마다: 알림이 실제로 오고 있는지, 안 오면 켜는 곳(폰 설정 + 앱 안 설정)
+            if (q.isEmpty() && installed != null && selected.isNotEmpty()) {
+                item {
+                    SectionLabel("고른 앱의 결제 알림이 켜져 있나요?")
+                    Text(
+                        "결제 알림을 읽으려면 두 곳이 켜져 있어야 해요. 폰 설정의 그 앱 알림, 그리고 그 앱 안의 결제(승인) 알림이에요. 줄을 누르면 폰 설정이 열려요.",
+                        Modifier.padding(horizontal = Gutter, vertical = 4.dp), fontSize = 14.sp, color = m.muted, lineHeight = 20.sp,
+                    )
+                }
+                val chosen = all.filter { it.pkg in selected }
+                items(chosen, key = { "check-" + it.pkg }) { a ->
+                    val n = counts[a.pkg] ?: 0
+                    FlatRow(
+                        a.label,
+                        sub = if (n > 0) "최근 알림 ${n}건 받음" else "아직 알림이 안 왔어요. ${payAppHint(a.label)}",
+                        subColor = if (n > 0) m.muted else m.over,
+                        leading = { Dot(if (n > 0) m.faint else m.over) },
+                        onClick = { openAppNotificationSettings(ctx, a.pkg) },
+                    )
+                }
+                item { Hairline(Modifier.padding(top = 8.dp)) }
+            }
             item { SearchBox(query) { query = it } }
             when {
                 installed == null -> item { EmptyNote("폰에 있는 앱을 찾는 중이에요") }
@@ -176,6 +200,30 @@ private fun AppRow(a: AppEntry, checked: Boolean, notified: Int, onClick: () -> 
             if (notified > 0) Text("최근 알림 ${notified}건", fontSize = 13.sp, color = m.faint)
         }
         CheckCircle(checked)
+    }
+}
+
+/**
+ * 앱 안에서 결제 알림을 켜는 곳 안내. 메뉴 이름은 앱 업데이트마다 바뀌어서 "앱 안 설정 → 알림" 정도로만 적는다.
+ * docs/DECISIONS.md 「분류 폴더」 옆 「알림 읽을 앱 안내」
+ */
+private fun payAppHint(label: String): String {
+    val l = label.lowercase()
+    return when {
+        "kb" in l || "국민" in l -> "앱 안 설정의 알림에서 결제(승인) 푸시 알림을 켜 주세요. 승인 문자(SMS)만 받고 있으면 읽을 수 없어요"
+        "쿠팡" in l || "coupang" in l -> "쿠팡에서 국민카드로 결제하면 승인 알림은 KB Pay에서 와요. KB Pay도 골라 주세요"
+        "토스" in l || "toss" in l -> "토스 앱 안 설정의 알림에서 결제·입출금 알림을 켜 주세요"
+        "카카오" in l || "kakao" in l -> "앱 안 설정의 알림에서 결제 알림을 켜 주세요"
+        "네이버" in l || "naver" in l -> "앱 안 설정의 알림에서 페이 결제 알림을 켜 주세요"
+        else -> "앱 안 설정의 알림에서 결제 알림을 켜 주세요"
+    }
+}
+
+/** 폰 설정의 그 앱 알림 화면을 연다 */
+private fun openAppNotificationSettings(ctx: Context, pkg: String) {
+    val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { ctx.startActivity(i) }.onFailure {
+        runCatching { ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 }
 

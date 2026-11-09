@@ -8,9 +8,9 @@
     <thead><tr><th>분류</th><th class="num">예산</th><th class="num">지난달 예산</th><th class="num">이번 기간 지출</th></tr></thead>
     <tbody>
     {{range .Rows}}
-      <tr>
-        <td>{{.Category.Name}}</td>
-        <td class="num"><input class="money" type="text" inputmode="numeric" name="amount_{{.Category.ID}}" value="{{if .Amount}}{{num .Amount}}{{end}}" placeholder="0" aria-label="{{.Category.Name}} 예산"></td>
+      <tr class="tree-row{{if .Folder}} folder{{end}}">
+        <td class="tree-name d{{.Depth}}">{{if .Folder}}{{template "ic-folder"}}{{end}}{{.Category.Name}}</td>
+        <td class="num"><input class="money" type="text" inputmode="numeric" name="amount_{{.Category.ID}}" value="{{if .Amount}}{{num .Amount}}{{end}}" placeholder="0" aria-label="{{.Label}} 예산">{{if and .Folder (not .Amount) .ChildSum}}<span class="hint">아래 합계 <span class="nowrap">{{won .ChildSum}}</span></span>{{end}}</td>
         <td class="num muted">{{num .Previous}}</td>
         <td class="num">{{num .Spent}}</td>
       </tr>
@@ -19,6 +19,7 @@
     <tfoot><tr><th>합계</th><th class="num">{{won .Total}}</th><th></th><th></th></tr></tfoot>
   </table>
   </div>
+  <p class="muted small">폴더에 예산을 정하지 않으면 안에 든 분류 예산을 더해서 써요. 합계는 맨 위 분류만 더해요.</p>
   <div class="actions"><button class="btn">저장</button></div>
 </form>
 <form method="post" action="/budgets/copy" class="inline">

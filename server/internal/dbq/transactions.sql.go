@@ -31,6 +31,8 @@ WITH spent AS (SELECT x.category_id,
 SELECT c.id,
        c.name,
        c.sort,
+       c.parent_id,
+       c.archived,
        coalesce(b.amount, 0)::bigint                                                 AS budget,
        coalesce(s.spent, 0)::bigint                                                  AS spent,
        coalesce(st.settled, 0)::bigint                                               AS settled,
@@ -40,7 +42,6 @@ FROM categories c
          LEFT JOIN spent s ON s.category_id = c.id
          LEFT JOIN settled st ON st.category_id = c.id
 WHERE c.kind = 'expense'
-  AND (NOT c.archived OR b.amount IS NOT NULL OR s.spent IS NOT NULL)
 ORDER BY c.sort, c.id
 `
 
@@ -54,13 +55,16 @@ type CategorySummaryRow struct {
 	ID        int64  `json:"id"`
 	Name      string `json:"name"`
 	Sort      int32  `json:"sort"`
+	ParentID  *int64 `json:"parent_id"`
+	Archived  bool   `json:"archived"`
 	Budget    int64  `json:"budget"`
 	Spent     int64  `json:"spent"`
 	Settled   int64  `json:"settled"`
 	Remaining int64  `json:"remaining"`
 }
 
-// 분류별 남은 돈 = 예산 - 확정 지출(취소·환불 차감) + 그 분류로 돌려놓은 정산.
+// 분류별 남은 돈 = 예산 - 확정 지출(취소·환불 차감) + 그 분류로 돌려놓은 정산. 분류 하나만의 값이다.
+// 폴더 합계(아래 분류 더하기)와 숨긴 분류 거르기는 api.BuildSummary가 한다(숨긴 분류도 폴더 합계에는 들어가야 해서 여기서 거르지 않는다).
 func (q *Queries) CategorySummary(ctx context.Context, arg CategorySummaryParams) ([]CategorySummaryRow, error) {
 	rows, err := q.db.Query(ctx, categorySummary, arg.PeriodStart, arg.FromAt, arg.ToAt)
 	if err != nil {
@@ -74,6 +78,8 @@ func (q *Queries) CategorySummary(ctx context.Context, arg CategorySummaryParams
 			&i.ID,
 			&i.Name,
 			&i.Sort,
+			&i.ParentID,
+			&i.Archived,
 			&i.Budget,
 			&i.Spent,
 			&i.Settled,

@@ -10,19 +10,27 @@ import (
 )
 
 const createCategory = `-- name: CreateCategory :one
-INSERT INTO categories (name, kind, sort)
-VALUES ($1, $2, $3)
-RETURNING id, name, kind, code, sort, archived, created_at
+INSERT INTO categories (name, kind, sort, parent_id, memo)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, kind, code, sort, archived, created_at, parent_id, memo
 `
 
 type CreateCategoryParams struct {
-	Name string `json:"name"`
-	Kind string `json:"kind"`
-	Sort int32  `json:"sort"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Sort     int32  `json:"sort"`
+	ParentID *int64 `json:"parent_id"`
+	Memo     string `json:"memo"`
 }
 
 func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) (Category, error) {
-	row := q.db.QueryRow(ctx, createCategory, arg.Name, arg.Kind, arg.Sort)
+	row := q.db.QueryRow(ctx, createCategory,
+		arg.Name,
+		arg.Kind,
+		arg.Sort,
+		arg.ParentID,
+		arg.Memo,
+	)
 	var i Category
 	err := row.Scan(
 		&i.ID,
@@ -32,12 +40,14 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 		&i.Sort,
 		&i.Archived,
 		&i.CreatedAt,
+		&i.ParentID,
+		&i.Memo,
 	)
 	return i, err
 }
 
 const getCategory = `-- name: GetCategory :one
-SELECT id, name, kind, code, sort, archived, created_at
+SELECT id, name, kind, code, sort, archived, created_at, parent_id, memo
 FROM categories
 WHERE id = $1
 `
@@ -53,12 +63,14 @@ func (q *Queries) GetCategory(ctx context.Context, id int64) (Category, error) {
 		&i.Sort,
 		&i.Archived,
 		&i.CreatedAt,
+		&i.ParentID,
+		&i.Memo,
 	)
 	return i, err
 }
 
 const getCategoryByCode = `-- name: GetCategoryByCode :one
-SELECT id, name, kind, code, sort, archived, created_at
+SELECT id, name, kind, code, sort, archived, created_at, parent_id, memo
 FROM categories
 WHERE code = $1
 `
@@ -74,12 +86,14 @@ func (q *Queries) GetCategoryByCode(ctx context.Context, code *string) (Category
 		&i.Sort,
 		&i.Archived,
 		&i.CreatedAt,
+		&i.ParentID,
+		&i.Memo,
 	)
 	return i, err
 }
 
 const listCategories = `-- name: ListCategories :many
-SELECT id, name, kind, code, sort, archived, created_at
+SELECT id, name, kind, code, sort, archived, created_at, parent_id, memo
 FROM categories
 ORDER BY sort, id
 `
@@ -101,6 +115,8 @@ func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
 			&i.Sort,
 			&i.Archived,
 			&i.CreatedAt,
+			&i.ParentID,
+			&i.Memo,
 		); err != nil {
 			return nil, err
 		}
@@ -112,28 +128,52 @@ func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
 	return items, nil
 }
 
+const setCategoriesArchived = `-- name: SetCategoriesArchived :exec
+UPDATE categories
+SET archived = $1
+WHERE id = ANY ($2::bigint[])
+  AND code IS NULL
+`
+
+type SetCategoriesArchivedParams struct {
+	Archived bool    `json:"archived"`
+	Ids      []int64 `json:"ids"`
+}
+
+// 폴더를 숨기거나 되살릴 때 아래 분류(또는 위 폴더)까지 한 번에 바꾼다.
+func (q *Queries) SetCategoriesArchived(ctx context.Context, arg SetCategoriesArchivedParams) error {
+	_, err := q.db.Exec(ctx, setCategoriesArchived, arg.Archived, arg.Ids)
+	return err
+}
+
 const updateCategory = `-- name: UpdateCategory :one
 UPDATE categories
-SET name     = $2,
-    sort     = $3,
-    archived = $4
-WHERE id = $1
-RETURNING id, name, kind, code, sort, archived, created_at
+SET name      = $1,
+    sort      = $2,
+    archived  = $3,
+    parent_id = $4,
+    memo      = $5
+WHERE id = $6
+RETURNING id, name, kind, code, sort, archived, created_at, parent_id, memo
 `
 
 type UpdateCategoryParams struct {
-	ID       int64  `json:"id"`
 	Name     string `json:"name"`
 	Sort     int32  `json:"sort"`
 	Archived bool   `json:"archived"`
+	ParentID *int64 `json:"parent_id"`
+	Memo     string `json:"memo"`
+	ID       int64  `json:"id"`
 }
 
 func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) (Category, error) {
 	row := q.db.QueryRow(ctx, updateCategory,
-		arg.ID,
 		arg.Name,
 		arg.Sort,
 		arg.Archived,
+		arg.ParentID,
+		arg.Memo,
+		arg.ID,
 	)
 	var i Category
 	err := row.Scan(
@@ -144,6 +184,8 @@ func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) 
 		&i.Sort,
 		&i.Archived,
 		&i.CreatedAt,
+		&i.ParentID,
+		&i.Memo,
 	)
 	return i, err
 }

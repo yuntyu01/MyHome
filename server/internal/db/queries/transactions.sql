@@ -145,7 +145,8 @@ ORDER BY t.occurred_at DESC, t.id DESC
 LIMIT $1;
 
 -- name: CategorySummary :many
--- 분류별 남은 돈 = 예산 - 확정 지출(취소·환불 차감) + 그 분류로 돌려놓은 정산.
+-- 분류별 남은 돈 = 예산 - 확정 지출(취소·환불 차감) + 그 분류로 돌려놓은 정산. 분류 하나만의 값이다.
+-- 폴더 합계(아래 분류 더하기)와 숨긴 분류 거르기는 api.BuildSummary가 한다(숨긴 분류도 폴더 합계에는 들어가야 해서 여기서 거르지 않는다).
 WITH spent AS (SELECT x.category_id,
                       sum(CASE WHEN x.flow = 'out' THEN x.amount ELSE -x.amount END)::bigint AS spent
                FROM transactions x
@@ -166,6 +167,8 @@ WITH spent AS (SELECT x.category_id,
 SELECT c.id,
        c.name,
        c.sort,
+       c.parent_id,
+       c.archived,
        coalesce(b.amount, 0)::bigint                                                 AS budget,
        coalesce(s.spent, 0)::bigint                                                  AS spent,
        coalesce(st.settled, 0)::bigint                                               AS settled,
@@ -175,7 +178,6 @@ FROM categories c
          LEFT JOIN spent s ON s.category_id = c.id
          LEFT JOIN settled st ON st.category_id = c.id
 WHERE c.kind = 'expense'
-  AND (NOT c.archived OR b.amount IS NOT NULL OR s.spent IS NOT NULL)
 ORDER BY c.sort, c.id;
 
 -- name: PeriodTotals :one

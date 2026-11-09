@@ -15,9 +15,13 @@ type DailyPoint struct {
 }
 
 // CategoryCompare는 분류별 이번 기간·지난 기간 비교다.
+// 폴더는 아래 분류까지 더한 값이라, 비중·합계는 맨 위 분류(Depth 0)만 써야 두 번 세지 않는다.
 type CategoryCompare struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
+	ParentID *int64 `json:"parent_id"`
+	Depth    int    `json:"depth"`
+	Path     string `json:"path"`
 	Current  int64  `json:"current"`
 	Previous int64  `json:"previous"`
 	Diff     int64  `json:"diff"`
@@ -68,11 +72,11 @@ func (a *API) BuildAnalytics(r *http.Request, cur, prev period.Period) (Analytic
 	seen := map[int64]bool{}
 	for _, c := range cs.Categories {
 		seen[c.ID] = true
-		an.Categories = append(an.Categories, CategoryCompare{ID: c.ID, Name: c.Name, Current: c.Spent, Previous: prevBy[c.ID], Diff: c.Spent - prevBy[c.ID]})
+		an.Categories = append(an.Categories, CategoryCompare{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Depth: c.Depth, Path: c.Path, Current: c.Spent, Previous: prevBy[c.ID], Diff: c.Spent - prevBy[c.ID]})
 	}
 	for _, c := range ps.Categories {
 		if !seen[c.ID] && c.Spent != 0 {
-			an.Categories = append(an.Categories, CategoryCompare{ID: c.ID, Name: c.Name, Previous: c.Spent, Diff: -c.Spent})
+			an.Categories = append(an.Categories, CategoryCompare{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Depth: c.Depth, Path: c.Path, Previous: c.Spent, Diff: -c.Spent})
 		}
 	}
 	if an.Daily, err = a.daily(r, cur); err != nil {

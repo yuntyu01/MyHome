@@ -122,18 +122,27 @@ func (e *env) classify(merchant string, kind parser.Kind, flow string) classific
 		return cl
 	}
 
+	// 숨긴(지운) 분류로 가는 규칙은 건너뛴다. 그 가맹점은 다른 규칙이 없으면 확인 필요(AI 추천 대상)로 간다.
+	live := func(r classify.Rule) bool {
+		c, ok := e.cats[r.CategoryID]
+		return ok && !c.Archived
+	}
+	and := func(f func(classify.Rule) bool) func(classify.Rule) bool {
+		return func(r classify.Rule) bool { return live(r) && f(r) }
+	}
+
 	if strings.TrimSpace(merchant) == "" {
 		return review(ReviewNoMerchant)
 	}
 	// 친구 송금은 자동 판단하지 않는다. 사용자가 직접 만든 정확 일치 규칙만 적용.
 	if kind == parser.KindTransferOut {
-		if r, ok := classify.First(e.rules, merchant, flow, func(r classify.Rule) bool { return r.IsUserRule() && r.MatchType == "exact" }); ok {
+		if r, ok := classify.First(e.rules, merchant, flow, and(func(r classify.Rule) bool { return r.IsUserRule() && r.MatchType == "exact" })); ok {
 			return apply(r)
 		}
 		return review(ReviewTransfer)
 	}
 	// 사용자 규칙(수동·학습)이 가장 먼저.
-	if r, ok := classify.First(e.rules, merchant, flow, classify.Rule.IsUserRule); ok {
+	if r, ok := classify.First(e.rules, merchant, flow, and(classify.Rule.IsUserRule)); ok {
 		return apply(r)
 	}
 	// 결제대행사 이름이면 떼어낸 나머지로 분류하고, 남는 게 없으면 확인 필요.
@@ -144,7 +153,7 @@ func (e *env) classify(merchant string, kind parser.Kind, flow string) classific
 		}
 		target = rest
 	}
-	if r, ok := classify.First(e.rules, target, flow, nil); ok {
+	if r, ok := classify.First(e.rules, target, flow, live); ok {
 		return apply(r)
 	}
 	if flow == "in" {

@@ -8,15 +8,23 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/yuntyu01/MyHome/server/internal/cattree"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
 	"github.com/yuntyu01/MyHome/server/internal/httpx"
 	"github.com/yuntyu01/MyHome/server/internal/period"
 )
 
-// CategoryBudget은 분류별 예산 현황이다.
+// CategoryBudget은 분류별 예산 현황이다. 폴더는 아래 분류까지 더한 값이다(docs/DECISIONS.md 「분류 폴더」).
+// 목록은 위에서 아래로 펼친 순서(폴더 다음에 그 안)이고, 맨 위 분류(ParentID 없음)만 더하면 총계가 된다.
 type CategoryBudget struct {
-	ID        int64   `json:"id"`
-	Name      string  `json:"name"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	ParentID *int64 `json:"parent_id"`
+	Depth    int    `json:"depth"` // 맨 위 = 0
+	Path     string `json:"path"`  // "생활비 › 식비"
+	// OwnBudget은 이 분류에 직접 정한 예산이다. Budget은 실제로 쓰는 예산이다:
+	// 직접 정했으면 그 값, 안 정한 폴더면 아래 분류 예산의 합.
+	OwnBudget int64   `json:"own_budget"`
 	Budget    int64   `json:"budget"`
 	Spent     int64   `json:"spent"`
 	Settled   int64   `json:"settled"`
@@ -123,11 +131,12 @@ func (a *API) BuildSummary(r *http.Request, p period.Period, recentN int) (Summa
 	if err != nil {
 		return Summary{}, err
 	}
-	s := Summary{Period: periodDTO(p), Categories: make([]CategoryBudget, 0, len(rows)), Recent: make([]TransactionDTO, 0, len(recent)), NeedsReview: nr, FailedEvents: failed, GeneratedAt: a.now()}
-	for _, c := range rows {
-		s.Categories = append(s.Categories, CategoryBudget{ID: c.ID, Name: c.Name, Budget: c.Budget, Spent: c.Spent, Settled: c.Settled, Remaining: c.Remaining, Ratio: ratio(c.Spent-c.Settled, c.Budget)})
-		s.Totals.Budget += c.Budget
-		s.Totals.Spent += c.Spent
+	s := Summary{Period: periodDTO(p), Categories: rollUp(rows), Recent: make([]TransactionDTO, 0, len(recent)), NeedsReview: nr, FailedEvents: failed, GeneratedAt: a.now()}
+	for _, c := range s.Categories {
+		if c.ParentID == nil {
+			s.Totals.Budget += c.Budget
+			s.Totals.Spent += c.Spent
+		}
 	}
 	s.Totals.Settled = tot.SettledTotal
 	s.Totals.Remaining = s.Totals.Budget - s.Totals.Spent + tot.SettledTotal
@@ -144,4 +153,55 @@ func ratio(used, budget int64) float64 {
 		return 0
 	}
 	return float64(used) / float64(budget)
+}
+
+// rollUp은 분류 하나씩의 값을 폴더 합계로 바꾼다. 쓴 돈·정산은 아래를 모두 더하고, 예산은 직접 정했으면 그 값,
+// 아니면 아래 예산의 합이다(위 폴더 예산은 아래의 한도를 묶는 큰 한도). 숨긴 분류는 그 아래까지 값이 없으면 뺀다.
+func rollUp(rows []dbq.CategorySummaryRow) []CategoryBudget {
+	cats := make([]dbq.Category, len(rows))
+	own := make(map[int64]dbq.CategorySummaryRow, len(rows))
+	for i, r := range rows {
+		cats[i] = dbq.Category{ID: r.ID, Name: r.Name, Kind: "expense", Sort: r.Sort, ParentID: r.ParentID, Archived: r.Archived}
+		own[r.ID] = r
+	}
+	t := cattree.New(cats)
+	type sums struct{ budget, spent, settled int64 }
+	memo := map[int64]sums{}
+	var roll func(id int64) sums
+	roll = func(id int64) sums {
+		var sub sums
+		for _, ch := range t.Children(id) {
+			x := roll(ch)
+			sub.budget += x.budget
+			sub.spent += x.spent
+			sub.settled += x.settled
+		}
+		r := own[id]
+		out := sums{budget: sub.budget, spent: r.Spent + sub.spent, settled: r.Settled + sub.settled}
+		if r.Budget > 0 {
+			out.budget = r.Budget
+		}
+		memo[id] = out
+		return out
+	}
+	for _, id := range t.Children(0) {
+		roll(id)
+	}
+	out := make([]CategoryBudget, 0, len(rows))
+	for _, c := range t.Preorder() {
+		x := memo[c.ID]
+		if c.Archived && x.budget == 0 && x.spent == 0 && x.settled == 0 {
+			continue
+		}
+		var parent *int64
+		if pid := t.Parent(c.ID); pid != 0 {
+			parent = &pid
+		}
+		out = append(out, CategoryBudget{
+			ID: c.ID, Name: c.Name, ParentID: parent, Depth: t.Depth(c.ID), Path: t.Label(c.ID),
+			OwnBudget: own[c.ID].Budget, Budget: x.budget, Spent: x.spent, Settled: x.settled,
+			Remaining: x.budget - x.spent + x.settled, Ratio: ratio(x.spent-x.settled, x.budget),
+		})
+	}
+	return out
 }

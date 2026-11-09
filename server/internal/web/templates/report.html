@@ -12,7 +12,7 @@
 <section class="card">
   <h2>예산을 넘긴 분류</h2>
   <ul class="budget-list">
-  {{range .OverBudget}}<li class="row-between"><span>{{.Name}}</span><span class="neg">{{won .Remaining}} (예산 {{num .Budget}})</span></li>{{end}}
+  {{range .OverBudget}}<li class="row-between"><span>{{.Path}}</span><span class="neg">{{won .Remaining}} (예산 {{num .Budget}})</span></li>{{end}}
   </ul>
 </section>
 {{end}}
@@ -25,7 +25,7 @@
     <thead><tr><th>분류</th><th class="num">{{monthName .Period.Label}}</th><th class="num">{{monthName .PreviousPeriod.Label}}</th><th class="num">증감</th></tr></thead>
     <tbody>
     {{range .Categories}}{{if or .Current .Previous}}
-      <tr><td>{{.Name}}</td><td class="num">{{num .Current}}</td><td class="num muted">{{num .Previous}}</td><td class="num {{diffCls .Diff}}">{{plus .Diff}}</td></tr>
+      <tr class="tree-row{{if .Depth}} sub{{end}}"><td class="tree-name d{{.Depth}}">{{.Name}}</td><td class="num">{{num .Current}}</td><td class="num muted">{{num .Previous}}</td><td class="num {{diffCls .Diff}}">{{plus .Diff}}</td></tr>
     {{end}}{{end}}
     </tbody>
   </table>

@@ -15,7 +15,7 @@
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
     <label>금액 <input class="money" style="width:100%;text-align:left" type="text" inputmode="numeric" name="amount" required placeholder="5,000"></label>
     <label>분류
-      <select name="category_id" required>{{range .Cats.Expense}}{{if not .Archived}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}{{range .Cats.Other}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+      {{$cats := .Cats}}<select name="category_id" required>{{range .Cats.Expense}}{{if not .Archived}}<option value="{{.ID}}">{{$cats.Label .ID}}</option>{{end}}{{end}}{{range .Cats.Other}}{{if not .Archived}}<option value="{{.ID}}">{{$cats.Label .ID}}</option>{{end}}{{end}}</select>
     </label>
     <label>내용 <input type="text" name="merchant" placeholder="붕어빵"></label>
     <details class="advanced">
@@ -34,29 +34,29 @@
 {{if eq .Tab "categories"}}
 <section class="card">
   <h2>분류</h2>
-  <div class="edit-list">
-  {{range .Cats.All}}
-    <details class="edit-row {{if .Archived}}archived{{end}}">
-      <summary><span class="grow">{{.Name}}{{if .Archived}} (보관){{end}}</span><span class="pill">{{if eq .Kind "expense"}}지출{{else if eq .Kind "income"}}수입{{else}}기본{{end}}</span>{{template "ic-chev"}}</summary>
-      <form method="post" action="/admin/categories/{{.ID}}" class="form-grid">
-        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-        <label>이름 <input type="text" name="name" value="{{.Name}}"></label>
-        <label>표시 순서 (작을수록 위) <input type="number" name="sort" value="{{.Sort}}"></label>
-        <div class="actions row-between">
-          <button class="btn small">저장</button>
-          {{if .Code}}<span class="muted small">기본 분류는 보관할 수 없어요</span>{{else if .Archived}}<button class="link-btn" name="archived" value="false">보관 해제</button>{{else}}<button class="link-btn" name="archived" value="true">보관</button>{{end}}
-        </div>
-      </form>
-    </details>
-  {{end}}
+  <p class="muted small" style="margin-top:0">분류를 폴더처럼 묶을 수 있어요(3단계까지). 폴더의 지출과 예산은 안에 든 분류를 더해서 보여줘요.</p>
+  <div class="cat-tree">
+  {{range .Tree}}{{template "cat-node" .}}{{end}}
   </div>
-  <form method="post" action="/admin/categories" class="inline-row">
+  <p class="muted small">삭제 대신 숨겨요. 숨긴 분류는 새 거래에서 안 보이고 지난 거래는 그대로예요. 폴더를 숨기면 안에 든 분류도 같이 숨어요.</p>
+</section>
+<section class="card">
+  <h2>새 분류</h2>
+  <form method="post" action="/admin/categories" class="form-grid">
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-    <input type="text" name="name" placeholder="새 분류 이름" required>
-    <select name="kind" aria-label="종류"><option value="expense">지출</option><option value="income">수입</option></select>
-    <button class="btn">추가</button>
+    <label>이름 <input type="text" name="name" placeholder="새 분류 이름" required></label>
+    <label>넣을 폴더
+      <select name="parent"><option value="">맨 위</option>{{range .NewFolders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select>
+    </label>
+    <label>종류 (맨 위에 만들 때만)
+      <select name="kind"><option value="expense">지출</option><option value="income">수입</option></select>
+    </label>
+    <label class="wide">설명 (선택)
+      <textarea name="memo" rows="2" maxlength="{{maxMemo}}" placeholder="예: 배달 앱, 야식"></textarea>
+      <span class="hint">AI가 분류를 추천할 때 이 설명을 읽어요. {{maxMemo}}자까지.</span>
+    </label>
+    <div class="actions"><button class="btn">추가</button> <span class="muted small">폴더 안에 만들면 종류는 폴더를 따라요.</span></div>
   </form>
-  <p class="muted small">삭제 대신 보관해요. 보관한 분류는 새 거래에서 안 보이고 지난 거래는 그대로예요.</p>
 </section>
 {{end}}
 
@@ -67,7 +67,7 @@
   <form method="post" action="/admin/rules" class="form-grid">
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
     <label>가맹점 이름 <input type="text" name="pattern" placeholder="동네빵집" required></label>
-    <label>분류 <select name="category_id">{{range .Cats.All}}{{if not .Archived}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}</select></label>
+    {{$cats := .Cats}}<label>분류 <select name="category_id">{{range .Cats.All}}{{if not .Archived}}<option value="{{.ID}}">{{$cats.Label .ID}}</option>{{end}}{{end}}</select></label>
     <details class="advanced">
       <summary>고급 설정</summary>
       <div class="form-grid">
@@ -87,7 +87,7 @@
       <tbody>
       {{range .Rules}}
         <tr>
-          <td>{{.Pattern}}</td><td class="nowrap">{{matchLabel .MatchType}}</td><td class="nowrap">{{.CategoryName}}</td>
+          <td>{{.Pattern}}</td><td class="nowrap">{{matchLabel .MatchType}}</td><td class="nowrap">{{with $cats.Label .CategoryID}}{{.}}{{else}}{{.CategoryName}}{{end}}</td>
           <td class="nowrap">{{with .Flow}}{{if eq (deref .) "in"}}들어온{{else}}나간{{end}}{{else}}둘 다{{end}}</td>
           <td class="num">{{.Priority}}</td>
           <td><span class="pill {{if eq .CreatedFrom "learned"}}ok{{end}}">{{if eq .CreatedFrom "seed"}}기본{{else if eq .CreatedFrom "learned"}}학습{{else}}직접{{end}}</span></td>
@@ -165,3 +165,34 @@
 </section>
 {{end}}
 {{end}}{{end}}
+
+{{define "cat-node"}}<div class="cat-node">
+  <details class="edit-row{{if .Archived}} archived{{end}}">
+    <summary>
+      {{if .Children}}{{template "ic-folder"}}{{end}}
+      <span class="grow"><span class="cat-name">{{.Name}}{{if .Archived}} (숨김){{end}}</span>{{if .Memo}}<span class="cat-memo">{{.Memo}}</span>{{end}}</span>
+      {{if .Children}}<span class="muted small nowrap">{{len .Children}}개</span>{{end}}
+      {{if eq .Depth 0}}<span class="pill">{{if .Code}}기본{{else if eq .Kind "expense"}}지출{{else}}수입{{end}}</span>{{end}}
+      {{template "ic-chev"}}
+    </summary>
+    <form method="post" action="/admin/categories/{{.ID}}" class="form-grid">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label>이름 <input type="text" name="name" value="{{.Name}}"></label>
+      {{if .CanMove}}
+      <label>폴더
+        <select name="parent">{{$p := .Parent}}<option value="" {{if eq $p 0}}selected{{end}}>맨 위</option>{{range .Folders}}<option value="{{.ID}}" {{if eq .ID $p}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+      </label>
+      {{end}}
+      <label>표시 순서 (작을수록 위) <input type="number" name="sort" value="{{.Sort}}"></label>
+      <label class="wide">설명
+        <textarea name="memo" rows="2" maxlength="{{maxMemo}}" placeholder="{{if eq .Kind "expense"}}예: 배달 앱, 야식{{end}}">{{.Memo}}</textarea>
+        <span class="hint">{{if eq .Kind "expense"}}AI가 분류를 추천할 때 이 설명을 읽어요. {{end}}{{maxMemo}}자까지.</span>
+      </label>
+      <div class="actions row-between">
+        <button class="btn small">저장</button>
+        {{if .Code}}<span class="muted small">기본 분류는 맨 위에 두고 숨길 수 없어요</span>{{else if .Archived}}<span class="muted small">다시 보이게 하면 폴더를 옮길 수 있어요 <button class="link-btn" name="archived" value="false">다시 보이기</button></span>{{else}}<button class="link-btn" name="archived" value="true">숨기기</button>{{end}}
+      </div>
+    </form>
+  </details>
+  {{if .Children}}<div class="cat-children">{{range .Children}}{{template "cat-node" .}}{{end}}</div>{{end}}
+</div>{{end}}

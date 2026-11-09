@@ -285,6 +285,13 @@ label.toggle { display: inline-flex; align-items: center; gap: 8px; cursor: poin
 .budget-more > summary .chev { color: var(--outline); transition: transform 0.15s; }
 .budget-more[open] > summary .chev { transform: rotate(90deg); }
 .budget-more .budget-card::before { content: ""; position: absolute; left: 18px; right: 0; top: 0; height: 1px; background: var(--line); }
+.budget-card .name .folder { vertical-align: -0.15em; color: var(--subtle); }
+.sub-cats { margin-top: 6px; }
+.sub-cats > summary { margin: 0; padding: 4px 0; font-size: 0.82rem; color: var(--subtle); }
+.sub-cat { padding: 6px 0 6px 14px; font-size: 0.9rem; }
+.sub-cat.d2 { padding-left: 28px; }
+.sub-cat .meta { margin-top: 2px; }
+.bar.thin { height: 3px; margin-top: 6px; }
 .budget-list { list-style: none; margin: 0; padding: 0; }
 .budget-list li { padding: 0.6rem 0.5rem; border-top: 1px solid var(--line); }
 .budget-card .name { font-size: 1rem; }
@@ -323,7 +330,7 @@ label.toggle { display: inline-flex; align-items: center; gap: 8px; cursor: poin
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 0.6rem 0.5rem; vertical-align: middle; }
 tbody tr + tr td, tbody tr:first-child td { border-top: 1px solid var(--line); }
-th { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
+th { color: var(--muted); font-weight: 600; font-size: 0.8rem; word-break: keep-all; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tfoot th { color: var(--text); border-top: 1px solid var(--line); }
 td.raw { max-width: 26rem; overflow-wrap: anywhere; font-size: 0.85rem; }
@@ -337,6 +344,8 @@ td.raw { max-width: 26rem; overflow-wrap: anywhere; font-size: 0.85rem; }
 .btn.cat { background: var(--raised); color: var(--text); min-height: 46px; font-weight: 500; }
 .btn.cat:hover { background: var(--pill); filter: none; }
 .btn.cat.special { background: var(--pill); }
+.btn.cat { flex-direction: column; gap: 0; padding: 6px 10px; line-height: 1.25; white-space: normal; overflow-wrap: anywhere; text-align: center; }
+.btn.cat .cat-up { color: var(--muted); font-size: 0.7rem; font-weight: 500; }
 /* AI 추천: 한 번 누르는 주 버튼(무채색 강조색, 빨강·파랑 없음). 아래 수동 분류는 그대로 */
 .suggest-row { margin: 0 0 14px; text-align: center; }
 .suggest-row .btn.suggest { overflow: hidden; text-overflow: ellipsis; }
@@ -369,6 +378,26 @@ td.raw { max-width: 26rem; overflow-wrap: anywhere; font-size: 0.85rem; }
 .form-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; color: var(--muted); }
 .form-grid label.wide { grid-column: 1 / -1; }
 .form-grid .actions { grid-column: 1 / -1; }
+.hint { display: block; color: var(--muted); font-size: 0.78rem; font-weight: 400; }
+td.num .hint { margin-top: 4px; }
+
+/* 분류 폴더(관리): 안에 든 분류는 한 단계 들여서 한 겹 진한 바탕으로 묶는다(선 대신 바탕색 차이) */
+.cat-tree { background: color-mix(in srgb, var(--raised) 40%, transparent); border-radius: 14px; overflow: hidden; margin-bottom: 12px; }
+.cat-node { position: relative; }
+.cat-node + .cat-node::before { content: ""; position: absolute; left: 14px; right: 0; top: 0; height: 1px; background: var(--line); }
+.cat-children { margin: 0 8px 8px 20px; background: color-mix(in srgb, var(--raised) 55%, transparent); border-radius: 12px; overflow: hidden; }
+.cat-node .edit-row > summary .folder { flex: none; color: var(--subtle); }
+.cat-name { display: block; overflow-wrap: anywhere; }
+.cat-memo { display: block; color: var(--muted); font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 표의 분류 나무(예산·분석·리포트): 안의 분류는 들여 쓴다 */
+td.tree-name { white-space: nowrap; }
+td.tree-name.d1 { padding-left: 1.5rem; }
+td.tree-name.d2 { padding-left: 3rem; }
+td.tree-name .folder { vertical-align: -0.15em; margin-right: 5px; color: var(--subtle); }
+tr.folder td.tree-name { font-weight: 600; }
+tr.sub td { font-size: 0.88rem; }
+tr.sub td.tree-name { color: var(--subtle); }
 .inline-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
 .inline { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 10px 4px; }
 .actions { margin-top: 14px; }
@@ -398,6 +427,10 @@ details summary { cursor: pointer; color: var(--accent-ink); margin: 10px 0; }
   .cards.three .stat .short { display: inline; white-space: nowrap; }
   .chart-box { height: 230px; }
   .card { padding: 16px 18px; }
+  .cat-children { margin: 0 6px 6px 12px; }
+  td.tree-name.d1 { padding-left: 1.1rem; }
+  td.tree-name.d2 { padding-left: 2.2rem; }
+  td input.money { width: 6.5rem; }
 }
 
 /* 더보기 화면의 버튼 줄 */

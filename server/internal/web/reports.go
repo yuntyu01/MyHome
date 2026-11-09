@@ -14,6 +14,7 @@ func (wb *Web) report(w http.ResponseWriter, r *http.Request) {
 		wb.fail(w, err)
 		return
 	}
+	rep.Categories = treeOrder(rep.Categories)
 	pd := wb.base(r, "월간 리포트", "report")
 	pd.Wide = true
 	wb.withPeriod(&pd, p, startDay)

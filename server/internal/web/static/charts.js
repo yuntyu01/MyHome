@@ -24,7 +24,9 @@
     Chart.defaults.plugins.legend.labels.boxWidth = 10;
     Chart.defaults.font.family = css("--font");
 
-    var cats = (data.categories || []).filter(function (c) { return c.current > 0; })
+    // 폴더 값은 안의 분류를 더한 것이라 맨 위 분류(depth 0)만 써야 두 번 세지 않는다
+    var top = (data.categories || []).filter(function (c) { return !c.depth; });
+    var cats = top.filter(function (c) { return c.current > 0; })
       .sort(function (a, b) { return b.current - a.current; });
 
     charts.push(new Chart(document.getElementById("chart-share"), {
@@ -51,7 +53,7 @@
         plugins: { tooltip: { callbacks: { label: function (ctx) { return ctx.dataset.label + ": " + won(ctx.raw); } } } } }
     }));
 
-    var both = (data.categories || []).filter(function (c) { return c.current || c.previous; });
+    var both = top.filter(function (c) { return c.current || c.previous; });
     charts.push(new Chart(document.getElementById("chart-compare"), {
       type: "bar",
       data: {

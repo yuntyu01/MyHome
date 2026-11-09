@@ -64,12 +64,21 @@ class MyHomeApi(
     /** 보관한 분류도 함께 온다(archived) */
     fun categories(): ApiResult<CategoryList> = call("GET", "/v1/categories", null, CategoryList.serializer())
 
-    fun createCategory(name: String, kind: String = "expense"): ApiResult<Category> =
-        call("POST", "/v1/categories", MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, kind = kind)), Category.serializer())
+    /** 분류 만들기. parentId(폴더) 안에 만들면 종류는 폴더를 따른다(kind는 맨 위일 때만 쓴다). 3단계를 넘으면 400 */
+    fun createCategory(name: String, kind: String = "expense", parentId: Long? = null, memo: String? = null): ApiResult<Category> =
+        call(
+            "POST", "/v1/categories",
+            MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, kind = kind.takeIf { parentId == null }, parentId = parentId, memo = memo)),
+            Category.serializer(),
+        )
 
-    /** 이름 바꾸기·숨기기(archived). kind는 못 바꾼다. */
-    fun updateCategory(id: Long, name: String? = null, archived: Boolean? = null): ApiResult<Category> =
-        call("PATCH", "/v1/categories/$id", MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, archived = archived)), Category.serializer())
+    /** 이름·설명 바꾸기, 폴더 옮기기(parentId 0 = 맨 위), 숨기기(archived). kind는 못 바꾼다. null인 값은 그대로 둔다. */
+    fun updateCategory(id: Long, name: String? = null, archived: Boolean? = null, parentId: Long? = null, memo: String? = null): ApiResult<Category> =
+        call(
+            "PATCH", "/v1/categories/$id",
+            MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, archived = archived, parentId = parentId, memo = memo)),
+            Category.serializer(),
+        )
 
     /** 기간 예산(지출 분류마다). month가 없으면 이번 기간 */
     fun budgets(month: String? = null): ApiResult<BudgetList> =

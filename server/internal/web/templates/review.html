@@ -14,14 +14,14 @@
   <div class="review-main">
     <div class="review-merchant">{{if .Merchant}}{{.Merchant}}{{else}}<em class="muted">(이름 없음)</em>{{end}}</div>
     <div class="review-amount {{if eq .Flow "in"}}in{{end}}">{{signed .}}</div>
-    <div class="muted small">{{dt .OccurredAt}} · {{sourceName .Source}}{{if eq .Flow "in"}} · 들어온 돈{{end}}{{if .Category}} · 제안: {{.Category}}{{end}}</div>
+    <div class="muted small">{{dt .OccurredAt}} · {{sourceName .Source}}{{if eq .Flow "in"}} · 들어온 돈{{end}}{{if .Category}} · 제안: {{with $.Cats.Label (derefID .CategoryID)}}{{.}}{{else}}{{.Category}}{{end}}{{end}}</div>
   </div>
   <form hx-post="/web/review/{{.ID}}" hx-target="#review-box" hx-swap="innerHTML">
     {{/* 메모 칸에서 Enter를 눌러도 아무 분류로 저장되지 않게: 폼의 첫 제출 버튼(기본 버튼)이 꺼져 있으면 Enter 제출이 일어나지 않는다 */}}
     <button type="submit" disabled hidden aria-hidden="true" tabindex="-1"></button>
     {{with .Suggestion}}
     <div class="suggest-row">
-      <button class="btn wide suggest" name="suggest_category_id" value="{{.CategoryID}}">AI 추천: {{.Category}}</button>
+      <button class="btn wide suggest" name="suggest_category_id" value="{{.CategoryID}}">AI 추천: {{with $.Cats.Label .CategoryID}}{{.}}{{else}}{{.Category}}{{end}}</button>
       <p class="muted small">누르면 이 분류로 정하고 다음부터 자동으로 분류해요. 아니면 아래에서 직접 고르세요.</p>
     </div>
     {{end}}
@@ -29,14 +29,14 @@
     {{if eq .Flow "in"}}
     <div class="settle-row">
       <label class="small">정산이면 되돌려 놓을 분류
-        <select name="settle_category_id"><option value="">총계에만 더하기</option>{{range $.Cats.Expense}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+        <select name="settle_category_id"><option value="">총계에만 더하기</option>{{range $.Cats.Expense}}<option value="{{.ID}}">{{$.Cats.Label .ID}}</option>{{end}}</select>
       </label>
     </div>
     {{end}}
     <div class="cat-grid">
-      {{if eq .Flow "in"}}{{range $.Cats.Other}}<button class="btn cat special" name="category_id" value="{{.ID}}">{{.Name}}</button>{{end}}{{end}}
-      {{range $.Cats.Expense}}<button class="btn cat" name="category_id" value="{{.ID}}">{{.Name}}</button>{{end}}
-      {{if ne .Flow "in"}}{{range $.Cats.Other}}<button class="btn cat special" name="category_id" value="{{.ID}}">{{.Name}}</button>{{end}}{{end}}
+      {{if eq .Flow "in"}}{{range $.Cats.Other}}{{template "cat-btn" (catBtn . $.Cats "special")}}{{end}}{{end}}
+      {{range $.Cats.Expense}}{{template "cat-btn" (catBtn . $.Cats "")}}{{end}}
+      {{if ne .Flow "in"}}{{range $.Cats.Other}}{{template "cat-btn" (catBtn . $.Cats "special")}}{{end}}{{end}}
     </div>
     <div class="row-between">
       <input type="text" name="memo" value="{{.Memo}}" placeholder="메모(선택)" class="memo" aria-label="메모" style="flex:1">
@@ -48,3 +48,6 @@
 <div class="card empty">확인할 거래가 없어요. 🎉</div>
 {{end}}
 {{end}}
+
+{{/* 분류 버튼: 폴더 안의 분류는 위 폴더 경로를 작게 같이 보여준다 */}}
+{{define "cat-btn"}}<button class="btn cat{{if .Class}} {{.Class}}{{end}}" name="category_id" value="{{.ID}}" title="{{.Label}}">{{with .Up}}<small class="cat-up">{{.}} ›</small>{{end}}<span>{{.Name}}</span></button>{{end}}
