@@ -69,48 +69,44 @@ fun StatusScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
     }
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        Text(
-            "결제가 가계부에 안 적힐 때 위에서부터 확인해 주세요. 살구색 줄을 누르면 고치는 곳으로 가요.",
-            Modifier.padding(horizontal = Gutter, vertical = 8.dp), fontSize = 15.sp, color = m.muted, lineHeight = 22.sp,
-        )
-        SectionLabel("확인할 것")
-        Check("알림 읽기 권한", listenerOn, if (listenerOn) "켜져 있어요" else "꺼져 있어요. 눌러서 MyHome을 켜 주세요") { PermissionStatus.openListenerSettings(ctx) }
+        SectionLabel("확인할 것", help = "결제가 가계부에 안 적힐 때 위에서부터 확인해 주세요. 살구색 줄을 누르면 고치는 곳으로 가요.")
+        Check("알림 읽기 권한", listenerOn, if (listenerOn) "켜져 있어요" else "꺼져 있어요") { PermissionStatus.openListenerSettings(ctx) }
         if (listenerOn) {
             val since = app.settings.listenerConnectedAt
             Check(
                 "알림 읽는 기능",
                 connected,
-                if (connected) (if (since > 0) "${formatTime(since)}부터 작동 중이에요" else "작동 중이에요")
-                else "멈춰 있어요. 다시 연결을 요청했어요. 계속 멈춰 있으면 눌러서 권한을 껐다 켜 주세요",
+                if (connected) (if (since > 0) "${formatTime(since)}부터 작동 중" else "작동 중")
+                else "멈춰 있어요 · 계속되면 권한을 껐다 켜기",
             ) { PermissionStatus.openListenerSettings(ctx) }
         }
-        Check("마지막으로 읽은 결제 알림", lastCaptured > 0, if (lastCaptured > 0) formatTime(lastCaptured, "M월 d일 HH:mm") + " · 눌러서 보낸 기록" else "아직 없어요. 결제하면 여기에 시각이 나와요") {
+        Check("마지막으로 읽은 결제 알림", lastCaptured > 0, if (lastCaptured > 0) formatTime(lastCaptured, "M월 d일 HH:mm") else "아직 없어요") {
             onNavigate(Screen.LOGS)
         }
-        Check("배터리 절전 예외", batteryOk, if (batteryOk) "되어 있어요" else "안 되어 있어요. 절전 때문에 알림을 놓칠 수 있어요. 눌러서 허용") { PermissionStatus.requestBatteryExemption(ctx) }
+        Check("배터리 절전 예외", batteryOk, if (batteryOk) "되어 있어요" else "안 돼 있어요 · 알림을 놓칠 수 있어요") { PermissionStatus.requestBatteryExemption(ctx) }
         Check(
             "로그인",
             hasToken && authProblem == null,
             when {
-                !hasToken -> "아직 안 했어요. 눌러서 로그인"
-                authProblem != null -> "로그인이 풀렸어요. 눌러서 다시 로그인"
+                !hasToken -> "아직 안 했어요"
+                authProblem != null -> "로그인이 풀렸어요"
                 else -> "연결돼 있어요"
             },
             login,
         )
-        Check("알림 읽을 앱", settings.selectedPackages.isNotEmpty(), if (settings.selectedPackages.isEmpty()) "아직 안 골랐어요. 눌러서 고르기" else "${settings.selectedPackages.size}개 골랐어요") {
+        Check("알림 읽을 앱", settings.selectedPackages.isNotEmpty(), if (settings.selectedPackages.isEmpty()) "아직 안 골랐어요" else "${settings.selectedPackages.size}개 골랐어요") {
             onNavigate(Screen.APPS)
         }
         Check(
             "아직 못 보낸 알림",
             pending == 0,
-            if (pending == 0) "없어요. 눌러서 지금 한 번 더 보내 보기" else "${pending}건 있어요. 인터넷이 되면 자동으로 보내요. 눌러서 지금 보내기",
+            if (pending == 0) "없어요" else "${pending}건 · 인터넷이 되면 보내요",
         ) {
             WorkScheduler.flushNow(ctx)
             Toast.makeText(ctx, "지금 보내요", Toast.LENGTH_SHORT).show()
         }
         if (rejected > 0) {
-            Check("서버가 받지 않은 알림", false, "${rejected}건. 지우지 않고 보관해요. 서버를 고친 뒤 눌러서 다시 보내 주세요") {
+            Check("서버가 받지 않은 알림", false, "${rejected}건 · 눌러서 다시 보내기") {
                 scope.launch {
                     val n = withContext(Dispatchers.IO) { app.db.pendingEvents().requeueRejected() }
                     WorkScheduler.flushNow(ctx)
@@ -119,18 +115,18 @@ fun StatusScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
             }
         }
         if (Build.VERSION.SDK_INT >= 33) {
-            Check("앱 알림 표시", notifOk, if (notifOk) "켜져 있어요" else "꺼져 있어요. 예산 알림과 테스트 알림이 안 보여요. 눌러서 켜기") {
+            Check("앱 알림 표시", notifOk, if (notifOk) "켜져 있어요" else "꺼져 있어요 · 예산 알림이 안 보여요") {
                 notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
 
         SectionLabel("직접 해 보기")
-        FlatRow("테스트 알림 보내기", sub = "잠깐 뒤 알림이 사라지면 잘 되는 거예요. 가계부에는 안 적혀요", onClick = {
+        FlatRow("테스트 알림 보내기", help = "잠깐 뒤 알림이 사라지면 잘 되는 거예요. 가계부에는 안 적혀요.", onClick = {
             val ok = Notifications.postTest(ctx)
             Toast.makeText(ctx, if (ok) "테스트 알림을 띄웠어요" else "앱 알림 표시를 먼저 켜 주세요", Toast.LENGTH_LONG).show()
         })
-        FlatRow("보낸 기록", sub = "최근 50건, 보냈는지 못 보냈는지", onClick = { onNavigate(Screen.LOGS) })
-        FlatRow("삼성 폰 절전 설정 안내", sub = "앱이 잠들지 않게 하는 메뉴 위치", onClick = { onNavigate(Screen.PERMISSIONS) })
+        FlatRow("보낸 기록", sub = "최근 50건", onClick = { onNavigate(Screen.LOGS) })
+        FlatRow("삼성 폰 절전 설정 안내", onClick = { onNavigate(Screen.PERMISSIONS) })
 
         AdvancedSection()
     }

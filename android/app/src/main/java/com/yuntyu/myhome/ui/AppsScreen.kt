@@ -93,16 +93,15 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
             item {
                 Column(Modifier.padding(start = Gutter, end = Gutter, top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("결제 알림이 오는 앱을\n골라 주세요", fontSize = 24.sp, fontWeight = FontWeight.Bold, lineHeight = 33.sp)
-                    Text("고른 앱의 알림만 읽어요. 다른 앱 알림은 보지 않아요.", fontSize = 15.sp, color = m.muted, lineHeight = 22.sp)
+                    Text("고른 앱 알림만 읽어요", fontSize = 15.sp, color = m.muted, lineHeight = 22.sp)
                 }
             }
             // 고른 앱마다: 알림이 실제로 오고 있는지, 안 오면 켜는 곳(폰 설정 + 앱 안 설정)
             if (q.isEmpty() && installed != null && selected.isNotEmpty()) {
                 item {
-                    SectionLabel("고른 앱의 결제 알림이 켜져 있나요?")
-                    Text(
-                        "결제 알림을 읽으려면 두 곳이 켜져 있어야 해요. 폰 설정의 그 앱 알림, 그리고 그 앱 안의 결제(승인) 알림이에요. 줄을 누르면 폰 설정이 열려요.",
-                        Modifier.padding(horizontal = Gutter, vertical = 4.dp), fontSize = 14.sp, color = m.muted, lineHeight = 20.sp,
+                    SectionLabel(
+                        "고른 앱 알림 확인",
+                        help = "결제 알림을 읽으려면 두 곳이 켜져 있어야 해요. 폰 설정의 그 앱 알림, 그리고 그 앱 안의 결제(승인) 알림이에요. 줄을 누르면 폰 설정이 열려요.",
                     )
                 }
                 val chosen = all.filter { it.pkg in selected }
@@ -110,7 +109,8 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
                     val n = counts[a.pkg] ?: 0
                     FlatRow(
                         a.label,
-                        sub = if (n > 0) "최근 알림 ${n}건 받음" else "아직 알림이 안 왔어요. ${payAppHint(a.label)}",
+                        sub = if (n > 0) "알림 ${n}건 받음" else "아직 알림 없음",
+                        help = if (n > 0) null else payAppHint(a.label),
                         subColor = if (n > 0) m.muted else m.over,
                         leading = { Dot(if (n > 0) m.faint else m.over) },
                         onClick = { openAppNotificationSettings(ctx, a.pkg) },

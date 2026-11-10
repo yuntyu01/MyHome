@@ -295,8 +295,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
 
         when (phase) {
             Phase.PICK -> {
-                SectionCard("끼니 사진") {
-                    Text("한 끼를 사진 3장까지 찍을 수 있어요. 영양성분표를 찍어도 돼요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
+                SectionCard("끼니 사진", help = "한 끼를 사진 3장까지 찍을 수 있어요. 영양성분표를 찍어도 돼요.") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
                             val (f, uri) = MealPhotos.newCapture(ctx)
@@ -309,8 +308,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                     }
                     if (files.isNotEmpty()) TextButton(onClick = { files.forEach { it.delete() }; files.clear() }) { Text("사진 지우기", color = m.muted) }
                 }
-                SectionCard("포장 식품") {
-                    Text("바코드를 찍으면 제품 이름과 영양성분을 찾아 채워요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
+                SectionCard("포장 식품", help = "바코드를 찍으면 제품 이름과 영양성분을 찾아 채워요.") {
                     FilledTonalButton(onClick = {
                         scanBarcode(ctx) { code ->
                             if (code == null) return@scanBarcode
@@ -353,7 +351,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                 }
                 barcodeBasis?.let { basis ->
                     Text(
-                        "영양성분 기준: $basis. 먹은 양이 다르면 음식을 눌러 먹은 양이나 숫자를 고쳐 주세요",
+                        "영양성분 기준: $basis · 다르면 음식을 눌러 고치기",
                         color = if (basis.contains("100")) m.warn else m.muted,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 6.dp),
@@ -500,7 +498,7 @@ private fun NumField(label: String, value: String, modifier: Modifier = Modifier
     OutlinedTextField(
         value = value,
         onValueChange = { onChange(it.filter(Char::isDigit).take(5)) },
-        label = { Text(label) },
+        label = { Text(label, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = modifier,
@@ -531,7 +529,6 @@ private fun FoodDialog(orig: FoodItem?, perFood: Boolean, onDismiss: () -> Unit,
                     NumField("단(g)", protein, Modifier.weight(1f)) { protein = it }
                     NumField("지(g)", fat, Modifier.weight(1f)) { fat = it }
                 }
-                Text("숫자를 비우면 이 음식은 합계에 더하지 않아요(합계를 직접 고쳐 주세요).", style = MaterialTheme.typography.bodySmall, color = LocalModo.current.muted)
                 if (perFood) {
                     Text("이 음식을 얼마나 먹었나요?", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

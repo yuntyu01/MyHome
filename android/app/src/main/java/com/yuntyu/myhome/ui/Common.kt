@@ -25,12 +25,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -53,15 +61,13 @@ fun Modifier.tap(enabled: Boolean = true, onClickLabel: String? = null, role: Ro
 
 /** modo 카드: 테두리·그림자 없이 바탕색만 다른 둥근 블록(16dp). 제목은 카드 위의 작은 회색 글자. */
 @Composable
-fun SectionCard(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun SectionCard(title: String, modifier: Modifier = Modifier, help: String? = null, content: @Composable ColumnScope.() -> Unit) {
     val m = LocalModo.current
     Column(modifier.fillMaxWidth()) {
-        Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
-            color = m.muted,
-            modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
-        )
+        Row(Modifier.padding(start = 6.dp, bottom = if (help == null) 8.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.labelLarge, color = m.muted)
+            if (help != null) HelpDot(help, title = title)
+        }
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -126,10 +132,13 @@ fun PageTitle(text: String, modifier: Modifier = Modifier, trailing: @Composable
 
 /** 묶음 머리: 작은 회색 글자. action이 있으면 오른쪽에 글자 링크 */
 @Composable
-fun SectionLabel(text: String, modifier: Modifier = Modifier, action: String? = null, onAction: (() -> Unit)? = null) {
+fun SectionLabel(text: String, modifier: Modifier = Modifier, action: String? = null, help: String? = null, onAction: (() -> Unit)? = null) {
     val m = LocalModo.current
     Row(modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 24.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, Modifier.weight(1f), fontSize = 14.sp, color = m.muted)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, fontSize = 14.sp, color = m.muted)
+            if (help != null) HelpDot(help, title = text)
+        }
         if (action != null && onAction != null) {
             Text(action, Modifier.tap(role = Role.Button, onClick = onAction).padding(vertical = 4.dp, horizontal = 2.dp), fontSize = 14.sp, color = m.muted)
         }
@@ -153,6 +162,8 @@ fun FlatRow(
     chevron: Boolean = true,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    /** 제목 옆 "?": 누르면 이 설명이 뜬다(줄에는 짧은 글만 두려고) */
+    help: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
     val m = LocalModo.current
@@ -165,7 +176,14 @@ fun FlatRow(
     ) {
         leading?.invoke()
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, fontSize = 16.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal, color = titleColor ?: MaterialTheme.colorScheme.onBackground)
+            if (help == null) {
+                Text(title, fontSize = 16.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal, color = titleColor ?: MaterialTheme.colorScheme.onBackground)
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, Modifier.weight(1f, fill = false), fontSize = 16.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal, color = titleColor ?: MaterialTheme.colorScheme.onBackground)
+                    HelpDot(help, title = title)
+                }
+            }
             if (!sub.isNullOrBlank()) Text(sub, fontSize = 14.sp, color = subColor ?: m.muted, lineHeight = 20.sp)
         }
         if (!value.isNullOrEmpty()) Text(value, fontSize = 15.sp, color = valueColor ?: m.muted, textAlign = TextAlign.End, maxLines = 1)
@@ -176,11 +194,12 @@ fun FlatRow(
 
 /** 켜고 끄는 줄(줄 전체를 눌러도 바뀐다) */
 @Composable
-fun SwitchRow(title: String, checked: Boolean, sub: String? = null, onChange: (Boolean) -> Unit) {
+fun SwitchRow(title: String, checked: Boolean, sub: String? = null, help: String? = null, onChange: (Boolean) -> Unit) {
     val m = LocalModo.current
     FlatRow(
         title,
         sub = sub,
+        help = help,
         trailing = {
             Switch(
                 checked = checked,
@@ -296,12 +315,16 @@ fun LineField(
     secret: Boolean = false,
     /** 1보다 크면 여러 줄(설명 같은 긴 글) */
     maxLines: Int = 1,
+    /** 칸 안 오른쪽 단위(cm, kg, 원). 라벨에 단위를 붙이면 좁은 칸에서 두 줄이 된다 */
+    suffix: String? = null,
 ) {
     val m = LocalModo.current
     androidx.compose.material3.TextField(
         value = value,
         onValueChange = onChange,
-        label = { Text(label) },
+        // 좁은 칸에서도 라벨은 한 줄(넘치면 …)
+        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        suffix = suffix?.let { u -> { Text(u, color = m.muted) } },
         singleLine = maxLines <= 1,
         maxLines = maxLines,
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = keyboardType),
@@ -313,4 +336,41 @@ fun LineField(
         ),
         modifier = modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * 제목 옆 작은 "?". 누르면 설명이 대화상자로 뜬다. 화면에는 짧은 글만 두고 자세한 설명은 여기로 옮긴다(사용자 요청, 2026-11-10).
+ * 줄 안에 있어도 이 칸을 누르면 줄이 아니라 설명이 열린다.
+ */
+@Composable
+fun HelpDot(text: String, title: String? = null, modifier: Modifier = Modifier) {
+    val m = LocalModo.current
+    var open by remember { mutableStateOf(false) }
+    Box(
+        modifier.size(32.dp).clip(CircleShape).tap(role = Role.Button, onClickLabel = "설명 보기") { open = true }
+            .semantics { contentDescription = "설명" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(17.dp).clip(CircleShape).border(1.2.dp, m.faint, CircleShape), contentAlignment = Alignment.Center) {
+            DisableSelection { Text("?", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = m.muted, lineHeight = 11.sp) }
+        }
+    }
+    if (open) {
+        ModoAlertDialog(
+            onDismissRequest = { open = false },
+            confirmButton = { TextButton(onClick = { open = false }) { Text("확인") } },
+            title = title?.let { t -> { Text(t) } },
+            text = { Text(text, lineHeight = 22.sp) },
+        )
+    }
+}
+
+/** 화면 위 짧은 안내 한 줄(+ "?"). 긴 안내 문단 대신 쓴다 */
+@Composable
+fun HintLine(text: String, help: String? = null, modifier: Modifier = Modifier) {
+    val m = LocalModo.current
+    Row(modifier.fillMaxWidth().padding(start = Gutter, end = Gutter - 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, Modifier.weight(1f, fill = false), fontSize = 14.sp, color = m.muted, lineHeight = 20.sp)
+        if (help != null) HelpDot(help)
+    }
 }

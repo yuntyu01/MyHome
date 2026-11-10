@@ -117,8 +117,8 @@ fun HomeScreen(
     }
 
     val problems = buildList {
-        if (authProblem != null) add(Problem("로그인이 풀렸어요", "눌러서 다시 로그인해 주세요", login))
-        if (!batteryOk) add(Problem("배터리 절전 예외가 꺼져 있어요", "결제 알림을 놓칠 수 있어요. 눌러서 허용해 주세요") { PermissionStatus.requestBatteryExemption(ctx) })
+        if (authProblem != null) add(Problem("로그인이 풀렸어요", "눌러서 다시 로그인", login))
+        if (!batteryOk) add(Problem("절전 예외가 꺼져 있어요", "결제 알림을 놓칠 수 있어요") { PermissionStatus.requestBatteryExemption(ctx) })
     }
     InUseHome(modifier, state, problems, onNavigate, onTransactions, onCategory, onOpenTx, settings.serverUrl)
 }
@@ -141,15 +141,15 @@ private fun SetupSteps(
 ) {
     val m = LocalModo.current
     val steps = listOf(
-        Step("로그인", if (hasToken) "연결됐어요" else "브라우저에서 이메일로 받은 코드를 넣으면 끝나요", hasToken, "이메일로 로그인하기", action = onLogin),
+        Step("로그인", if (hasToken) "연결됐어요" else "이메일 코드로 로그인", hasToken, "이메일로 로그인하기", action = onLogin),
         Step(
             "결제 알림 읽기 허용",
-            if (listenerOn) "허용했어요" else "설정 화면에서 MyHome을 켜 주세요. 알림을 놓치지 않게 배터리 절전 예외도 같이 물어봐요.",
+            if (listenerOn) "허용했어요" else "설정에서 MyHome 켜기",
             listenerOn, "알림 읽기 허용하기", action = onListener,
         ),
         Step(
             "카드·은행 앱 고르기",
-            if (selectedCount > 0) "${selectedCount}개 골랐어요" else "KB Pay, 토스처럼 결제 알림이 오는 앱",
+            if (selectedCount > 0) "${selectedCount}개 골랐어요" else "KB Pay, 토스 등",
             selectedCount > 0, "카드·은행 앱 고르기", action = onApps,
         ),
         Step("한 달 예산 정하기", if (budgetSet) "정했어요" else "나중에 해도 돼요", budgetSet, "예산 정하기", optional = true, action = onBudget),
@@ -159,7 +159,7 @@ private fun SetupSteps(
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Column(Modifier.padding(start = Gutter, end = Gutter, top = 36.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("쓴 돈을 자동으로\n적어 드릴게요", fontSize = 28.sp, fontWeight = FontWeight.Bold, lineHeight = 38.sp)
-                Text("카드·은행 앱 알림을 읽어서 가계부에 바로 적어요. 세 가지만 하면 끝나요.", fontSize = 16.sp, color = m.muted, lineHeight = 24.sp)
+                Text("세 가지만 하면 끝나요", fontSize = 16.sp, color = m.muted, lineHeight = 24.sp)
             }
             Spacer(Modifier.height(28.dp))
             steps.forEachIndexed { i, st ->
@@ -265,13 +265,13 @@ private fun InUseHome(
                     val admin = serverUrl?.trimEnd('/')?.let { "$it/admin?tab=failed" }
                     FlatRow(
                         "읽지 못한 결제 알림 ${s.failedEvents}건",
-                        sub = if (admin != null) "가계부에 안 적혔을 수 있어요. 눌러서 웹 관리 화면에서 확인해 주세요" else "가계부에 안 적혔을 수 있어요. 웹 관리 화면에서 확인해 주세요",
+                        help = "금액을 못 찾아서 가계부에 안 적힌 알림이에요. ${if (admin != null) "눌러서 " else ""}웹 관리 화면에서 볼 수 있어요. 원문은 남아 있어서 읽는 방법을 고치면 다시 적을 수 있어요.",
                         leading = { Dot(m.warn) },
                         onClick = admin?.let { a -> { runCatching { uri.openUri(a) } } },
                     )
                 }
                 if (s.totals.budget <= 0) add {
-                    FlatRow("한 달 예산 정하기", sub = "분류마다 쓸 돈을 정하면 남은 돈을 알려 드려요", onClick = { onNavigate(Screen.BUDGETS) })
+                    FlatRow("한 달 예산 정하기", onClick = { onNavigate(Screen.BUDGETS) })
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -286,7 +286,7 @@ private fun InUseHome(
 
             val cats = WidgetModel.homeCategories(s, topCount = 3)
             if (cats.top.isNotEmpty() || cats.rest.isNotEmpty()) {
-                SectionLabel("분류별 남은 돈", action = "예산 바꾸기", onAction = { onNavigate(Screen.BUDGETS) })
+                SectionLabel("분류별 남은 돈", action = "분류·예산", onAction = { onNavigate(Screen.BUDGETS) })
                 // 펼친 분류가 없으면(기간 시작 직후) 처음부터 펼쳐 둔다
                 var showRest by rememberSaveable { mutableStateOf(false) }
                 val open = showRest || cats.top.isEmpty()
@@ -307,13 +307,13 @@ private fun InUseHome(
             val recent = WidgetModel.recentPayments(s, 3)
             SectionLabel("최근 결제", action = "전체", onAction = { onTransactions(0) })
             if (recent.isEmpty()) {
-                Text("아직 적힌 결제가 없어요. 결제 알림이 오면 바로 적혀요.", Modifier.padding(horizontal = Gutter, vertical = 12.dp), fontSize = 14.sp, color = m.muted)
+                Text("아직 결제가 없어요", Modifier.padding(horizontal = Gutter, vertical = 12.dp), fontSize = 14.sp, color = m.muted)
             }
             for (t in recent) TxRow(t, withDay = true) { onOpenTx(t) }
 
             // 눌러도 새로 받는다(당기기와 같다)
             Text(
-                if (state.error != null) "새로 받지 못했어요. 눌러서 다시 받아 보세요" else "${agoText(state.updatedAt)} 새로 받음 · 눌러서 새로 받기",
+                if (state.error != null) "새로 받지 못했어요 · 다시 받기" else "${agoText(state.updatedAt)} 받음",
                 Modifier.fillMaxWidth().tap(onClickLabel = "새로 받기", onClick = refresh).padding(horizontal = Gutter, vertical = 24.dp),
                 fontSize = 13.sp, color = m.faint,
             )

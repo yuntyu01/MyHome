@@ -119,7 +119,7 @@ fun InvestScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
                         Text("›", color = m.muted)
                     }
                 }
-                Note("읽기만 하는 화면이에요. 날짜는 뉴욕 기준이고, 실행 시각은 한국 시간이에요. 아래로 당기면 새로 받아요.")
+                Note("날짜는 뉴욕 기준, 실행 시각은 한국 시간")
             }
         }
     }
@@ -203,7 +203,7 @@ fun InvestValueScreen(modifier: Modifier) {
                         color = if (v.ledgerBad) m.over else m.muted,
                     )
                 }
-                Note("날짜는 뉴욕 기준이고, 금액은 원 단위로 반올림해서 보여줘요.")
+                Note("날짜는 뉴욕 기준 · 원 단위 반올림")
             }
         }
     }

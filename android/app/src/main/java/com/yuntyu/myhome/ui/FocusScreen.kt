@@ -215,7 +215,7 @@ private fun TimerTab(subjects: List<FocusSubject>?, bySubject: Map<String, Long>
     val list = subjects ?: return
 
     if (list.isEmpty()) {
-        EmptyNote("과목을 추가해 주세요", "KoDeploy, 코테처럼 할 일마다 시간을 따로 재요. 누르면 시작하고 다시 누르면 멈춰요.")
+        EmptyNote("과목을 추가해 주세요", "누르면 시작, 다시 누르면 멈춰요")
     }
     list.forEachIndexed { i, s ->
         SubjectRow(
@@ -514,12 +514,10 @@ private fun PlacesTab(today: LocalDate, now: Long, staySpans: List<FocusSpan>, r
     // 설정에서 '항상 허용'을 고르거나 위치를 켜고 돌아오면 다시 건다
     LaunchedEffect(resumeTick) { StudyPlaces.register(ctx) { changed() } }
 
-    Text(
-        "도서관·카페처럼 공부하는 곳에서 위치를 저장해 두면, 그곳에 머문 시간을 자동으로 재서 순공 시간과 견줘요. 위치는 이 폰에만 저장되고 서버에는 장소 이름과 머문 시각만 가요.",
-        Modifier.padding(horizontal = Gutter, vertical = 16.dp),
-        fontSize = 14.sp,
-        color = m.muted,
-        lineHeight = 20.sp,
+    HintLine(
+        "공부하는 곳에 머문 시간을 재요",
+        help = "도서관·카페처럼 공부하는 곳에서 위치를 저장해 두면, 그곳에 머문 시간을 자동으로 재서 순공 시간과 견줘요. 위치는 이 폰에만 저장되고 서버에는 장소 이름과 머문 시각만 가요.",
+        modifier = Modifier.padding(vertical = 8.dp),
     )
     Hairline()
     for (p in places) {
@@ -562,12 +560,13 @@ private fun PlacesTab(today: LocalDate, now: Long, staySpans: List<FocusSpan>, r
             "머문 시간 자동 기록",
             checked = enabled,
             sub = when {
-                !BuildConfig.GYM_AUTO -> "이 빌드는 앱이 꺼져 있을 때 위치를 쓰지 않아요"
-                enabled && !bg -> "위치 권한을 '항상 허용'으로 바꿔야 앱이 꺼져 있어도 재요"
+                !BuildConfig.GYM_AUTO -> "이 빌드는 꺼져 있을 때 위치를 안 써요"
+                enabled && !bg -> "위치를 '항상 허용'으로 바꿔 주세요"
                 enabled && regError != null -> regError
-                enabled -> "켜져 있어요. 장소에 들어오고 나가는 시각을 남겨요(3분 넘게 머문 것만)"
-                else -> "켜면 장소에 들어오고 나가는 시각을 자동으로 남겨요"
+                enabled -> "켜져 있어요"
+                else -> null
             },
+            help = "장소에 들어오고 나가는 시각을 자동으로 남겨요(3분 넘게 머문 것만). 앱이 꺼져 있어도 재려면 위치 권한이 '항상 허용'이어야 해요.",
         ) { on ->
             if (on) disclosure = true
             else scope.launch { StudyPlaces.setEnabled(ctx, false); changed() }

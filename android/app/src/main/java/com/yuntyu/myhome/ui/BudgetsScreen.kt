@@ -3,6 +3,7 @@ package com.yuntyu.myhome.ui
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -45,7 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** 고칠 대상: 있는 분류, 또는 새 분류(category == null, parent 안에 kind로 만든다) */
-private class EditTarget(val category: Category?, val amount: Long, val parent: Long? = null, val kind: String = "expense")
+private class EditTarget(val category: Category?, val amount: Long, val parent: Long? = null, val kind: String = "expense", val folder: Boolean = false)
 
 /** 저장할 값. parent는 넣을 폴더(null = 맨 위) */
 private class CategoryForm(val name: String, val amount: Long, val memo: String, val parent: Long?, val hide: Boolean)
@@ -104,11 +106,10 @@ fun BudgetsScreen(modifier: Modifier) {
         val total = tree.totalBudget(own)
         Column(Modifier.padding(start = Gutter, end = Gutter, top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("$month 예산", fontSize = 16.sp, color = m.muted)
-            Text(if (total > 0) Money.won(total) else "아직 없어요", fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            Text(
-                "분류를 누르면 예산, 이름, 설명, 들어갈 폴더를 바꿀 수 있어요. 폴더에 예산을 안 정하면 안 분류 예산을 더해요.",
-                fontSize = 14.sp, color = m.muted, lineHeight = 20.sp,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (total > 0) Money.won(total) else "아직 없어요", Modifier.weight(1f, fill = false), fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                HelpDot("분류를 누르면 예산, 이름, 설명, 들어갈 폴더를 바꿀 수 있어요. 폴더에 예산을 안 정하면 안에 있는 분류 예산을 더해요.", title = "예산")
+            }
         }
 
         @Composable
@@ -135,9 +136,13 @@ fun BudgetsScreen(modifier: Modifier) {
             }
         }
 
-        SectionLabel("쓰는 돈")
+        SectionLabel(
+            "쓰는 돈",
+            help = "분류 안에 분류를 넣으면 폴더가 돼요(3단계까지). 폴더를 만든 뒤 분류를 눌러 '들어갈 폴더'에서 고르거나, 폴더를 눌러 '이 안에 분류 추가'를 누르세요. 폴더 예산을 안 정하면 안에 있는 분류 예산을 더해요.",
+        )
         TreeRows("expense")
         AddRow("분류 추가") { editing = EditTarget(null, 0) }
+        AddRow("폴더 만들기") { editing = EditTarget(null, 0, folder = true) }
 
         if (list.any { it.kind == "income" && !it.archived }) {
             SectionLabel("들어오는 돈")
@@ -195,7 +200,13 @@ fun BudgetsScreen(modifier: Modifier) {
                         }
                     }
                 }
-                if (err == null) changed(if (f.hide) "지웠어요. 지난 결제는 그대로 남아요" else "저장했어요") else Toast.makeText(ctx, err, Toast.LENGTH_LONG).show()
+                if (err == null) changed(
+                    when {
+                        f.hide -> "지웠어요. 지난 결제는 그대로 남아요"
+                        target.folder -> "폴더를 만들었어요. 폴더를 눌러 안에 분류를 넣어요"
+                        else -> "저장했어요"
+                    },
+                ) else Toast.makeText(ctx, err, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -250,7 +261,14 @@ private fun CategorySheet(
     val folder = c != null && tree.children(c.id).any { !it.archived }
     ModoBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().verticalScroll(rememberScrollState())) {
-            Text(if (c == null) "분류 추가" else c.name, Modifier.padding(horizontal = Gutter), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(
+                when {
+                    c != null -> c.name
+                    target.folder -> "폴더 만들기"
+                    else -> "분류 추가"
+                },
+                Modifier.padding(horizontal = Gutter), fontSize = 20.sp, fontWeight = FontWeight.Bold,
+            )
             Column(Modifier.padding(horizontal = Gutter, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 LineField(name, { name = it.take(20) }, "이름")
                 if (kind == "expense") {
@@ -259,17 +277,16 @@ private fun CategorySheet(
                         amount, { amount = it.filter(Char::isDigit).take(10) },
                         when {
                             won > 0 -> "한 달 예산 · ${Money.won(won)}"
-                            folder && sum > 0 -> "한 달 예산(비우면 안 합계 ${Money.won(sum)})"
-                            else -> "한 달 예산(원, 없으면 비워 두기)"
+                            folder && sum > 0 -> "한 달 예산 · 비우면 ${Money.won(sum)}"
+                            else -> "한 달 예산"
                         },
                         keyboardType = KeyboardType.Number,
                     )
                 }
-                LineField(memo, { memo = it.take(CategoryTree.MAX_MEMO) }, "설명 (AI가 분류를 고를 때 참고해요)", maxLines = 4)
-                Text(
-                    "예: 배달 앱, 편의점 도시락, 회사 근처 식당. 가게 이름과 이 설명만 AI에게 보내요.",
-                    fontSize = 13.sp, color = m.faint, lineHeight = 18.sp, modifier = Modifier.padding(top = 2.dp),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LineField(memo, { memo = it.take(CategoryTree.MAX_MEMO) }, "설명", Modifier.weight(1f), maxLines = 4)
+                    HelpDot("AI가 분류를 고를 때 참고해요. 예: 배달 앱, 편의점 도시락, 회사 근처 식당. 가게 이름과 이 설명만 AI에게 보내요.", title = "설명")
+                }
             }
             if (!special) {
                 FlatRow(
@@ -291,10 +308,7 @@ private fun CategorySheet(
                         )
                     }
                     if (c != null && tree.height(c.id) > 0) {
-                        Text(
-                            "안에 분류가 있는 폴더는 3단계를 넘지 않는 곳으로만 옮길 수 있어요.",
-                            Modifier.padding(horizontal = Gutter, vertical = 6.dp), fontSize = 13.sp, color = m.faint,
-                        )
+                        Text("3단계를 넘는 곳으로는 못 옮겨요", Modifier.padding(horizontal = Gutter, vertical = 6.dp), fontSize = 13.sp, color = m.faint)
                     }
                 }
             }
@@ -307,8 +321,8 @@ private fun CategorySheet(
             if (c != null && !special) {
                 FlatRow(
                     "이 분류 지우기",
-                    sub = if (folder) "안에 있는 분류도 같이 지워요. 지난 결제는 그대로 남고, 지운 분류에서 되살릴 수 있어요"
-                    else "지난 결제는 그대로 남고, 새 결제는 이 분류로 자동으로 들어가지 않아요",
+                    help = if (folder) "안에 있는 분류도 같이 지워요. 지난 결제는 그대로 남고, 지운 분류에서 되살릴 수 있어요."
+                    else "지난 결제는 그대로 남고, 새 결제는 이 분류로 자동으로 들어가지 않아요.",
                     titleColor = m.over,
                     chevron = false,
                     onClick = { onSave(CategoryForm(c.name, target.amount, c.memo, tree.parent(c.id), true)) },

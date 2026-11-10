@@ -362,6 +362,8 @@ private fun PageFrame(
     onSkip: (() -> Unit)? = null,
     skipLabel: String = "나중에",
     buttonEnabled: Boolean = true,
+    /** 설명 옆 "?"에 넣을 자세한 설명 */
+    help: String? = null,
     content: @Composable ColumnScope.() -> Unit = {},
 ) {
     val m = LocalModo.current
@@ -389,7 +391,10 @@ private fun PageFrame(
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Column(Modifier.padding(start = Gutter, end = Gutter, top = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(title, fontSize = 28.sp, fontWeight = FontWeight.Bold, lineHeight = 38.sp)
-                if (sub != null) Text(sub, fontSize = 16.sp, color = m.muted, lineHeight = 24.sp)
+                if (sub != null || help != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (sub != null) Text(sub, Modifier.weight(1f, fill = false), fontSize = 16.sp, color = m.muted, lineHeight = 24.sp)
+                    if (help != null) HelpDot(help)
+                }
             }
             Spacer(Modifier.height(24.dp))
             content()
@@ -411,7 +416,7 @@ private fun ProgressSegments(index: Int, total: Int) {
 
 /** 할 일 한 줄: 왼쪽 체크(했으면)나 번호, 제목·설명. 안 했으면 눌러서 바로 한다 */
 @Composable
-private fun TaskRow(n: Int, title: String, sub: String, done: Boolean, current: Boolean, optional: Boolean = false, onClick: (() -> Unit)?) {
+private fun TaskRow(n: Int, title: String, sub: String?, done: Boolean, current: Boolean, optional: Boolean = false, onClick: (() -> Unit)?) {
     val m = LocalModo.current
     Row(
         Modifier.fillMaxWidth()
@@ -428,12 +433,12 @@ private fun TaskRow(n: Int, title: String, sub: String, done: Boolean, current: 
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                title + if (optional && !done) " (나중에 해도 돼요)" else "",
+                title,
                 fontSize = 17.sp,
                 fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
                 color = if (current || !done) MaterialTheme.colorScheme.onBackground else m.muted,
             )
-            Text(sub, fontSize = 14.sp, color = m.muted, lineHeight = 21.sp)
+            if (sub != null) Text(sub, fontSize = 14.sp, color = m.muted, lineHeight = 21.sp)
         }
     }
 }
@@ -456,15 +461,15 @@ private fun FeatureRow(icon: ImageVector, title: String, sub: String) {
 private fun WelcomePage(onStart: () -> Unit, onSkip: () -> Unit) {
     PageFrame(
         title = "가계부·건강·집중을\n한 앱에서",
-        sub = "처음 한 번만 설정해 두면 결제는 저절로 적히고, 끼니·헬스·취침 알림이 제때 와요. 2분이면 끝나요.",
+        sub = "2분이면 설정이 끝나요",
         button = "시작하기",
         onButton = onStart,
         onSkip = onSkip,
         skipLabel = "건너뛰기",
     ) {
-        FeatureRow(ListLineIcon, "가계부", "카드·은행 알림을 읽어서 쓴 돈을 바로 적고, 분류별 남은 돈을 보여 줘요")
-        FeatureRow(HealthIcon, "건강", "끼니를 찍으면 영양을 계산하고, 끼니 마감·헬스·취침 전에 알려 줘요")
-        FeatureRow(TimerIcon, "집중", "공부 시간을 재서 하루 순공과 과목별 시간을 모아 봐요")
+        FeatureRow(ListLineIcon, "가계부", "결제 알림으로 자동 기록")
+        FeatureRow(HealthIcon, "건강", "끼니 사진·헬스·취침 알림")
+        FeatureRow(TimerIcon, "집중", "공부 시간 기록")
     }
 }
 
@@ -472,12 +477,13 @@ private fun WelcomePage(onStart: () -> Unit, onSkip: () -> Unit) {
 private fun LoginPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, Int>?, back: (() -> Unit)?, next: () -> Unit) {
     PageFrame(
         title = "먼저 로그인해요",
-        sub = "가계부와 건강 기록은 내 서버에 저장돼요. 브라우저에서 이메일로 받은 코드를 넣으면 이 폰이 연결돼요.",
+        sub = "이메일 코드로 이 폰을 연결해요",
+        help = "가계부와 건강 기록은 내 서버에 저장돼요. 브라우저에서 이메일로 받은 코드를 넣으면 앱으로 돌아와요.",
         button = if (s.hasToken) "다음" else "이메일로 로그인하기",
         onButton = { if (s.hasToken) next() else host.login() },
         progress = progress, onBack = back, onSkip = if (s.hasToken) null else next,
     ) {
-        TaskRow(1, "로그인", if (s.hasToken) "연결됐어요" else s.loginMessage ?: "로그인하면 앱으로 돌아와요", s.hasToken, current = !s.hasToken, onClick = host::login)
+        TaskRow(1, "로그인", if (s.hasToken) "연결됐어요" else s.loginMessage, s.hasToken, current = !s.hasToken, onClick = host::login)
     }
 }
 
@@ -492,31 +498,32 @@ private fun MoneyPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, I
     val current = tasks.indexOfFirst { !it.first }
     PageFrame(
         title = "쓴 돈을 자동으로\n적어 드릴게요",
-        sub = "카드·은행 앱 알림을 읽어서 가계부에 바로 적어요. 알림 글은 내 서버로만 가요.",
+        sub = "카드·은행 알림을 읽어 기록해요",
+        help = "고른 카드·은행 앱의 결제 알림만 읽어서 가계부에 바로 적어요. 알림 글은 내 서버로만 가요. 절전 예외를 허용해야 폰이 앱을 재워도 알림을 놓치지 않아요.",
         button = tasks.getOrNull(current)?.second ?: "다음",
         onButton = { tasks.getOrNull(current)?.third?.invoke() ?: next() },
         progress = progress, onBack = back, onSkip = if (current >= 0) next else null,
     ) {
         TaskRow(
             1, "결제 알림 읽기 허용",
-            if (s.listenerOn) "허용했어요" else "설정 화면에서 MyHome을 켜 주세요. 돌아오면 절전 예외도 이어서 물어봐요",
+            if (s.listenerOn) "허용했어요" else "설정에서 MyHome 켜기",
             s.listenerOn, current = current == 0, onClick = host::allowListener,
         )
         Hairline(Modifier.padding(horizontal = Gutter))
         TaskRow(
             2, "카드·은행 앱 고르기",
-            if (s.appsChosen > 0) "${s.appsChosen}개 골랐어요 · 눌러서 바꾸기" else "KB Pay, 토스처럼 결제 알림이 오는 앱",
+            if (s.appsChosen > 0) "${s.appsChosen}개 골랐어요" else "KB Pay, 토스 등",
             s.appsChosen > 0, current = current == 1, optional = s.appsChosen > 0, onClick = host::chooseApps,
         )
         Hairline(Modifier.padding(horizontal = Gutter))
         TaskRow(
             3, "배터리 절전 예외",
-            if (s.batteryOk) "허용했어요" else "폰이 MyHome을 재우면 결제 알림을 놓칠 수 있어요",
+            if (s.batteryOk) "허용했어요" else "알림을 놓치지 않게",
             s.batteryOk, current = current == 2, onClick = host::allowBattery,
         )
         Hairline(Modifier.padding(horizontal = Gutter))
         TaskRow(
-            4, "한 달 예산", if (s.budgetSet) "정했어요 · 눌러서 바꾸기" else "분류별로 정하면 남은 돈을 보여 줘요",
+            4, "한 달 예산", if (s.budgetSet) "정했어요" else "나중에 해도 돼요",
             s.budgetSet, current = false, optional = true, onClick = host::budgets,
         )
     }
@@ -532,7 +539,8 @@ private fun NotifyPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, 
     }
     PageFrame(
         title = "알림을 제때\n받으려면",
-        sub = "끼니 마감 30분 전, 헬스 도착 1시간 전, 취침 시각, 예산 80%·초과, 자동매매 실패를 알려 드려요. 무엇을 받을지는 설정에서 하나씩 끌 수 있어요.",
+        sub = "끼니·헬스·취침·예산 알림",
+        help = "끼니 마감 30분 전, 헬스 도착 1시간 전, 취침 시각, 예산 80%·초과, 자동매매 실패를 알려요. 받을 것은 설정에서 하나씩 끌 수 있어요.\n\n'알람 및 리마인더'를 허용하지 않으면 폰이 쉬는 동안 알림이 늦어져서, 마감 30분 전 알림이 마감 뒤에 올 수 있어요.",
         button = when {
             !s.notifyOk -> if (s.notifyDenied) "설정에서 알림 켜기" else "알림 허용하기"
             needExact -> "알람 및 리마인더 허용하기"
@@ -545,8 +553,8 @@ private fun NotifyPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, 
             1, "앱 알림 허용",
             when {
                 s.notifyOk -> "허용했어요"
-                s.notifyDenied -> "거절해서 이제는 설정 화면에서 MyHome 알림을 켜야 해요"
-                else -> "누르면 허용할지 물어봐요"
+                s.notifyDenied -> "설정에서 켜야 해요"
+                else -> null
             },
             s.notifyOk, current = !s.notifyOk, onClick = host::allowNotifications,
         )
@@ -554,7 +562,7 @@ private fun NotifyPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, 
             Hairline(Modifier.padding(horizontal = Gutter))
             TaskRow(
                 2, "알람 및 리마인더 허용",
-                if (s.exactOk) "허용했어요" else "허용하지 않으면 폰이 쉬는 동안 알림이 늦어져서, 마감 30분 전 알림이 마감 뒤에 올 수 있어요",
+                if (s.exactOk) "허용했어요" else "안 하면 알림이 늦을 수 있어요",
                 s.exactOk, current = s.notifyOk && !s.exactOk, onClick = host::allowExact,
             )
         }
@@ -565,7 +573,7 @@ private fun NotifyPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, 
 @Composable
 private fun healthBlocked(s: OnboardStatus, title: String, progress: Pair<Int, Int>?, back: (() -> Unit)?, onLogin: () -> Unit, next: () -> Unit): Boolean {
     val (sub, button, action) = when {
-        !s.hasToken -> Triple("건강 기록은 서버에 저장돼서 로그인해야 정할 수 있어요.", "로그인하러 가기", onLogin)
+        !s.hasToken -> Triple("로그인해야 정할 수 있어요", "로그인하러 가기", onLogin)
         s.health == null && s.healthError != null -> Triple("설정을 받지 못했어요: ${s.healthError}", "다음", next)
         s.health == null -> Triple("설정을 받는 중이에요…", "다음", next)
         else -> return false
@@ -601,7 +609,8 @@ private fun BodyPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, In
 
     PageFrame(
         title = title,
-        sub = "몸 정보와 평소 활동으로 하루 칼로리와 탄단지 목표를 계산해요. 나중에 건강 설정에서 바꿀 수 있어요.",
+        sub = "하루 칼로리와 탄단지를 계산해요",
+        help = "몸 정보와 평소 활동으로 하루 목표를 계산해요. 나중에 건강 설정에서 바꿀 수 있어요.",
         button = when {
             busy -> "잠시만요…"
             rec != null -> "이 목표로 저장"
@@ -617,7 +626,7 @@ private fun BodyPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, In
                         .onSuccess { rec = it; error = null }
                         .onFailure { error = it.message }
                 } else if (r.kcal < 1200) {
-                    error = "목표가 1,200 kcal보다 낮게 나와요. 건강 설정에서 직접 정해 주세요"
+                    error = "1,200 kcal보다 낮아요. 건강 설정에서 직접 정해 주세요"
                 } else {
                     val patch = JsonObject(
                         mapOf(
@@ -650,15 +659,19 @@ private fun BodyPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, In
                 Chip("여성", sex == "female", Modifier.weight(1f)) { sex = "female"; changed() }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LineField(height, { v -> height = v.filter(Char::isDigit).take(3); changed() }, "키(cm)", Modifier.weight(1f), keyboardType = KeyboardType.Number)
-                LineField(weight, { v -> weight = v.filter { it.isDigit() || it == '.' }.take(5); changed() }, "몸무게(kg)", Modifier.weight(1f), keyboardType = KeyboardType.Decimal)
-                LineField(age, { v -> age = v.filter(Char::isDigit).take(3); changed() }, "나이", Modifier.weight(1f), keyboardType = KeyboardType.Number)
+                LineField(height, { v -> height = v.filter(Char::isDigit).take(3); changed() }, "키", Modifier.weight(1f), keyboardType = KeyboardType.Number, suffix = "cm")
+                LineField(weight, { v -> weight = v.filter { it.isDigit() || it == '.' }.take(5); changed() }, "몸무게", Modifier.weight(1f), keyboardType = KeyboardType.Decimal, suffix = "kg")
+                LineField(age, { v -> age = v.filter(Char::isDigit).take(3); changed() }, "나이", Modifier.weight(1f), keyboardType = KeyboardType.Number, suffix = "세")
             }
-            Label("평소 활동")
-            for ((k, l) in ACTIVITIES) Chip(l, activity == k, Modifier.fillMaxWidth()) { activity = k; changed() }
-            if (!ready && (height.isNotEmpty() || weight.isNotEmpty() || age.isNotEmpty())) {
-                Text("키 100~250cm, 몸무게 20~400kg, 나이 10~100세로 넣고 성별·활동을 골라 주세요", fontSize = 13.sp, color = m.muted)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("평소 활동")
+                HelpDot(ACTIVITY_HELP, title = "평소 활동", modifier = Modifier.padding(top = 6.dp))
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for ((k, l) in ACTIVITIES) Chip(l, activity == k, Modifier.weight(1f)) { activity = k; changed() }
+            }
+            val outOfRange = (height.isNotEmpty() && h == null) || (weight.isNotEmpty() && w == null) || (age.isNotEmpty() && a == null)
+            if (outOfRange) Text("키·몸무게·나이를 확인해 주세요", fontSize = 13.sp, color = m.over)
             rec?.let { r ->
                 Spacer(Modifier.height(4.dp))
                 Column(
@@ -667,7 +680,7 @@ private fun BodyPage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int, In
                 ) {
                     Text("하루 ${num(r.kcal)} kcal", fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text("탄 ${num(r.carbs)}g · 단 ${num(r.protein)}g · 지 ${num(r.fat)}g", fontSize = 15.sp)
-                    Text("유지 칼로리 약 ${num(r.maintenanceKcal.toInt())} kcal 기준", fontSize = 13.sp, color = m.muted)
+                    Text("유지 ${num(r.maintenanceKcal.toInt())} kcal 기준", fontSize = 13.sp, color = m.muted)
                 }
             }
             error?.let { Text(it, fontSize = 14.sp, color = m.over) }
@@ -692,7 +705,8 @@ private fun RoutinePage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int,
 
     PageFrame(
         title = title,
-        sub = "정한 시각에 맞춰 알려 드려요. 끼니는 마감 30분 전과 마감 때, 헬스는 도착 1시간 전, 취침은 그 시각에요.",
+        sub = "이 시각에 맞춰 알려 드려요",
+        help = "끼니는 마감 30분 전과 마감 때, 헬스는 도착 1시간 전, 취침은 그 시각에 알려요.",
         button = if (busy) "잠시만요…" else "저장하고 다음",
         buttonEnabled = !busy && gymOk,
         onButton = {
@@ -731,7 +745,7 @@ private fun RoutinePage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int,
             }
         }
         Spacer(Modifier.height(8.dp))
-        SwitchRow("헬스 일정", gym.enabled, sub = "가는 요일과 도착 시간") { gym = gym.copy(enabled = it) }
+        SwitchRow("헬스 일정", gym.enabled) { gym = gym.copy(enabled = it) }
         if (gym.enabled) {
             Column(Modifier.padding(horizontal = Gutter), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -745,7 +759,7 @@ private fun RoutinePage(s: OnboardStatus, host: OnboardHost, progress: Pair<Int,
                 TimeRow("도착 시간", gym.arriveBy) { host.pickTime(gym.arriveBy) { t -> gym = gym.copy(arriveBy = t) } }
             }
         }
-        SwitchRow("취침 알림", sleep.enabled, sub = "잘 시간에 알려 줘요") { sleep = sleep.copy(enabled = it) }
+        SwitchRow("취침 알림", sleep.enabled) { sleep = sleep.copy(enabled = it) }
         if (sleep.enabled) {
             Column(Modifier.padding(horizontal = Gutter), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 TimeRow("취침 시각", sleep.bedTime) { host.pickTime(sleep.bedTime) { t -> sleep = sleep.copy(bedTime = t) } }
@@ -761,27 +775,23 @@ private fun DonePage(s: OnboardStatus, back: (() -> Unit)?, onJump: (OnboardPage
     val m = LocalModo.current
     val f = s.facts
     val left = buildList {
-        if (!f.hasToken) add(Triple("로그인", "가계부와 건강 기록을 저장하려면 필요해요", OnboardPage.LOGIN))
-        if (!f.listenerOn || !f.appsChosen) add(Triple("결제 알림 읽기", "켜야 쓴 돈이 자동으로 적혀요", OnboardPage.MONEY))
-        if (!f.notifyOk || !f.exactOk) add(Triple("알림·알람", "끼니·헬스·취침 알림이 제때 오게 해요", OnboardPage.NOTIFY))
-        if (f.healthPersonal != true) add(Triple("건강 목표", "하루 칼로리와 탄단지 목표", OnboardPage.BODY))
+        if (!f.hasToken) add("로그인" to OnboardPage.LOGIN)
+        if (!f.listenerOn || !f.appsChosen) add("결제 알림 읽기" to OnboardPage.MONEY)
+        if (!f.notifyOk || !f.exactOk) add("알림·알람" to OnboardPage.NOTIFY)
+        if (f.healthPersonal != true) add("건강 목표" to OnboardPage.BODY)
     }
     PageFrame(
         title = if (left.isEmpty()) "준비됐어요" else "거의 다 됐어요",
-        sub = if (left.isEmpty()) "이제 결제는 저절로 적히고, 알림은 정한 시각에 와요." else "남은 건 지금 눌러서 하거나, 나중에 설정 > 처음 설정 다시 보기에서 할 수 있어요.",
+        sub = if (left.isEmpty()) "결제는 자동으로 적히고 알림은 제때 와요" else "남은 건 눌러서 할 수 있어요",
+        help = "나중에 설정 > 처음 설정 다시 보기에서도 할 수 있어요.\n\n헬스장 자동 출석과 공부 장소 머문 시간은 위치가 필요해서, 쓰고 싶을 때 헬스·집중 화면에서 따로 켜요.",
         button = "MyHome 시작하기",
         onButton = onFinish,
         onBack = back,
     ) {
-        left.forEachIndexed { i, (title, sub, page) ->
-            FlatRow(title, sub = sub, value = "아직", valueColor = m.over, onClick = { onJump(page) })
+        left.forEachIndexed { i, (title, page) ->
+            FlatRow(title, value = "아직", valueColor = m.over, onClick = { onJump(page) })
             if (i < left.lastIndex) Hairline(Modifier.padding(horizontal = Gutter))
         }
-        if (left.isNotEmpty()) Spacer(Modifier.height(16.dp))
-        Text(
-            "헬스장에 도착하면 저절로 출석하는 기능과 공부 장소에 머문 시간은 위치가 필요해서, 쓰고 싶을 때 헬스·집중 화면에서 따로 켜요.",
-            Modifier.padding(horizontal = Gutter), fontSize = 14.sp, color = m.muted, lineHeight = 21.sp,
-        )
     }
 }
 

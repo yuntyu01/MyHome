@@ -78,7 +78,7 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
             onClick = { onNavigate(Screen.APPS) },
         )
         val budget = summary.summary?.totals?.budget ?: 0L
-        FlatRow("분류와 예산", value = if (budget > 0) "한 달 ${Money.won(budget)}" else "예산 없음", onClick = { onNavigate(Screen.BUDGETS) })
+        FlatRow("분류·폴더·예산", value = if (budget > 0) "한 달 ${Money.won(budget)}" else "예산 없음", onClick = { onNavigate(Screen.BUDGETS) })
 
         SectionLabel("알림")
         SwitchRow("예산 80% 넘으면 알려 주기", settings.budgetAlerts, sub = "넘었을 때도 알려요. 소리 없이 와요") { app.settings.setBudgetAlerts(it) }

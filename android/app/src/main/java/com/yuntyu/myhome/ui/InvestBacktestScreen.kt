@@ -66,6 +66,12 @@ fun InvestBacktestScreen(modifier: Modifier) {
             else -> error = r.describe()
         }
     }
+    BacktestContent(modifier, data, error)
+}
+
+/** 백테스트 화면 내용(받은 표를 그린다). 테스트는 합성 표로 이것을 그린다 */
+@Composable
+internal fun BacktestContent(modifier: Modifier, data: Backtest?, error: String?) {
     var all by rememberSaveable { mutableStateOf(false) }
     var horizon by rememberSaveable { mutableIntStateOf(-1) }
     // 누른 줄과 그 줄이 있던 표(★를 같은 표에서 찾는다)
@@ -132,7 +138,7 @@ fun InvestBacktestScreen(modifier: Modifier) {
         }
         b.horizons.getOrNull(hi)?.let { h ->
             val rows = if (all) h.all else h.exDotcom
-            SectionCard("${h.label} 적립") {
+            SectionCard("${h.label} 적립", help = "옆으로 밀면 나머지 칸이 보여요. 머리 칸을 누르면 줄을 세우고, 줄을 누르면 ★와 견줘요.") {
                 rows.firstOrNull()?.let {
                     Text(
                         "원금 %.2f억 · 표본 %d개 윈도우 · %s".format(it.principal, it.windows, if (all) "전체 표본" else "닷컴 제외"),
@@ -141,11 +147,15 @@ fun InvestBacktestScreen(modifier: Modifier) {
                     )
                 }
                 BacktestTable(rows, b.columns, nameWidth = 128.dp, cellWidth = 66.dp) { picked = it to rows }
-                Text("옆으로 밀면 나머지 칸이 보여요 · 머리 칸을 누르면 줄 세우기 · 줄을 누르면 ★와 견주기", style = MaterialTheme.typography.bodySmall, color = m.faint)
+                // 🔴 읽는 법은 표와 같은 화면에(자세한 것은 "읽기 전에"의 "?")
+                Text("★ 이 전략 · 굵은 칸 1등 · 손실%는 낮을수록, MDD는 0에 가까울수록 좋아요", style = MaterialTheme.typography.bodySmall, color = m.faint)
             }
         }
 
-        SectionCard("읽기 전에") {
+        SectionCard(
+            "읽기 전에",
+            help = "★가 이 전략, 굵은 칸이 항목별 1등이에요. 손실%%는 낮을수록, MDD는 0에 가까울수록 1등이에요. 다시 계산하지 않는 고정 표예요(TQ 백테스트 v2, 수수료 %.2f%%).".format(b.feeRate * 100),
+        ) {
             for (n in b.notes) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("·", color = m.muted)
@@ -153,12 +163,6 @@ fun InvestBacktestScreen(modifier: Modifier) {
                 }
             }
         }
-        Text(
-            "★가 이 전략, 굵은 칸이 항목별 1등이에요. 손실%는 낮을수록, MDD는 0에 가까울수록 1등이에요. 다시 계산하지 않는 고정 표예요(TQ 백테스트 v2, 수수료 %.2f%%).".format(b.feeRate * 100),
-            style = MaterialTheme.typography.bodySmall,
-            color = m.muted,
-            modifier = Modifier.padding(horizontal = 6.dp),
-        )
         picked?.let { (row, table) -> CompareDialog(row, table.firstOrNull { it.star }, b.columns) { picked = null } }
     }
 }

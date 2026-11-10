@@ -76,7 +76,7 @@ enum class Screen(val title: String) {
     PERMISSIONS("절전 설정 안내"),
     APPS("알림 읽을 앱"),
     LOGS("보낸 기록"),
-    BUDGETS("분류와 예산"),
+    BUDGETS("분류·폴더·예산"),
     INVEST_VALUE("평가"),
     INVEST_BACKTEST("백테스트 결과"),
     HEALTH_CAPTURE("끼니 기록"),

@@ -16,11 +16,10 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun PermissionScreen(modifier: Modifier, resumeTick: Int) {
     val ctx = LocalContext.current
-    val m = LocalModo.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        Text(
-            "폰이 절전하려고 MyHome을 재우면 결제 알림을 놓칠 수 있어요. 아래 설정을 한 번만 해 두면 돼요. 폰마다 메뉴 이름이 조금 다를 수 있어요.",
-            Modifier.padding(horizontal = Gutter, vertical = 8.dp), fontSize = 15.sp, color = m.muted, lineHeight = 22.sp,
+        HintLine(
+            "한 번만 해 두면 돼요",
+            help = "폰이 절전하려고 MyHome을 재우면 결제 알림을 놓칠 수 있어요. 폰마다 메뉴 이름이 조금 다를 수 있어요.",
         )
         SectionLabel("삼성 갤럭시")
         for (line in listOf(
@@ -33,9 +32,12 @@ fun PermissionScreen(modifier: Modifier, resumeTick: Int) {
         }
         FlatRow("MyHome 앱 정보 열기", onClick = { PermissionStatus.openAppDetails(ctx) })
         Hairline()
-        SectionLabel("원래 결제 알림 소리")
+        SectionLabel(
+            "원래 결제 알림 소리",
+            help = "가계부에 적으면 MyHome이 카드·은행 앱 알림을 치워요. 알림을 '끄면' MyHome도 읽을 수 없어요.",
+        )
         Text(
-            "가계부에 적으면 MyHome이 카드·은행 앱 알림을 치워요. 소리가 거슬리면 그 앱의 알림을 '무음'으로 바꿔 주세요. 알림을 '끄면' 읽을 수도 없으니 꼭 '무음'으로요.",
+            "소리가 거슬리면 그 앱 알림을 '끄기' 말고 '무음'으로",
             Modifier.padding(horizontal = Gutter, vertical = 8.dp), fontSize = 15.sp, lineHeight = 22.sp,
         )
         SectionLabel("Android 13 이상에서 '제한된 설정'이 뜨면")

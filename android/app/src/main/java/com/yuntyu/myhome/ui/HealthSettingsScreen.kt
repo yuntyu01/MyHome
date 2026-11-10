@@ -63,12 +63,14 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** 건강 목표 고르기(처음 설정과 건강 설정이 같이 쓴다) */
 internal val GOALS = listOf("lose" to "감량", "keep" to "유지", "gain" to "린매스업", "bulk" to "벌크업")
+// 칩에는 짧은 이름만, 뜻은 "?"(ACTIVITY_HELP)로 - 한 줄에 넷이 들어가게
 internal val ACTIVITIES = listOf(
-    "sedentary" to "비활동적 · 운동 없이 대부분 앉아서",
-    "low" to "저활동적 · 가벼운 걷기·운동 조금",
-    "active" to "활동적 · 걷기·운동이 꽤 많음",
-    "veryActive" to "매우 활동적 · 고강도 운동·몸 쓰는 일",
+    "sedentary" to "거의 없음",
+    "low" to "가벼움",
+    "active" to "많음",
+    "veryActive" to "아주 많음",
 )
+internal const val ACTIVITY_HELP = "거의 없음: 운동 없이 대부분 앉아서 지내요\n가벼움: 가벼운 걷기나 운동을 조금 해요\n많음: 걷기·운동이 꽤 많아요\n아주 많음: 고강도 운동이나 몸 쓰는 일을 해요"
 
 /**
  * 건강 설정: 끼니 수·마감, 헬스 요일·횟수·도착 시간, 취침·기상, 영양 목표(몸·활동으로 추천받거나 직접), 알림, 사진 보관.
@@ -186,12 +188,17 @@ fun HealthSettingsScreen(modifier: Modifier, onDone: () -> Unit) {
                 Chip("여성", st.sex == "female", Modifier.weight(1f)) { s = st.copy(sex = "female") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Field("키(cm)", height, Modifier.weight(1f)) { height = it }
-                Field("몸무게(kg)", weight, Modifier.weight(1f), decimal = true) { weight = it }
-                Field("나이", age, Modifier.weight(1f)) { age = it }
+                Field("키", height, Modifier.weight(1f), unit = "cm") { height = it }
+                Field("몸무게", weight, Modifier.weight(1f), decimal = true, unit = "kg") { weight = it }
+                Field("나이", age, Modifier.weight(1f), unit = "세") { age = it }
             }
-            Text("평소 활동", style = MaterialTheme.typography.bodySmall, color = m.muted)
-            for ((k, l) in ACTIVITIES) Chip(l, st.activity == k, Modifier.fillMaxWidth()) { s = st.copy(activity = k) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("평소 활동", style = MaterialTheme.typography.bodySmall, color = m.muted)
+                HelpDot(ACTIVITY_HELP, title = "평소 활동")
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for ((k, l) in ACTIVITIES) Chip(l, st.activity == k, Modifier.weight(1f)) { s = st.copy(activity = k) }
+            }
             FilledTonalButton(onClick = {
                 val h = height.toIntOrNull(); val w = weight.toDoubleOrNull(); val a = age.toIntOrNull()
                 val sex = st.sex; val act = st.activity
@@ -207,25 +214,22 @@ fun HealthSettingsScreen(modifier: Modifier, onDone: () -> Unit) {
                 }
             }) { Text("목표 추천받기") }
             rec?.let { r ->
-                Text(
-                    "유지 칼로리 약 ${num(r.maintenanceKcal.toInt())} kcal → 목표 ${num(r.kcal)} kcal · 탄 ${r.carbs}g · 단 ${r.protein}g · 지 ${r.fat}g",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                Text("하루 ${num(r.kcal)} kcal · 탄 ${r.carbs} · 단 ${r.protein} · 지 ${r.fat}g", style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = { kcal = "${r.kcal}"; carbs = "${r.carbs}"; protein = "${r.protein}"; fat = "${r.fat}"; rec = null }) { Text("이 값으로 채우기") }
             }
-            Text("하루 목표 (직접 고칠 수 있어요)", style = MaterialTheme.typography.bodySmall, color = m.muted)
+            Text("하루 목표", style = MaterialTheme.typography.bodySmall, color = m.muted)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Field("kcal", kcal, Modifier.weight(1.2f)) { kcal = it }
-                Field("탄(g)", carbs, Modifier.weight(1f)) { carbs = it }
-                Field("단(g)", protein, Modifier.weight(1f)) { protein = it }
-                Field("지(g)", fat, Modifier.weight(1f)) { fat = it }
+                Field("탄", carbs, Modifier.weight(1f), unit = "g") { carbs = it }
+                Field("단", protein, Modifier.weight(1f), unit = "g") { protein = it }
+                Field("지", fat, Modifier.weight(1f), unit = "g") { fat = it }
             }
         }
         SectionCard("알림") {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Text("끼니·헬스·취침 알림")
-                    Text("끼니 마감 30분 전·마감 시각, 헬스 도착 1시간 전, 취침 시각", style = MaterialTheme.typography.bodySmall, color = m.muted)
+                    HelpDot("끼니 마감 30분 전과 마감 시각, 헬스 도착 1시간 전, 취침 시각에 알려요.", title = "언제 오나요")
                 }
                 Switch(checked = st.notifications != false, onCheckedChange = {
                     s = st.copy(notifications = it)
@@ -233,11 +237,10 @@ fun HealthSettingsScreen(modifier: Modifier, onDone: () -> Unit) {
                 })
             }
             if (st.notifications != false && !exact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Text(
-                    "알림을 정해진 시각에 받으려면 '알람 및 리마인더'를 허용해 주세요. 허용하지 않으면 폰이 쉬는 동안 알림이 늦어져서, 마감 30분 전 알림이 마감 뒤에 올 수 있어요.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = m.warn,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("알림이 늦게 올 수 있어요", style = MaterialTheme.typography.bodySmall, color = m.warn)
+                    HelpDot("'알람 및 리마인더'를 허용하지 않으면 폰이 쉬는 동안 알림이 늦어져서, 마감 30분 전 알림이 마감 뒤에 올 수 있어요.")
+                }
                 FilledTonalButton(onClick = {
                     runCatching {
                         ctx.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${ctx.packageName}")))
@@ -245,11 +248,10 @@ fun HealthSettingsScreen(modifier: Modifier, onDone: () -> Unit) {
                 }) { Text("알람 및 리마인더 허용") }
             }
         }
-        SectionCard("폰에 사진 보관") {
+        SectionCard("폰에 사진 보관", help = "이 폰의 사진만 지워요. 기록과 사진은 서버에 남고, 다시 볼 때 받아 와요.") {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for ((d, l) in listOf(0 to "계속", 30 to "30일", 90 to "90일", 180 to "180일")) Chip(l, keepDays == d, Modifier.weight(1f)) { keepDays = d }
             }
-            Text("이 폰의 사진만 지워요. 기록과 사진은 서버에 남고, 다시 볼 때 받아 와요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
         Button(
             onClick = {
@@ -310,11 +312,13 @@ private fun patch(s: HealthSettings, keepDays: Int): JsonObject {
 }
 
 @Composable
-private fun Field(label: String, value: String, modifier: Modifier, decimal: Boolean = false, onChange: (String) -> Unit) {
+private fun Field(label: String, value: String, modifier: Modifier, decimal: Boolean = false, unit: String? = null, onChange: (String) -> Unit) {
     OutlinedTextField(
         value = value,
         onValueChange = { v -> onChange(v.filter { it.isDigit() || (decimal && it == '.') }.take(6)) },
-        label = { Text(label) },
+        // 단위는 라벨이 아니라 칸 안 오른쪽에(좁은 칸에서 "몸무게(kg)"가 두 줄로 깨지던 것)
+        label = { Text(label, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+        suffix = unit?.let { u -> { Text(u) } },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number),
         modifier = modifier,

@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -167,10 +168,10 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick
             .padding(horizontal = 10.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        // 좁은 칸(weight)에서 글자가 잘리지 않게 여백을 줄이고 두 줄까지 허용한다
-        Text(
+        // 좁은 칸(weight)에서도 한 줄: 넘치면 글자를 조금씩 줄여 맞춘다("린매스업"이 두 줄로 깨지던 것)
+        FitText(
             text, color = if (selected) m.onAccent else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 2, textAlign = TextAlign.Center,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         )
     }
 }
@@ -191,4 +192,19 @@ fun ItemRow(title: String, value: String = "", sub: String? = null, valueColor: 
         if (value.isNotEmpty()) Text(value, color = valueColor ?: m.muted, textAlign = TextAlign.End)
         if (onClick != null) Text("›", color = m.muted)
     }
+}
+
+/** 한 줄 글자. 칸보다 넓으면 0.9배씩 줄여서 맞춘다(최소 0.6배). 맞출 때까지는 그리지 않아 깜박이지 않는다 */
+@Composable
+fun FitText(text: String, color: Color, fontWeight: FontWeight, base: androidx.compose.ui.unit.TextUnit = 16.sp) {
+    var scale by androidx.compose.runtime.remember(text) { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    var fitted by androidx.compose.runtime.remember(text) { androidx.compose.runtime.mutableStateOf(false) }
+    Text(
+        text,
+        color = color, fontWeight = fontWeight, fontSize = base * scale, maxLines = 1, softWrap = false, textAlign = TextAlign.Center,
+        modifier = Modifier.drawWithContent { if (fitted) drawContent() },
+        onTextLayout = { r ->
+            if (r.didOverflowWidth && scale > 0.6f) scale *= 0.9f else fitted = true
+        },
+    )
 }

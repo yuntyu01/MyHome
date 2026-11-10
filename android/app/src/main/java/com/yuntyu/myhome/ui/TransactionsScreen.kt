@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.Money
+import com.yuntyu.myhome.core.RunningBudget
 import com.yuntyu.myhome.core.WidgetModel
 import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.core.CategoryTree
@@ -65,6 +66,9 @@ import java.time.YearMonth
 import java.time.ZoneId
 
 private val KST: ZoneId = ZoneId.of("Asia/Seoul")
+
+/** 한 달 목록을 한 번에 받는 수. 이만큼 오면 잘렸을 수 있어서 남은 돈을 안 보인다 */
+private const val TX_LIMIT = 500
 
 private val reviewReasonLabels = mapOf(
     "no_merchant" to "가게 이름이 없어요", "no_rule" to "처음 보는 가게예요", "payment_gateway" to "결제대행사 이름으로 찍혔어요",
@@ -113,7 +117,7 @@ fun TransactionsScreen(
     val searching = !query.isNullOrBlank()
 
     suspend fun load() {
-        val list = withContext(Dispatchers.IO) { app.api.transactions(500, month = shown) }
+        val list = withContext(Dispatchers.IO) { app.api.transactions(TX_LIMIT, month = shown) }
         val q = withContext(Dispatchers.IO) { app.api.reviewQueue() }
         val c = withContext(Dispatchers.IO) { app.api.categories() }
         if (list is ApiResult.Ok) { items = list.value.transactions; error = null } else error = list.plain()
@@ -206,6 +210,13 @@ fun TransactionsScreen(
                 ?.let { l -> if (tab == 2) l.filter { it.flow == "in" } else l }
                 ?.let { l -> if (catIds != null && tab != 1) l.filter { it.categoryId in catIds } else l }
             val monthName = WidgetModel.monthName(shown)
+            // 이번 달 전체 목록을 받았으면 결제마다 "그 뒤 남은 돈"(예산이 있을 때만). 지난달·잘린 목록은 셈이 안 맞아서 안 보인다
+            val budget = summary.summary?.totals?.budget ?: 0L
+            val left = remember(items, budget, cats, month) {
+                val all = items
+                if (all == null || month != null || budget <= 0 || all.size >= TX_LIMIT) emptyMap()
+                else RunningBudget.remainingAfter(all, budget, cats.filter { it.code == "settlement" }.map { it.id }.toSet())
+            }
             LazyColumn(Modifier.fillMaxSize()) {
                 when {
                     searching && list == null -> item { EmptyNote("찾는 중이에요") }
@@ -227,7 +238,7 @@ fun TransactionsScreen(
                             item(key = "d$day") { DayHeader(day, txs) }
                             items(txs, key = { it.id }) { t ->
                                 // 전체 목록에는 AI 추천이 없어서 확인 목록의 같은 거래로 연다
-                                TxRow(t, withDay = false) { selected = review?.firstOrNull { r -> r.id == t.id } ?: t }
+                                TxRow(t, withDay = false, remaining = left[t.id]) { selected = review?.firstOrNull { r -> r.id == t.id } ?: t }
                             }
                         }
                         item { Spacer(Modifier.height(12.dp)) }
@@ -318,14 +329,15 @@ private fun TotalsLine(list: List<TransactionDto>, scope: String, capped: Boolea
 private fun kstDate(iso: String): LocalDate =
     runCatching { OffsetDateTime.parse(iso).atZoneSameInstant(KST).toLocalDate() }.getOrElse { LocalDate.now(KST) }
 
-/** "오늘 · 11월 8일", "어제 · 11월 7일", "11월 6일 목요일", 다른 해면 연도까지 */
-private fun dayLabel(d: LocalDate, today: LocalDate = LocalDate.now(KST)): String {
+/** 날짜 머리: 큰 글자("오늘", "어제", "11월 6일")와 옆 작은 글자("11월 8일", "목요일") */
+internal fun dayParts(d: LocalDate, today: LocalDate = LocalDate.now(KST)): Pair<String, String> {
     val md = "${d.monthValue}월 ${d.dayOfMonth}일"
+    val wd = "${WEEKDAYS[d.dayOfWeek.value - 1]}요일"
     return when {
-        d == today -> "오늘 · $md"
-        d == today.minusDays(1) -> "어제 · $md"
-        d.year != today.year -> "${d.year}년 $md"
-        else -> "$md ${WEEKDAYS[d.dayOfWeek.value - 1]}요일"
+        d == today -> "오늘" to md
+        d == today.minusDays(1) -> "어제" to md
+        d.year != today.year -> "${d.year}년 $md" to wd
+        else -> md to wd
     }
 }
 
@@ -343,24 +355,27 @@ fun txTime(iso: String, withDay: Boolean): String {
 }
 
 @Composable
-private fun DayHeader(day: LocalDate, txs: List<TransactionDto>) {
+internal fun DayHeader(day: LocalDate, txs: List<TransactionDto>) {
     val m = LocalModo.current
     val spent = txs.filter { it.flow == "out" && it.status != "excluded" }.sumOf { it.amount }
-    Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 20.dp, bottom = 2.dp)) {
-        Text(dayLabel(day), Modifier.weight(1f), fontSize = 14.sp, color = m.muted)
-        if (spent > 0) Text(Money.won(spent), fontSize = 14.sp, color = m.muted)
+    val (big, small) = dayParts(day)
+    // 날짜와 그날 나간 돈은 크게(사용자 요청, 2026-11-10)
+    Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 28.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
+        Text(big, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(small, Modifier.weight(1f).padding(start = 8.dp, bottom = 2.dp), fontSize = 14.sp, color = m.muted, maxLines = 1)
+        if (spent > 0) Text(Money.won(spent), fontSize = 18.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 /** 거래 한 줄: 가게 이름, 분류·시각(분류를 골라야 하면 살구색), 금액. 박스 없이 가로로 꽉 찬다 */
 @Composable
-fun TxRow(t: TransactionDto, withDay: Boolean, onClick: (() -> Unit)? = null) {
+fun TxRow(t: TransactionDto, withDay: Boolean, remaining: Long? = null, onClick: (() -> Unit)? = null) {
     val m = LocalModo.current
     val review = t.status == "needs_review"
     val excluded = t.status == "excluded"
     val time = txTime(t.occurredAt, withDay)
     val (sub, subColor) = when {
-        review -> (t.suggestion?.let { "AI 추천 ${it.category} · 눌러서 확인" } ?: "분류를 골라 주세요") + " · $time" to m.over
+        review -> (t.suggestion?.let { "AI 추천 ${it.category}" } ?: "분류 고르기") + " · $time" to m.over
         excluded -> "가계부에서 뺌 · $time" to m.faint
         else -> "${t.category.ifBlank { "분류 없음" }} · $time" to m.muted
     }.let { (text, color) -> (if (t.memo.isNotBlank()) "$text · ${t.memo}" else text) to color }
@@ -373,15 +388,25 @@ fun TxRow(t: TransactionDto, withDay: Boolean, onClick: (() -> Unit)? = null) {
             Text(t.merchant.ifBlank { "이름 없는 결제" }, fontSize = 16.sp, maxLines = 2, color = if (excluded) m.faint else MaterialTheme.colorScheme.onBackground)
             Text(sub, fontSize = 14.sp, color = subColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(
-            (if (t.flow == "in") "+" else "") + Money.won(t.amount),
-            fontSize = 16.sp,
-            color = when {
-                excluded -> m.faint
-                t.flow == "in" -> m.income
-                else -> MaterialTheme.colorScheme.onBackground
-            },
-        )
+        // 나간 돈은 크게, 그 뒤 이번 달 남은 돈은 밑에 작게(사용자 요청, 2026-11-10)
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                (if (t.flow == "in") "+" else "") + Money.won(t.amount),
+                fontSize = 17.sp,
+                fontWeight = if (excluded) FontWeight.Normal else FontWeight.SemiBold,
+                color = when {
+                    excluded -> m.faint
+                    t.flow == "in" -> m.income
+                    else -> MaterialTheme.colorScheme.onBackground
+                },
+            )
+            if (remaining != null) {
+                Text(
+                    if (remaining >= 0) "${Money.won(remaining)} 남음" else "${Money.won(-remaining)} 넘음",
+                    fontSize = 12.sp, color = if (remaining >= 0) m.faint else m.over, maxLines = 1,
+                )
+            }
+        }
     }
 }
 
@@ -427,8 +452,7 @@ private fun ClassifySheet(
             }
             if (t.merchant.isNotBlank()) {
                 FlatRow(
-                    "다음부터 이 가게는 자동으로",
-                    sub = "'${t.merchant}' 결제는 고른 분류로 바로 적어요",
+                    "이 가게는 항상 이 분류로",
                     trailing = { CheckCircle(learn) },
                     onClick = { learn = !learn },
                 )
@@ -489,7 +513,6 @@ private fun ClassifySheet(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LineField(name, { name = it.take(MERCHANT_MAX) }, "가게 이름")
                     LineField(amount, { amount = it.filter(Char::isDigit).take(10) }, if (won > 0) "금액 · ${Money.won(won)}" else "금액(원)", keyboardType = KeyboardType.Number)
-                    Text("알림을 잘못 읽었을 때 고쳐요. 고친 거래는 다시 읽어도 그대로 둬요.", fontSize = 13.sp, color = m.muted, lineHeight = 18.sp)
                 }
             },
             confirmButton = {

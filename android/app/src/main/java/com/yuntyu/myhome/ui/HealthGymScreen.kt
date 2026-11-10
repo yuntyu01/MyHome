@@ -283,13 +283,11 @@ private fun GymLocationSection(onChanged: () -> Unit) {
         lifecycle.currentStateFlow.collect { if (it == androidx.lifecycle.Lifecycle.State.RESUMED) { GymGeofence.register(ctx) { tick++ }; tick++ } }
     }
 
-    SectionCard(if (BuildConfig.GYM_AUTO) "헬스장 위치로 자동 출석" else "헬스장 위치로 출석") {
-        Text(
-            if (BuildConfig.GYM_AUTO) "헬스장에 있을 때 위치를 저장해 두면, 그 근처에 5분 넘게 머물 때 자동으로 출석을 남겨요. 위치는 이 폰에만 저장돼요."
-            else "헬스장에 있을 때 위치를 저장해 두면, 다음부터 헬스장에서 '위치로 출석'을 눌러 사진 없이 출석해요. 위치는 이 폰에만 저장돼요.",
-            style = MaterialTheme.typography.bodySmall,
-            color = m.muted,
-        )
+    SectionCard(
+        if (BuildConfig.GYM_AUTO) "헬스장 위치로 자동 출석" else "헬스장 위치로 출석",
+        help = if (BuildConfig.GYM_AUTO) "헬스장에 있을 때 위치를 저장해 두면, 그 근처에 5분 넘게 머물 때 자동으로 출석을 남겨요. 위치는 이 폰에만 저장돼요."
+        else "헬스장에 있을 때 위치를 저장해 두면, 다음부터 헬스장에서 '위치로 출석'을 눌러 사진 없이 출석해요. 위치는 이 폰에만 저장돼요.",
+    ) {
         if (spot == null) {
             Button(onClick = {
                 if (fg) saveHere()
@@ -327,16 +325,16 @@ private fun GymLocationSection(onChanged: () -> Unit) {
             Switch(checked = enabled, onCheckedChange = toggleAuto)
         }
         if (BuildConfig.GYM_AUTO && enabled && !bg) {
-            Text("앱이 꺼져 있어도 알려면 위치 권한을 '항상 허용'으로 바꿔야 해요.", style = MaterialTheme.typography.bodySmall, color = m.warn)
+            Text("위치를 '항상 허용'으로 바꿔 주세요", style = MaterialTheme.typography.bodySmall, color = m.warn)
             FilledTonalButton(onClick = { disclosure = true }) { Text("'항상 허용' 켜기") }
         } else if (BuildConfig.GYM_AUTO && enabled && regError != null) {
             // 걸지 못했으면 "켜져 있어요" 대신 이유를 보인다(30분마다, 화면을 열 때마다 다시 건다)
             Text(regError, style = MaterialTheme.typography.bodySmall, color = m.warn)
         } else if (BuildConfig.GYM_AUTO && enabled) {
-            Text("켜져 있어요. 헬스장에 5분 머물면 출석이 남고 알림이 와요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
+            Text("켜져 있어요", style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
         if (pendingCheckIn != null) {
-            Text("$pendingCheckIn 출석을 보내는 중이에요. 연결되면 보내요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
+            Text("$pendingCheckIn 출석 보내는 중", style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
         if (disclosure) {
             ModoAlertDialog(
