@@ -135,6 +135,16 @@ func TestSeedRuleClassification(t *testing.T) {
 	}
 }
 
+// 삼성페이식 알림(제목 "₩금액 결제 완료", 본문 가게)이 거래가 되고, 메가커피 정식 이름도 카페로 간다 (합성 지점명)
+func TestWonSignPaymentWithFormalCafeName(t *testing.T) {
+	h := newHarness(t)
+	tx, _ := h.event("test.spay", "₩4,500 결제 완료", "메가엠지씨커피 합성점", base)
+	h.wantStatus(*tx, "confirmed", "카페·간식")
+	if tx.Amount != 4500 || tx.Merchant != "메가엠지씨커피 합성점" {
+		t.Errorf("거래 값 이상: %+v", tx)
+	}
+}
+
 // 짧은 영문 상호는 지점명이 붙어도 기본 규칙으로 분류되고, 비슷한 다른 이름은 잡히지 않는다.
 func TestSeedPrefixRules(t *testing.T) {
 	h := newHarness(t)
