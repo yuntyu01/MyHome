@@ -33,6 +33,7 @@ SELECT c.id,
        c.sort,
        c.parent_id,
        c.archived,
+       c.in_budget,
        coalesce(b.amount, 0)::bigint                                                 AS budget,
        coalesce(s.spent, 0)::bigint                                                  AS spent,
        coalesce(st.settled, 0)::bigint                                               AS settled,
@@ -57,6 +58,7 @@ type CategorySummaryRow struct {
 	Sort      int32  `json:"sort"`
 	ParentID  *int64 `json:"parent_id"`
 	Archived  bool   `json:"archived"`
+	InBudget  bool   `json:"in_budget"`
 	Budget    int64  `json:"budget"`
 	Spent     int64  `json:"spent"`
 	Settled   int64  `json:"settled"`
@@ -80,6 +82,7 @@ func (q *Queries) CategorySummary(ctx context.Context, arg CategorySummaryParams
 			&i.Sort,
 			&i.ParentID,
 			&i.Archived,
+			&i.InBudget,
 			&i.Budget,
 			&i.Spent,
 			&i.Settled,

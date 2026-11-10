@@ -85,18 +85,18 @@ class MyHomeApi(
     fun categories(): ApiResult<CategoryList> = call("GET", "/v1/categories", null, CategoryList.serializer())
 
     /** 분류 만들기. parentId(폴더) 안에 만들면 종류는 폴더를 따른다(kind는 맨 위일 때만 쓴다). 3단계를 넘으면 400 */
-    fun createCategory(name: String, kind: String = "expense", parentId: Long? = null, memo: String? = null): ApiResult<Category> =
+    fun createCategory(name: String, kind: String = "expense", parentId: Long? = null, memo: String? = null, inBudget: Boolean? = null): ApiResult<Category> =
         call(
             "POST", "/v1/categories",
-            MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, kind = kind.takeIf { parentId == null }, parentId = parentId, memo = memo)),
+            MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, kind = kind.takeIf { parentId == null }, parentId = parentId, memo = memo, inBudget = inBudget)),
             Category.serializer(),
         )
 
     /** 이름·설명 바꾸기, 폴더 옮기기(parentId 0 = 맨 위), 숨기기(archived). kind는 못 바꾼다. null인 값은 그대로 둔다. */
-    fun updateCategory(id: Long, name: String? = null, archived: Boolean? = null, parentId: Long? = null, memo: String? = null): ApiResult<Category> =
+    fun updateCategory(id: Long, name: String? = null, archived: Boolean? = null, parentId: Long? = null, memo: String? = null, inBudget: Boolean? = null): ApiResult<Category> =
         call(
             "PATCH", "/v1/categories/$id",
-            MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, archived = archived, parentId = parentId, memo = memo)),
+            MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, archived = archived, parentId = parentId, memo = memo, inBudget = inBudget)),
             Category.serializer(),
         )
 
@@ -114,6 +114,10 @@ class MyHomeApi(
 
     fun putBudgets(month: String, items: List<BudgetItem>): ApiResult<BudgetList> =
         call("PUT", "/v1/budgets", MyHomeJson.encodeToString(BudgetsInput.serializer(), BudgetsInput(month, items)), BudgetList.serializer())
+
+    /** 한 달 전체 예산(홈 "쓸 수 있는 돈"을 눌러 고침). 그 기간부터 이어진다. null이면 분류 예산 합계로 */
+    fun putTotalBudget(month: String, amount: Long?): ApiResult<TotalsReply> =
+        call("PUT", "/v1/budgets/total", MyHomeJson.encodeToString(TotalBudgetInput.serializer(), TotalBudgetInput(month, amount)), TotalsReply.serializer())
 
     /** 예산 시작일(매달 1~28일) */
     fun budgetStartDay(): ApiResult<Int> = when (val r = call("GET", "/v1/settings", null, ServerSettings.serializer())) {

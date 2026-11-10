@@ -99,6 +99,38 @@ func (q *Queries) ListBudgets(ctx context.Context, periodStart time.Time) ([]Lis
 	return items, nil
 }
 
+const setTotalBudget = `-- name: SetTotalBudget :exec
+INSERT INTO period_total_budgets (period_start, amount)
+VALUES ($1, $2)
+ON CONFLICT (period_start) DO UPDATE SET amount = excluded.amount, updated_at = now()
+`
+
+type SetTotalBudgetParams struct {
+	PeriodStart time.Time `json:"period_start"`
+	Amount      *int64    `json:"amount"`
+}
+
+func (q *Queries) SetTotalBudget(ctx context.Context, arg SetTotalBudgetParams) error {
+	_, err := q.db.Exec(ctx, setTotalBudget, arg.PeriodStart, arg.Amount)
+	return err
+}
+
+const totalBudgetAt = `-- name: TotalBudgetAt :one
+SELECT amount
+FROM period_total_budgets
+WHERE period_start <= $1
+ORDER BY period_start DESC
+LIMIT 1
+`
+
+// 이 기간에 쓰는 한 달 전체 예산: 이 기간 이하에서 가장 최근에 정한 값(NULL = 분류 합계). 없으면 결과 없음.
+func (q *Queries) TotalBudgetAt(ctx context.Context, periodStart time.Time) (*int64, error) {
+	row := q.db.QueryRow(ctx, totalBudgetAt, periodStart)
+	var amount *int64
+	err := row.Scan(&amount)
+	return amount, err
+}
+
 const upsertBudget = `-- name: UpsertBudget :exec
 INSERT INTO budgets (period_start, category_id, amount)
 VALUES ($1, $2, $3)

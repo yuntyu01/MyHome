@@ -33,6 +33,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -55,7 +63,10 @@ import kotlinx.coroutines.withContext
 private class EditTarget(val category: Category?, val amount: Long, val parent: Long? = null, val kind: String = "expense", val folder: Boolean = false)
 
 /** 저장할 값. parent는 넣을 폴더(null = 맨 위) */
-private class CategoryForm(val name: String, val amount: Long, val memo: String, val parent: Long?, val hide: Boolean)
+private class CategoryForm(val name: String, val amount: Long, val memo: String, val parent: Long?, val hide: Boolean, val inBudget: Boolean = true)
+
+/** 분류 예산 방식(사용자 요청, 2026-11-10): 한도 / 자유(한도 없이, 한 달 예산에서는 깎임) / 예산 없음(한 달 예산에서 안 깎임) */
+private enum class BudgetMode(val label: String) { LIMIT("한도"), FREE("자유"), NONE("예산 없음") }
 
 /** 폴더 한 단계 들여쓰기 */
 internal val FolderIndent = 22.dp
@@ -63,6 +74,31 @@ internal val FolderIndent = 22.dp
 /** 줄 앞 들여쓰기(맨 위면 없음). FlatRow 칸 사이 14dp를 빼서 한 단계가 Indent만큼 들어가게 한다 */
 fun indentLead(depth: Int): (@Composable () -> Unit)? =
     if (depth > 0) { { Spacer(Modifier.width(FolderIndent * depth - 14.dp)) } } else null
+
+/**
+ * 폴더 안 줄 왼쪽의 연한 트리 선(사용자 제안, 2026-11-10). 단계마다 세로선, 이 줄 단계에는 ├(마지막이면 └).
+ * 위 단계 세로선은 그 단계 폴더 뒤에 같은 폴더 안 줄이 더 있을 때만 이어 그린다.
+ */
+internal fun Modifier.treeGuides(tree: CategoryTree, id: Long, color: Color): Modifier {
+    val chain = tree.ancestors(id).reversed() + id
+    val depth = chain.size - 1
+    if (depth <= 0) return this
+    fun last(n: Long) = tree.children(tree.parent(n)).lastOrNull { !it.archived }?.id == n
+    val lastAt = (1..depth).map { last(chain[it]) }
+    return drawBehind {
+        val w = 1.5.dp.toPx()
+        val mid = minOf(size.height / 2, 28.dp.toPx())
+        for (l in 1..depth) {
+            val x = (Gutter + FolderIndent * (l - 1) + 8.dp).toPx()
+            if (l < depth) {
+                if (!lastAt[l - 1]) drawLine(color, Offset(x, 0f), Offset(x, size.height), w)
+            } else {
+                drawLine(color, Offset(x, 0f), Offset(x, if (lastAt[l - 1]) mid else size.height), w)
+                drawLine(color, Offset(x, mid), Offset(x + 9.dp.toPx(), mid), w, cap = StrokeCap.Round)
+            }
+        }
+    }
+}
 
 /**
  * 분류와 예산: 분류를 폴더처럼 묶고(최대 3단계), 분류마다 한 달 예산과 설명을 정한다. 설명은 AI 분류 추천이 참고한다.
@@ -149,19 +185,26 @@ fun BudgetsScreen(modifier: Modifier) {
                 val folder = tree.children(c.id).any { !it.archived }
                 val a = own[c.id] ?: 0L
                 val eff = if (kind == "expense") tree.effectiveBudget(own, c.id) else 0L
+                val counted = tree.inBudget(c.id)
                 val value = when {
                     kind != "expense" -> null
+                    !counted -> "예산 없음"
                     a > 0 -> Money.won(a)
                     eff > 0 -> "안 합계 ${Money.won(eff)}"
-                    else -> "예산 없음"
+                    else -> "자유"
                 }
                 DragRow(dragger, tree, c, onTap = { editing = EditTarget(c, a) }, onDrop = ::moveTo) {
                     FlatRow(
                         c.name,
+                        modifier = Modifier.treeGuides(tree, c.id, m.faint.copy(alpha = 0.45f)),
                         sub = c.memo.ifBlank { null },
                         value = value,
                         bold = folder,
-                        valueColor = if (a > 0) MaterialTheme.colorScheme.onBackground else m.faint,
+                        valueColor = when {
+                            a > 0 && counted -> MaterialTheme.colorScheme.onBackground
+                            counted -> m.muted // 자유
+                            else -> m.faint // 예산 없음
+                        },
                         leading = indentLead(depth),
                         trailing = { Icon(ChevronRightIcon, contentDescription = null, tint = m.faint, modifier = Modifier.size(18.dp)) },
                     )
@@ -217,7 +260,7 @@ fun BudgetsScreen(modifier: Modifier) {
                 val err: String? = withContext(Dispatchers.IO) {
                     when {
                         f.hide && c != null -> app.api.updateCategory(c.id, archived = true).let { if (it is ApiResult.Ok) null else it.plain() }
-                        c == null -> when (val r = app.api.createCategory(f.name, target.kind, f.parent, f.memo.ifBlank { null })) {
+                        c == null -> when (val r = app.api.createCategory(f.name, target.kind, f.parent, f.memo.ifBlank { null }, inBudget = f.inBudget.takeIf { !it })) {
                             is ApiResult.Ok -> if (f.amount > 0 && periodMonth != null && r.value.kind == "expense") {
                                 app.api.putBudgets(periodMonth, listOf(BudgetItem(r.value.id, amount = f.amount))).let { if (it is ApiResult.Ok) null else it.plain() }
                             } else null
@@ -225,13 +268,14 @@ fun BudgetsScreen(modifier: Modifier) {
                         }
                         else -> {
                             val moved = f.parent != tree.parent(c.id)
-                            val needPatch = f.name != c.name || f.memo != c.memo || moved
+                            val needPatch = f.name != c.name || f.memo != c.memo || moved || f.inBudget != c.inBudget
                             val patched = if (needPatch) {
                                 app.api.updateCategory(
                                     c.id,
                                     name = f.name.takeIf { it != c.name },
                                     parentId = if (moved) (f.parent ?: 0L) else null,
                                     memo = f.memo.takeIf { it != c.memo },
+                                    inBudget = f.inBudget.takeIf { it != c.inBudget },
                                 )
                             } else null
                             val saved = if (patched?.let { it is ApiResult.Ok } != false && c.kind == "expense" && f.amount != target.amount && periodMonth != null) {
@@ -318,6 +362,16 @@ private fun CategorySheet(
     val kind = c?.kind ?: target.parent?.let { tree.byId[it]?.kind } ?: target.kind
     var name by remember { mutableStateOf(c?.name.orEmpty()) }
     var amount by remember { mutableStateOf(if (target.amount > 0) target.amount.toString() else "") }
+    val kidsSum = if (c != null) tree.children(c.id).filter { !it.archived }.sumOf { tree.effectiveBudget(own, it.id) } else 0L
+    var mode by remember {
+        mutableStateOf(
+            when {
+                c?.inBudget == false -> BudgetMode.NONE
+                c == null || target.amount > 0 || kidsSum > 0 -> BudgetMode.LIMIT
+                else -> BudgetMode.FREE
+            },
+        )
+    }
     var memo by remember { mutableStateOf(c?.memo.orEmpty()) }
     var parent by remember { mutableStateOf(if (c != null) tree.parent(c.id) else target.parent) }
     var picking by remember { mutableStateOf(false) }
@@ -337,7 +391,21 @@ private fun CategorySheet(
             Column(Modifier.padding(horizontal = Gutter, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 LineField(name, { name = it.take(20) }, "이름")
                 if (kind == "expense") {
-                    val sum = if (c != null) tree.children(c.id).filter { !it.archived }.sumOf { tree.effectiveBudget(own, it.id) } else 0L
+                    val sum = kidsSum
+                    Row(Modifier.padding(top = 12.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        for (md in BudgetMode.entries) {
+                            val on = mode == md
+                            Text(
+                                md.label,
+                                Modifier.clip(RoundedCornerShape(10.dp)).background(if (on) MaterialTheme.colorScheme.onBackground else m.raised)
+                                    .tap(onClickLabel = md.label, role = Role.RadioButton) { mode = md }.padding(horizontal = 14.dp, vertical = 8.dp),
+                                color = if (on) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground,
+                                fontSize = 14.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                        HelpDot("한도: 이 분류에 쓸 돈을 정해요.\n자유: 한도 없이 쓰고, 이번 달 예산에서는 깎여요.\n예산 없음: 이번 달 예산에서 깎이지 않아요(쓴 돈만 보여요).", title = "예산")
+                    }
+                    if (mode == BudgetMode.LIMIT) {
                     LineField(
                         amount, { amount = it.filter(Char::isDigit).take(10) },
                         when {
@@ -347,6 +415,8 @@ private fun CategorySheet(
                         },
                         keyboardType = KeyboardType.Number,
                     )
+                    MoneyQuickAdd(won, { amount = it.toString() })
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LineField(memo, { memo = it.take(CategoryTree.MAX_MEMO) }, "설명", Modifier.weight(1f), maxLines = 4)
@@ -378,7 +448,7 @@ private fun CategorySheet(
                 }
             }
             PrimaryButton("저장", Modifier.padding(horizontal = Gutter, vertical = 12.dp), enabled = name.isNotBlank()) {
-                onSave(CategoryForm(name.trim(), won, memo.trim(), parent, false))
+                onSave(CategoryForm(name.trim(), if (kind != "expense" || mode == BudgetMode.LIMIT) won else 0L, memo.trim(), parent, false, inBudget = mode != BudgetMode.NONE))
             }
             if (c != null && !special && tree.depth(c.id) + 1 < CategoryTree.MAX_DEPTH) {
                 AddRow("이 안에 분류 추가") { onAddInside(c) }
@@ -390,7 +460,7 @@ private fun CategorySheet(
                     else "지난 결제는 그대로 남고, 새 결제는 이 분류로 자동으로 들어가지 않아요.",
                     titleColor = m.over,
                     chevron = false,
-                    onClick = { onSave(CategoryForm(c.name, target.amount, c.memo, tree.parent(c.id), true)) },
+                    onClick = { onSave(CategoryForm(c.name, target.amount, c.memo, tree.parent(c.id), true, c.inBudget)) },
                 )
             }
             Spacer(Modifier.height(12.dp))

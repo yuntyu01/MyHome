@@ -30,17 +30,23 @@ type CategoryBudget struct {
 	Settled   int64   `json:"settled"`
 	Remaining int64   `json:"remaining"`
 	Ratio     float64 `json:"ratio"` // (지출-정산)/예산. 예산이 0이면 0. 표시용
+	// InBudget이 false면 "예산 없음"(자기나 위 폴더): 한 달 예산·쓴 돈 합계에 안 든다. true이고 예산 0이면 "자유"
+	InBudget bool `json:"in_budget"`
 }
 
 // Totals는 기간 총계다.
 type Totals struct {
-	Budget      int64 `json:"budget"`
-	Spent       int64 `json:"spent"`
-	Settled     int64 `json:"settled"`
-	Remaining   int64 `json:"remaining"`
-	Income      int64 `json:"income"`
-	Investment  int64 `json:"investment"`
-	OwnTransfer int64 `json:"own_transfer"`
+	// Budget은 이 기간 한 달 예산이다: 한 달 전체 예산을 정했으면 그 값, 아니면 맨 위 분류 예산 합계.
+	Budget int64 `json:"budget"`
+	// CategoryBudget은 맨 위 분류 예산 합계, OwnBudget은 정한 한 달 전체 예산(안 정했으면 null).
+	CategoryBudget int64  `json:"category_budget"`
+	OwnBudget      *int64 `json:"own_budget"`
+	Spent          int64  `json:"spent"`
+	Settled        int64  `json:"settled"`
+	Remaining      int64  `json:"remaining"`
+	Income         int64  `json:"income"`
+	Investment     int64  `json:"investment"`
+	OwnTransfer    int64  `json:"own_transfer"`
 }
 
 // Summary는 GET /v1/summary 응답이다. 위젯이 쓰므로 가볍게 유지한다.
@@ -132,13 +138,29 @@ func (a *API) BuildSummary(r *http.Request, p period.Period, recentN int) (Summa
 		return Summary{}, err
 	}
 	s := Summary{Period: periodDTO(p), Categories: rollUp(rows), Recent: make([]TransactionDTO, 0, len(recent)), NeedsReview: nr, FailedEvents: failed, GeneratedAt: a.now()}
+	// 한 달 예산·쓴 돈: "예산 없음" 분류(그 폴더 아래 포함)는 빼고 센다. 자유(예산 0)는 쓴 돈만 센다
+	var outSettled int64
 	for _, c := range s.Categories {
-		if c.ParentID == nil {
+		if c.ParentID == nil && c.InBudget {
 			s.Totals.Budget += c.Budget
-			s.Totals.Spent += c.Spent
 		}
 	}
-	s.Totals.Settled = tot.SettledTotal
+	for _, r := range rows {
+		if inBudget(rows, r.ID) {
+			s.Totals.Spent += r.Spent
+		} else {
+			outSettled += r.Settled
+		}
+	}
+	s.Totals.CategoryBudget = s.Totals.Budget
+	own, err := q.TotalBudgetAt(ctx, p.StartDate())
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return Summary{}, err
+	}
+	if err == nil && own != nil {
+		s.Totals.Budget, s.Totals.OwnBudget = *own, own
+	}
+	s.Totals.Settled = tot.SettledTotal - outSettled
 	s.Totals.Remaining = s.Totals.Budget - s.Totals.Spent + tot.SettledTotal
 	s.Totals.Income, s.Totals.Investment, s.Totals.OwnTransfer = tot.Income, tot.Investment, tot.OwnTransfer
 	for _, t := range recent {
@@ -146,6 +168,28 @@ func (a *API) BuildSummary(r *http.Request, p period.Period, recentN int) (Summa
 	}
 	a.AttachSuggestions(ctx, s.Recent)
 	return s, nil
+}
+
+// inBudget은 분류가 한 달 예산에 드는지다: 자기와 위 폴더가 모두 in_budget이어야 한다(폴더를 "예산 없음"으로 하면 아래도).
+func inBudget(rows []dbq.CategorySummaryRow, id int64) bool {
+	by := make(map[int64]dbq.CategorySummaryRow, len(rows))
+	for _, r := range rows {
+		by[r.ID] = r
+	}
+	for steps := 0; steps < 8; steps++ {
+		r, ok := by[id]
+		if !ok {
+			return true
+		}
+		if !r.InBudget {
+			return false
+		}
+		if r.ParentID == nil {
+			return true
+		}
+		id = *r.ParentID
+	}
+	return true
 }
 
 func ratio(used, budget int64) float64 {
@@ -199,7 +243,7 @@ func rollUp(rows []dbq.CategorySummaryRow) []CategoryBudget {
 		}
 		out = append(out, CategoryBudget{
 			ID: c.ID, Name: c.Name, ParentID: parent, Depth: t.Depth(c.ID), Path: t.Label(c.ID),
-			OwnBudget: own[c.ID].Budget, Budget: x.budget, Spent: x.spent, Settled: x.settled,
+			OwnBudget: own[c.ID].Budget, Budget: x.budget, Spent: x.spent, Settled: x.settled, InBudget: inBudget(rows, c.ID),
 			Remaining: x.budget - x.spent + x.settled, Ratio: ratio(x.spent-x.settled, x.budget),
 		})
 	}

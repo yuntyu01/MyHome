@@ -1,6 +1,7 @@
 package com.yuntyu.myhome.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -372,5 +373,35 @@ fun HintLine(text: String, help: String? = null, modifier: Modifier = Modifier) 
     Row(modifier.fillMaxWidth().padding(start = Gutter, end = Gutter - 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(text, Modifier.weight(1f, fill = false), fontSize = 14.sp, color = m.muted, lineHeight = 20.sp)
         if (help != null) HelpDot(help)
+    }
+}
+
+/** 금액 상한(서버 한 달 전체 예산 상한과 같은 1,000억) */
+const val MONEY_MAX = 100_000_000_000L
+
+/**
+ * 금액 빠르게 넣기(사용자 요청, 2026-11-10): +1천 · +1만 · +10만은 누를 때마다 더하고, extra(예: "분류 합계")는 그 값으로 채운다.
+ * 좁은 칸에서도 깨지지 않게 옆으로 밀린다.
+ */
+@Composable
+fun MoneyQuickAdd(value: Long, onChange: (Long) -> Unit, extra: Pair<String, Long>? = null) {
+    val m = LocalModo.current
+    @Composable
+    fun Chip(label: String, onClick: () -> Unit) {
+        Text(
+            label,
+            Modifier.clip(RoundedCornerShape(10.dp)).background(m.raised).tap(onClickLabel = label, onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            fontSize = 14.sp, maxLines = 1,
+        )
+    }
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        for ((label, add) in listOf("+1천" to 1_000L, "+1만" to 10_000L, "+10만" to 100_000L)) {
+            Chip(label) { onChange((value + add).coerceAtMost(MONEY_MAX)) }
+        }
+        extra?.let { (label, v) -> Chip(label) { onChange(v) } }
     }
 }

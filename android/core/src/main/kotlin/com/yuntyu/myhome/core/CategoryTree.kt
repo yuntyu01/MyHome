@@ -104,9 +104,12 @@ class CategoryTree(cats: List<Category>) {
         return children(id).sumOf { effectiveBudget(own, it.id) }
     }
 
-    /** 한 달 총예산: 맨 위 지출 분류의 실제 예산 합(숨긴 분류 제외) */
+    /** 한 달 총예산: 맨 위 지출 분류의 실제 예산 합(숨긴 분류·예산 없음 제외) */
     fun totalBudget(own: Map<Long, Long>): Long =
-        children(null).filter { it.kind == "expense" && !it.archived }.sumOf { effectiveBudget(own, it.id) }
+        children(null).filter { it.kind == "expense" && !it.archived && it.inBudget }.sumOf { effectiveBudget(own, it.id) }
+
+    /** 한 달 예산에 드는지: 자기와 위 폴더가 모두 예산 안(서버 summary와 같다) */
+    fun inBudget(id: Long): Boolean = (listOf(id) + ancestors(id)).all { byId[it]?.inBudget != false }
 
     companion object {
         const val MAX_DEPTH = 3

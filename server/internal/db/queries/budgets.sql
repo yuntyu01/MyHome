@@ -28,3 +28,16 @@ FROM budgets
 WHERE period_start < $1
 ORDER BY period_start DESC
 LIMIT 1;
+
+-- name: TotalBudgetAt :one
+-- 이 기간에 쓰는 한 달 전체 예산: 이 기간 이하에서 가장 최근에 정한 값(NULL = 분류 합계). 없으면 결과 없음.
+SELECT amount
+FROM period_total_budgets
+WHERE period_start <= $1
+ORDER BY period_start DESC
+LIMIT 1;
+
+-- name: SetTotalBudget :exec
+INSERT INTO period_total_budgets (period_start, amount)
+VALUES ($1, $2)
+ON CONFLICT (period_start) DO UPDATE SET amount = excluded.amount, updated_at = now();

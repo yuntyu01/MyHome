@@ -10,9 +10,9 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 /** material-icons-core에 없는 선 아이콘. 색은 Icon의 tint가 입힌다. */
-private fun line(name: String, block: PathBuilder.() -> Unit): ImageVector =
+private fun line(name: String, width: Float = 2f, block: PathBuilder.() -> Unit): ImageVector =
     ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
-        path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round, pathBuilder = block)
+        path(stroke = SolidColor(Color.Black), strokeLineWidth = width, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round, pathBuilder = block)
     }.build()
 
 /** 투자: 오르는 꺾은선(웹 하단바와 같음) */
@@ -167,5 +167,109 @@ val PinIcon: ImageVector by lazy {
         moveTo(14.5f, 9.5f)
         arcTo(2.5f, 2.5f, 0f, true, true, 9.5f, 9.5f)
         arcTo(2.5f, 2.5f, 0f, true, true, 14.5f, 9.5f)
+    }
+}
+
+// ---- 거래 줄 앞 분류 그림(TxMarkView). 동그라미 안에 흰색으로 그린다 ----
+
+/** 식비: 포크와 나이프 */
+val FoodIcon: ImageVector by lazy {
+    line("Food") {
+        moveTo(5f, 3f); lineTo(5f, 8f); quadTo(5f, 11f, 7.5f, 11f); quadTo(10f, 11f, 10f, 8f); lineTo(10f, 3f)
+        moveTo(7.5f, 3f); lineTo(7.5f, 21f)
+        moveTo(18f, 21f); lineTo(18f, 3f); quadTo(14f, 6f, 14f, 12.5f); lineTo(18f, 12.5f)
+    }
+}
+
+/** 카페: 김 나는 잔 */
+val CupIcon: ImageVector by lazy {
+    line("Cup") {
+        moveTo(4f, 9f); lineTo(16f, 9f); lineTo(15f, 19f); quadTo(15f, 20f, 14f, 20f); lineTo(6f, 20f); quadTo(5f, 20f, 5f, 19f); close()
+        moveTo(16f, 11f); quadTo(20f, 11f, 20f, 14f); quadTo(20f, 17f, 15.5f, 17f)
+        moveTo(8f, 3f); quadTo(7f, 4.5f, 8f, 6f); moveTo(12f, 3f); quadTo(11f, 4.5f, 12f, 6f)
+    }
+}
+
+/** 교통: 버스 */
+val BusIcon: ImageVector by lazy {
+    line("Bus") {
+        moveTo(6f, 3f); lineTo(18f, 3f); quadTo(20f, 3f, 20f, 5f); lineTo(20f, 17f); lineTo(4f, 17f); lineTo(4f, 5f); quadTo(4f, 3f, 6f, 3f); close()
+        moveTo(4f, 10f); lineTo(20f, 10f)
+        moveTo(7f, 17f); lineTo(7f, 20f); moveTo(17f, 17f); lineTo(17f, 20f)
+        moveTo(7.5f, 13.5f); lineTo(7.6f, 13.5f); moveTo(16.4f, 13.5f); lineTo(16.5f, 13.5f)
+    }
+}
+
+/** 쇼핑: 손잡이 달린 봉투 */
+val BagIcon: ImageVector by lazy {
+    line("Bag") {
+        moveTo(5f, 8f); lineTo(19f, 8f); lineTo(18f, 21f); lineTo(6f, 21f); close()
+        moveTo(9f, 8f); lineTo(9f, 6.5f); arcTo(3f, 3f, 0f, false, true, 15f, 6.5f); lineTo(15f, 8f)
+    }
+}
+
+/** 생활: 장바구니 */
+val BasketIcon: ImageVector by lazy {
+    line("Basket") {
+        moveTo(3f, 10f); lineTo(21f, 10f); lineTo(19f, 20f); lineTo(5f, 20f); close()
+        moveTo(8f, 10f); lineTo(11f, 4f); moveTo(16f, 10f); lineTo(13f, 4f)
+        moveTo(9f, 13.5f); lineTo(9f, 16.5f); moveTo(12f, 13.5f); lineTo(12f, 16.5f); moveTo(15f, 13.5f); lineTo(15f, 16.5f)
+    }
+}
+
+/** 구독: 돌아가는 화살표 */
+val RepeatIcon: ImageVector by lazy {
+    line("Repeat") {
+        moveTo(20f, 12f); arcTo(8f, 8f, 0f, true, true, 17.66f, 6.34f)
+        moveTo(18f, 2.6f); lineTo(17.66f, 6.34f); lineTo(13.9f, 6.1f)
+    }
+}
+
+/** 문화·여가: 표 */
+val TicketIcon: ImageVector by lazy {
+    line("Ticket") {
+        moveTo(3f, 7f); lineTo(21f, 7f); lineTo(21f, 10f); arcTo(2f, 2f, 0f, false, false, 21f, 14f); lineTo(21f, 17f)
+        lineTo(3f, 17f); lineTo(3f, 14f); arcTo(2f, 2f, 0f, false, false, 3f, 10f); close()
+        moveTo(14f, 8.5f); lineTo(14f, 9.5f); moveTo(14f, 11.5f); lineTo(14f, 12.5f); moveTo(14f, 14.5f); lineTo(14f, 15.5f)
+    }
+}
+
+/** 의료·건강: 하트 */
+val HeartIcon: ImageVector by lazy {
+    line("Heart") {
+        moveTo(12f, 20f); curveTo(5f, 15f, 3f, 11f, 3f, 8.5f); curveTo(3f, 6f, 5f, 4f, 7.5f, 4f); curveTo(9.5f, 4f, 11f, 5.2f, 12f, 7f)
+        curveTo(13f, 5.2f, 14.5f, 4f, 16.5f, 4f); curveTo(19f, 4f, 21f, 6f, 21f, 8.5f); curveTo(21f, 11f, 19f, 15f, 12f, 20f); close()
+    }
+}
+
+/** 경조사: 선물 상자 */
+val GiftIcon: ImageVector by lazy {
+    line("Gift") {
+        moveTo(4f, 11f); lineTo(20f, 11f); lineTo(20f, 21f); lineTo(4f, 21f); close()
+        moveTo(3f, 7f); lineTo(21f, 7f); lineTo(21f, 11f); lineTo(3f, 11f); close()
+        moveTo(12f, 7f); lineTo(12f, 21f)
+        moveTo(12f, 7f); curveTo(10f, 3f, 6f, 4f, 8f, 7f); moveTo(12f, 7f); curveTo(14f, 3f, 18f, 4f, 16f, 7f)
+    }
+}
+
+/** 기타: 점 세 개 */
+val DotsIcon: ImageVector by lazy {
+    line("Dots", width = 3f) {
+        moveTo(6f, 12f); lineTo(6.05f, 12f); moveTo(12f, 12f); lineTo(12.05f, 12f); moveTo(18f, 12f); lineTo(18.05f, 12f)
+    }
+}
+
+/** 들어온 돈: 아래로 들어오는 화살표 */
+val InArrowIcon: ImageVector by lazy {
+    line("InArrow") {
+        moveTo(12f, 4f); lineTo(12f, 15f); moveTo(7f, 10f); lineTo(12f, 15f); lineTo(17f, 10f); moveTo(5f, 19.5f); lineTo(19f, 19.5f)
+    }
+}
+
+/** 이체: 오가는 화살표 */
+val SwapIcon: ImageVector by lazy {
+    line("Swap") {
+        moveTo(4f, 8f); lineTo(18f, 8f); moveTo(15f, 5f); lineTo(18f, 8f); lineTo(15f, 11f)
+        moveTo(20f, 16f); lineTo(6f, 16f); moveTo(9f, 13f); lineTo(6f, 16f); lineTo(9f, 19f)
     }
 }

@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.Money
+import com.yuntyu.myhome.core.TxMarks
 import com.yuntyu.myhome.core.RunningBudget
 import com.yuntyu.myhome.core.WidgetModel
 import com.yuntyu.myhome.core.api.ApiResult
@@ -418,6 +419,8 @@ fun TxRow(t: TransactionDto, withDay: Boolean, remaining: Long? = null, onClick:
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // 앞 동그라미: 아는 가게면 가게 색·글자, 아니면 분류 그림(토스 거래 목록처럼)
+        TxMarkView(remember(t.merchant, t.category, t.status, t.direction, t.flow) { TxMarks.of(t) }, dim = excluded)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(t.merchant.ifBlank { "이름 없는 결제" }, fontSize = 17.sp, maxLines = 2, color = if (excluded) m.faint else MaterialTheme.colorScheme.onBackground)
             Text(sub, fontSize = 14.sp, color = subColor, maxLines = 1, overflow = TextOverflow.Ellipsis)

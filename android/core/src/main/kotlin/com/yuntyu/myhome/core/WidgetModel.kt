@@ -53,12 +53,22 @@ object WidgetModel {
             .filter { it.parentId == null }
             .filter { it.budget > 0 || it.spent != 0L || it.settled != 0L }
             .partition { it.spent != 0L || it.settled != 0L }
+        // 넘은 것(많이 넘은 순) → 한도 있는 것(많이 쓴 비율 순) → 자유(많이 쓴 순) → 예산 없음(많이 쓴 순).
+        // 예산이 0이면 remaining이 음수(= 쓴 돈)라서 "넘음"으로 보면 안 된다
+        fun over(c: CategoryBudget) = c.budget > 0 && c.remaining < 0
+        fun rank(c: CategoryBudget) = when {
+            over(c) -> 0
+            !c.inBudget -> 3
+            c.budget > 0 -> 1
+            else -> 2
+        }
         val sorted = used.sortedWith(
-            compareByDescending<CategoryBudget> { it.remaining < 0 }
-                .thenBy { if (it.remaining < 0) it.remaining else 0L }
-                .thenByDescending { it.ratio },
+            compareBy<CategoryBudget> { rank(it) }
+                .thenBy { if (over(it)) it.remaining else 0L }
+                .thenByDescending { it.ratio }
+                .thenByDescending { it.spent },
         )
-        val (top, rest) = sorted.withIndex().partition { (i, c) -> i < topCount || c.remaining < 0 || c.ratio >= 0.8 }
+        val (top, rest) = sorted.withIndex().partition { (i, c) -> i < topCount || over(c) || c.ratio >= 0.8 }
         return HomeCategories(top.map { it.value }, rest.map { it.value } + unused)
     }
 
@@ -71,6 +81,15 @@ object WidgetModel {
         val m = Regex("""^(\d{4})-(\d{2})$""").find(label) ?: return label
         val (y, mo) = m.destructured
         return if (y.toInt() == currentYear) "${mo.toInt()}월" else "${y.toInt()}년 ${mo.toInt()}월"
+    }
+
+    /** 분류(폴더면 그 아래 전부)의 최근 결제 n개, 새것부터. 가계부에서 뺀 것은 빼고. 홈 분류 박스 미리보기 */
+    fun recentIn(s: Summary, txs: List<TransactionDto>, id: Long, n: Int): List<TransactionDto> {
+        val kids = s.categories.groupBy { it.parentId }
+        val ids = mutableSetOf(id)
+        fun walk(p: Long) { for (k in kids[p].orEmpty()) if (ids.add(k.id)) walk(k.id) }
+        walk(id)
+        return txs.filter { it.categoryId in ids && it.status != "excluded" }.sortedByDescending { it.occurredAt }.take(n)
     }
 
     /** 최근 결제: 나간 돈(지출·송금 등) 위주, 확인 필요 건도 포함. */

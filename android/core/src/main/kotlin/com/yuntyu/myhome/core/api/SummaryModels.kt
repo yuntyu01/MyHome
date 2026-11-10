@@ -21,7 +21,12 @@ data class PeriodInfo(val label: String, val start: String, val end: String)
 
 @Serializable
 data class Totals(
+    /** 이 기간 한 달 예산: 한 달 전체 예산을 정했으면 그 값, 아니면 맨 위 분류 예산 합계 */
     val budget: Long = 0,
+    /** 맨 위 분류 예산 합계(옛 서버는 안 준다) */
+    @SerialName("category_budget") val categoryBudget: Long = 0,
+    /** 정한 한 달 전체 예산(안 정했으면 null) */
+    @SerialName("own_budget") val ownBudget: Long? = null,
     val spent: Long = 0,
     val settled: Long = 0,
     val remaining: Long = 0,
@@ -50,6 +55,8 @@ data class CategoryBudget(
     val settled: Long = 0,
     val remaining: Long = 0,
     val ratio: Double = 0.0,
+    /** false면 "예산 없음"(자기나 위 폴더): 한 달 예산 합계에 안 든다. true이고 예산 0이면 "자유" */
+    @SerialName("in_budget") val inBudget: Boolean = true,
 )
 
 @Serializable
@@ -92,6 +99,8 @@ data class Category(
     @SerialName("parent_id") val parentId: Long? = null,
     /** 사용자가 적은 설명. AI 분류 추천이 참고한다 */
     val memo: String = "",
+    /** false면 "예산 없음": 한 달 예산(쓸 수 있는 돈)에서 깎지 않는다. true이고 예산 0이면 "자유" */
+    @SerialName("in_budget") val inBudget: Boolean = true,
 )
 
 @Serializable
@@ -140,7 +149,16 @@ data class CategoryInput(
     /** 넣을 폴더. 0이면 맨 위로, null이면 그대로 */
     @SerialName("parent_id") val parentId: Long? = null,
     val memo: String? = null,
+    /** false면 "예산 없음"(한 달 예산에서 안 깎임). null이면 그대로 */
+    @SerialName("in_budget") val inBudget: Boolean? = null,
 )
+
+/** PUT /v1/budgets/total 본문. amount가 null이면 분류 예산 합계로 */
+@Serializable
+data class TotalBudgetInput(val month: String, val amount: Long?)
+
+@Serializable
+data class TotalsReply(val totals: Totals)
 
 /** POST /v1/categories/{id}/move 본문. parentId 0 = 맨 위, before·after 둘 다 없으면 맨 끝 */
 @Serializable

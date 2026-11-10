@@ -14,8 +14,8 @@ FROM categories
 WHERE code = $1;
 
 -- name: CreateCategory :one
-INSERT INTO categories (name, kind, sort, parent_id, memo)
-VALUES (@name, @kind, @sort, sqlc.narg(parent_id), @memo)
+INSERT INTO categories (name, kind, sort, parent_id, memo, in_budget)
+VALUES (@name, @kind, @sort, sqlc.narg(parent_id), @memo, @in_budget)
 RETURNING *;
 
 -- name: UpdateCategory :one
@@ -24,7 +24,8 @@ SET name      = @name,
     sort      = @sort,
     archived  = @archived,
     parent_id = sqlc.narg(parent_id),
-    memo      = @memo
+    memo      = @memo,
+    in_budget = @in_budget
 WHERE id = @id
 RETURNING *;
 

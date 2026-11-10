@@ -39,6 +39,8 @@ type categoryInput struct {
 	// ParentID는 넣을 폴더다. 0이면 맨 위, 빼면 그대로.
 	ParentID *int64  `json:"parent_id"`
 	Memo     *string `json:"memo"`
+	// InBudget이 false면 "예산 없음": 한 달 예산(쓸 수 있는 돈)에서 깎지 않는다. 빼면 그대로(만들 때는 true)
+	InBudget *bool `json:"in_budget"`
 }
 
 func (a *API) createCategory(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +49,7 @@ func (a *API) createCategory(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	c, err := a.CreateCategory(r.Context(), CategoryChange{Name: in.Name, Kind: in.Kind, Sort: in.Sort, ParentID: in.ParentID, Memo: in.Memo})
+	c, err := a.CreateCategory(r.Context(), CategoryChange{Name: in.Name, Kind: in.Kind, Sort: in.Sort, ParentID: in.ParentID, Memo: in.Memo, InBudget: in.InBudget})
 	if err != nil {
 		if errors.Is(err, ErrDuplicateName) {
 			httpx.Error(w, http.StatusConflict, err.Error())
@@ -70,7 +72,7 @@ func (a *API) patchCategory(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "invalid json (kind는 바꿀 수 없음)")
 		return
 	}
-	c, err := a.UpdateCategory(r, id, CategoryChange{Name: in.Name, Sort: in.Sort, Archived: in.Archived, ParentID: in.ParentID, Memo: in.Memo})
+	c, err := a.UpdateCategory(r, id, CategoryChange{Name: in.Name, Sort: in.Sort, Archived: in.Archived, ParentID: in.ParentID, Memo: in.Memo, InBudget: in.InBudget})
 	if err != nil {
 		if errors.Is(err, ErrDuplicateName) {
 			httpx.Error(w, http.StatusConflict, err.Error())
@@ -91,6 +93,7 @@ type CategoryChange struct {
 	Archived *bool
 	ParentID *int64
 	Memo     *string
+	InBudget *bool
 }
 
 // ErrDuplicateName은 같은 폴더에 같은 이름이 있을 때다(HTTP 409).
@@ -161,7 +164,8 @@ func (a *API) CreateCategory(ctx context.Context, in CategoryChange) (dbq.Catego
 		if in.Sort != nil {
 			sort = *in.Sort
 		}
-		out, err = q.CreateCategory(ctx, dbq.CreateCategoryParams{Name: name, Kind: kind, Sort: sort, ParentID: parent, Memo: memo})
+		inBudget := in.InBudget == nil || *in.InBudget
+		out, err = q.CreateCategory(ctx, dbq.CreateCategoryParams{Name: name, Kind: kind, Sort: sort, ParentID: parent, Memo: memo, InBudget: inBudget})
 		return dupErr(err)
 	})
 	return out, err
@@ -183,7 +187,10 @@ func (a *API) UpdateCategory(r *http.Request, id int64, in CategoryChange) (dbq.
 		if !ok {
 			return pgx.ErrNoRows
 		}
-		p := dbq.UpdateCategoryParams{ID: id, Name: c.Name, Sort: c.Sort, Archived: c.Archived, ParentID: c.ParentID, Memo: c.Memo}
+		p := dbq.UpdateCategoryParams{ID: id, Name: c.Name, Sort: c.Sort, Archived: c.Archived, ParentID: c.ParentID, Memo: c.Memo, InBudget: c.InBudget}
+		if in.InBudget != nil {
+			p.InBudget = *in.InBudget
+		}
 		if in.Name != nil && strings.TrimSpace(*in.Name) != "" {
 			p.Name = strings.TrimSpace(*in.Name)
 		}
@@ -410,6 +417,38 @@ func (a *API) SaveBudgets(ctx context.Context, periodStart time.Time, items []Bu
 		}
 		return nil
 	})
+}
+
+// TotalBudgetMax는 한 달 전체 예산 상한(1,000억 원)이다. 잘못 친 값을 막는 정도.
+const TotalBudgetMax = 100_000_000_000
+
+// putTotalBudget: PUT /v1/budgets/total {"month": "2026-11"(없으면 이번 기간), "amount": 2000000 | null}.
+// 정한 기간부터 다음에 바꿀 때까지 이어진다. null이면 분류 예산 합계로 되돌린다. 답은 그 기간 요약의 totals.
+func (a *API) putTotalBudget(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Month  string `json:"month"`
+		Amount *int64 `json:"amount"`
+	}
+	if err := httpx.DecodeJSON(r, &in); err != nil || (in.Amount != nil && (*in.Amount < 0 || *in.Amount > TotalBudgetMax)) {
+		httpx.Error(w, http.StatusBadRequest, "amount는 0 이상 1000억 이하 또는 null")
+		return
+	}
+	r.URL.RawQuery = "month=" + in.Month
+	p, _, err := a.periodFor(r)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	if err := a.q().SetTotalBudget(r.Context(), dbq.SetTotalBudgetParams{PeriodStart: p.StartDate(), Amount: in.Amount}); err != nil {
+		a.fail(w, err)
+		return
+	}
+	s, err := a.BuildSummary(r, p, 0)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"totals": s.Totals})
 }
 
 func (a *API) copyBudgets(w http.ResponseWriter, r *http.Request) {

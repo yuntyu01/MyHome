@@ -39,6 +39,7 @@ type Category struct {
 	CreatedAt time.Time `json:"created_at"`
 	ParentID  *int64    `json:"parent_id"`
 	Memo      string    `json:"memo"`
+	InBudget  bool      `json:"in_budget"`
 }
 
 type Device struct {
@@ -249,6 +250,12 @@ type MerchantSuggestion struct {
 	Model       string    `json:"model"`
 	CreatedAt   time.Time `json:"created_at"`
 	Catalog     string    `json:"catalog"`
+}
+
+type PeriodTotalBudget struct {
+	PeriodStart time.Time `json:"period_start"`
+	Amount      *int64    `json:"amount"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type RawEvent struct {

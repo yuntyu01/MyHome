@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import com.yuntyu.myhome.core.CategoryTree
@@ -23,6 +24,7 @@ import com.yuntyu.myhome.core.api.CategoryBudget
 import com.yuntyu.myhome.core.api.PeriodInfo
 import com.yuntyu.myhome.core.api.Summary
 import com.yuntyu.myhome.core.api.Totals
+import com.yuntyu.myhome.core.api.TransactionDto
 import com.yuntyu.myhome.data.SummaryRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -106,10 +108,12 @@ class CategoryMoveTest {
         assertTrue("taps=$taps drops=$drops", taps.isEmpty() && drops.isEmpty())
     }
 
-    // 홈: 처음 보이는 폴더는 펼쳐서 안을 두 칸으로, "생활 거래 모두 보기", 접어 둔 분류는 "분류 N개 더 보기"
-    @Test fun homeFolderShowsKidsInGridAndCollapses() {
+    // 홈: 맨 위 분류마다 박스. 처음엔 접혀 있고, 누르면 박스 안에 안 분류(두 칸)와 그 폴더 최근 결제 3개. "더 보기·접기" 줄 없음
+    @Test fun homeCategoryBoxesOpenInPlace() {
         fun cb(id: Long, name: String, parent: Long? = null, budget: Long, spent: Long) =
             CategoryBudget(id, name, parentId = parent, depth = if (parent == null) 0 else 1, budget = budget, spent = spent, remaining = budget - spent, ratio = if (budget > 0) spent.toDouble() / budget else 0.0)
+        fun tx(id: Long, cat: Long, merchant: String, hhmm: String) =
+            TransactionDto(id = id, occurredAt = "2026-11-10T$hhmm:00+09:00", amount = 1000 * id, flow = "out", merchant = merchant, direction = "expense", categoryId = cat, category = "합성", status = "confirmed")
         val s = Summary(
             period = PeriodInfo("2026-11", "2026-11-01", "2026-12-01"),
             totals = Totals(budget = 2_100_000, spent = 11_900, remaining = 2_088_100),
@@ -121,29 +125,76 @@ class CategoryMoveTest {
                 cb(5, "구독", 1, budget = 15_000, spent = 0),
                 cb(6, "쇼핑", budget = 100_000, spent = 0),
             ),
+            // 최근 거래 박스에는 앞의 쇼핑 셋이 나오고, 생활 박스 미리보기에는 생활 안 결제 중 새것 셋
+            recent = listOf(
+                tx(1, 6, "합성옷가게1", "13:00"), tx(2, 6, "합성옷가게2", "12:50"), tx(3, 6, "합성옷가게3", "12:40"),
+                tx(4, 2, "합성식당", "12:00"), tx(5, 3, "합성카페", "11:00"), tx(6, 2, "합성분식", "10:00"), tx(7, 4, "합성버스", "09:00"),
+            ),
         )
         var opened = -1L
+        var openedTx = -1L
         rule.setContent {
             MyHomeTheme {
                 InUseHome(
                     Modifier, SummaryRepository.State(s, 0, null), emptyList(),
-                    onNavigate = {}, onTransactions = {}, onCategory = { opened = it }, onOpenTx = {}, serverUrl = null,
+                    onNavigate = {}, onTransactions = {}, onCategory = { opened = it }, onOpenTx = { openedTx = it.id }, serverUrl = null,
                 )
             }
         }
         rule.onNodeWithText("588,100원").assertExists()
+        rule.onNodeWithText("쇼핑").assertExists() // 다른 분류도 박스로 바로
+        rule.onNodeWithText("분류 1개 더 보기").assertDoesNotExist()
+        rule.onNodeWithText("296,400원").assertDoesNotExist() // 처음엔 접힘
+        rule.onNodeWithText("합성식당").assertDoesNotExist()
+
+        rule.onNodeWithText("생활").performClick()
+        rule.waitForIdle()
         rule.onNodeWithText("296,400원").assertExists() // 식비 칸
-        rule.onNodeWithText("분류 1개 더 보기").assertExists()
-        rule.onNodeWithText("예산 변경").assertExists()
+        rule.onNodeWithText("합성식당").assertExists()
+        rule.onNodeWithText("합성카페").assertExists()
+        rule.onNodeWithText("합성분식").assertExists()
+        rule.onNodeWithText("합성버스").assertDoesNotExist() // 넷째는 안 보임
+        rule.onNodeWithText("생활 거래 모두 보기").assertExists()
+
         rule.onNodeWithText("카페·간식").performClick()
         rule.waitForIdle()
         assertEquals(3L, opened)
-        rule.onNodeWithText("생활").performClick() // 접기
+        rule.onNodeWithText("합성식당").performScrollTo().performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("296,400원").assertDoesNotExist()
-        rule.onNodeWithText("분류 1개 더 보기").performClick()
+        assertEquals(4L, openedTx)
+    }
+
+    // "이번 달 쓸 수 있는 돈"을 누르면 예산 고치기 창: +1만이 더해지고, 저장하면 그 값. "분류 합계"는 null(분류 합계를 따라감)
+    @Test fun spendCardOpensTotalBudgetEditor() {
+        val s = Summary(
+            period = PeriodInfo("2026-11", "2026-11-01", "2026-12-01"),
+            totals = Totals(budget = 2_100_000, categoryBudget = 1_300_000, ownBudget = 2_100_000, spent = 11_900, remaining = 2_088_100),
+        )
+        val saved = mutableListOf<Pair<String, Long?>>()
+        rule.setContent {
+            MyHomeTheme {
+                InUseHome(
+                    Modifier, SummaryRepository.State(s, 0, null), emptyList(),
+                    onNavigate = {}, onTransactions = {}, onCategory = {}, onOpenTx = {}, serverUrl = null,
+                    saveTotal = { mo, amount -> saved += mo to amount; null },
+                )
+            }
+        }
+        rule.onNodeWithText("이번 달 쓸 수 있는 돈").performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("쇼핑").assertExists()
-        rule.onNodeWithText("접기").assertExists()
+        rule.onNodeWithText("이번 달 예산").assertExists()
+        rule.onNodeWithText("+1만").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("쓸 수 있는 돈 2,098,100원").assertExists()
+        rule.onNodeWithText("저장").performClick()
+        rule.waitForIdle()
+        assertEquals("2026-11" to 2_110_000L, saved.last())
+
+        rule.onNodeWithText("이번 달 쓸 수 있는 돈").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("분류 합계").performClick()
+        rule.onNodeWithText("저장").performClick()
+        rule.waitForIdle()
+        assertEquals("2026-11" to null, saved.last())
     }
 }

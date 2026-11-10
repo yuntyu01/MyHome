@@ -360,7 +360,7 @@ func (wb *Web) budgets(w http.ResponseWriter, r *http.Request) {
 			folder[*c.ParentID] = true
 		}
 	}
-	d := budgetsData{StartDay: cfg.BudgetStartDay, Total: s.Totals.Budget}
+	d := budgetsData{StartDay: cfg.BudgetStartDay, Total: s.Totals.CategoryBudget} // 표 합계는 분류 예산 합(한 달 전체 예산은 따로)
 	for _, c := range cats.Expense {
 		d.Rows = append(d.Rows, budgetRow{Category: c, Label: cats.Label(c.ID), Depth: cats.tree.Depth(c.ID), Folder: folder[c.ID],
 			Amount: amt[c.ID], ChildSum: childSum[c.ID], Spent: spent[c.ID], Previous: prevAmt[c.ID]})

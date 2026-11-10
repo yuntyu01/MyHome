@@ -131,6 +131,8 @@ class ShotsTest {
         settle(15)
 
         shot("01-홈")
+        // 분류 박스 펼치기(안 분류 + 최근 결제 3개). 한 달 예산 창은 따로 뜨는 창이라 여기서는 안 찍힌다(CategoryMoveTest가 본다)
+        if (tap("생활")) { shot("01b-홈-분류-펼침"); tap("생활") }
         tap("거래"); shot("02-거래")
         tap("미분류", "분류 고를 것", substring = true); shot("03-거래-미분류")
         tap("수입", "들어온 돈"); shot("04-거래-수입")

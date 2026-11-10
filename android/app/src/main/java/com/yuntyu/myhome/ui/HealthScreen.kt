@@ -41,6 +41,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -116,14 +119,15 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
     val openDay: (LocalDate) -> Unit = { date ->
         if (!date.isAfter(LocalDate.now())) { nav.recordsDate = date.toString(); onNavigate(Screen.HEALTH_RECORDS) }
     }
-    Column(modifier.fillMaxSize()) {
+    Box(modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = { scope.launch { refreshing = true; load(); refreshing = false } },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxSize(),
         ) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+            // 아래 여백은 오른쪽 아래 찍기 동그라미가 마지막 칸을 가리지 않게
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val d = data
@@ -150,16 +154,21 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
             d.weekly?.let { WeeklyCard(it, openDay) }
         }
         }
-        // 찍기 버튼은 내용 위에 떠 있지 않고 아래에 붙인다(표·그래프를 가리지 않게)
+        // 오른쪽 아래 흰 동그라미(핏두잉처럼, 사용자 요청 2026-11-10): 누르면 바로 다음 끼니 카메라
         val d = data
         if (d != null) {
             val next = currentIndex(d)
-            PrimaryButton(
-                if (next != null) "사진 찍어서 ${HealthPlan.label(next)} 기록" else "사진 찍어서 기록",
-                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            val label = if (next != null) "사진 찍어서 ${HealthPlan.label(next)} 기록" else "사진 찍어서 기록"
+            Box(
+                Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 20.dp).size(64.dp)
+                    .shadow(10.dp, CircleShape).clip(CircleShape).background(Color.White)
+                    .tap(onClickLabel = label, role = Role.Button) {
+                        nav.openCapture(d.day.toString(), next)
+                        onNavigate(Screen.HEALTH_CAPTURE)
+                    },
+                contentAlignment = Alignment.Center,
             ) {
-                nav.openCapture(d.day.toString(), next)
-                onNavigate(Screen.HEALTH_CAPTURE)
+                Icon(CameraIcon, contentDescription = label, tint = Color(0xFF111111), modifier = Modifier.size(28.dp))
             }
         }
     }

@@ -457,7 +457,7 @@ func TestArchivedCategoryHiddenAndReasked(t *testing.T) {
 	}
 	gift := h.catID("경조사")
 	c, _ := h.q.GetCategory(ctx, gift)
-	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: gift, Name: c.Name, Sort: c.Sort, Archived: true}); err != nil {
+	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: gift, Name: c.Name, Sort: c.Sort, Archived: true, InBudget: true}); err != nil {
 		t.Fatal(err)
 	}
 	if s := h.lookup(tx); s != nil {
@@ -481,7 +481,7 @@ func TestArchivedCategoryHiddenAndReasked(t *testing.T) {
 	// 이름을 바꾼 분류는 새 이름으로 보인다(분류 번호로 저장한다)
 	life := h.catID("생활")
 	lc, _ := h.q.GetCategory(ctx, life)
-	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: life, Name: "생활용품", Sort: lc.Sort}); err != nil {
+	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: life, Name: "생활용품", Sort: lc.Sort, InBudget: true}); err != nil {
 		t.Fatal(err)
 	}
 	if s := h.lookup(tx); s == nil || s.Category != "생활용품" || s.CategoryID != life {
@@ -603,11 +603,11 @@ func TestFolderPathMemoAndReask(t *testing.T) {
 	ctx := context.Background()
 	food := h.catID("식비")
 	fc, _ := h.q.GetCategory(ctx, food)
-	life, err := h.q.CreateCategory(ctx, dbq.CreateCategoryParams{Name: "생활비", Kind: "expense", Sort: 1})
+	life, err := h.q.CreateCategory(ctx, dbq.CreateCategoryParams{Name: "생활비", Kind: "expense", Sort: 1, InBudget: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: food, Name: fc.Name, Sort: fc.Sort, ParentID: &life.ID, Memo: "밥, 배달"}); err != nil {
+	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: food, Name: fc.Name, Sort: fc.Sort, ParentID: &life.ID, Memo: "밥, 배달", InBudget: true}); err != nil {
 		t.Fatal(err)
 	}
 	h.kb("동네분식")
@@ -629,7 +629,7 @@ func TestFolderPathMemoAndReask(t *testing.T) {
 	if st := h.runOnce(w); st.Calls != 0 {
 		t.Fatalf("바뀐 게 없으면 다시 안 물음 %+v", st)
 	}
-	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: food, Name: fc.Name, Sort: fc.Sort, ParentID: &life.ID, Memo: "밥, 배달, 편의점"}); err != nil {
+	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: food, Name: fc.Name, Sort: fc.Sort, ParentID: &life.ID, Memo: "밥, 배달, 편의점", InBudget: true}); err != nil {
 		t.Fatal(err)
 	}
 	if st := h.runOnce(w); st.Calls != 1 || st.Asked != 1 {
@@ -639,7 +639,7 @@ func TestFolderPathMemoAndReask(t *testing.T) {
 	// 스타벅스는 기본 규칙이 카페·간식으로 보낸다. 카페·간식을 숨기면 규칙을 건너뛰고 확인 필요(no_rule)로 간다.
 	cafe := h.catID("카페·간식")
 	cc, _ := h.q.GetCategory(ctx, cafe)
-	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: cafe, Name: cc.Name, Sort: cc.Sort, Archived: true}); err != nil {
+	if _, err := h.q.UpdateCategory(ctx, dbq.UpdateCategoryParams{ID: cafe, Name: cc.Name, Sort: cc.Sort, Archived: true, InBudget: true}); err != nil {
 		t.Fatal(err)
 	}
 	tx := h.kb("스타벅스강남점")

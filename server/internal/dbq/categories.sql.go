@@ -10,9 +10,9 @@ import (
 )
 
 const createCategory = `-- name: CreateCategory :one
-INSERT INTO categories (name, kind, sort, parent_id, memo)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, kind, code, sort, archived, created_at, parent_id, memo
+INSERT INTO categories (name, kind, sort, parent_id, memo, in_budget)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, kind, code, sort, archived, created_at, parent_id, memo, in_budget
 `
 
 type CreateCategoryParams struct {
@@ -21,6 +21,7 @@ type CreateCategoryParams struct {
 	Sort     int32  `json:"sort"`
 	ParentID *int64 `json:"parent_id"`
 	Memo     string `json:"memo"`
+	InBudget bool   `json:"in_budget"`
 }
 
 func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) (Category, error) {
@@ -30,6 +31,7 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 		arg.Sort,
 		arg.ParentID,
 		arg.Memo,
+		arg.InBudget,
 	)
 	var i Category
 	err := row.Scan(
@@ -42,12 +44,13 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 		&i.CreatedAt,
 		&i.ParentID,
 		&i.Memo,
+		&i.InBudget,
 	)
 	return i, err
 }
 
 const getCategory = `-- name: GetCategory :one
-SELECT id, name, kind, code, sort, archived, created_at, parent_id, memo
+SELECT id, name, kind, code, sort, archived, created_at, parent_id, memo, in_budget
 FROM categories
 WHERE id = $1
 `
@@ -65,12 +68,13 @@ func (q *Queries) GetCategory(ctx context.Context, id int64) (Category, error) {
 		&i.CreatedAt,
 		&i.ParentID,
 		&i.Memo,
+		&i.InBudget,
 	)
 	return i, err
 }
 
 const getCategoryByCode = `-- name: GetCategoryByCode :one
-SELECT id, name, kind, code, sort, archived, created_at, parent_id, memo
+SELECT id, name, kind, code, sort, archived, created_at, parent_id, memo, in_budget
 FROM categories
 WHERE code = $1
 `
@@ -88,12 +92,13 @@ func (q *Queries) GetCategoryByCode(ctx context.Context, code *string) (Category
 		&i.CreatedAt,
 		&i.ParentID,
 		&i.Memo,
+		&i.InBudget,
 	)
 	return i, err
 }
 
 const listCategories = `-- name: ListCategories :many
-SELECT id, name, kind, code, sort, archived, created_at, parent_id, memo
+SELECT id, name, kind, code, sort, archived, created_at, parent_id, memo, in_budget
 FROM categories
 ORDER BY sort, id
 `
@@ -117,6 +122,7 @@ func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
 			&i.CreatedAt,
 			&i.ParentID,
 			&i.Memo,
+			&i.InBudget,
 		); err != nil {
 			return nil, err
 		}
@@ -171,9 +177,10 @@ SET name      = $1,
     sort      = $2,
     archived  = $3,
     parent_id = $4,
-    memo      = $5
-WHERE id = $6
-RETURNING id, name, kind, code, sort, archived, created_at, parent_id, memo
+    memo      = $5,
+    in_budget = $6
+WHERE id = $7
+RETURNING id, name, kind, code, sort, archived, created_at, parent_id, memo, in_budget
 `
 
 type UpdateCategoryParams struct {
@@ -182,6 +189,7 @@ type UpdateCategoryParams struct {
 	Archived bool   `json:"archived"`
 	ParentID *int64 `json:"parent_id"`
 	Memo     string `json:"memo"`
+	InBudget bool   `json:"in_budget"`
 	ID       int64  `json:"id"`
 }
 
@@ -192,6 +200,7 @@ func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) 
 		arg.Archived,
 		arg.ParentID,
 		arg.Memo,
+		arg.InBudget,
 		arg.ID,
 	)
 	var i Category
@@ -205,6 +214,7 @@ func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) 
 		&i.CreatedAt,
 		&i.ParentID,
 		&i.Memo,
+		&i.InBudget,
 	)
 	return i, err
 }

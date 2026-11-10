@@ -22,6 +22,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -147,6 +149,14 @@ fun HomeScreen(
     InUseHome(
         modifier, if (month == null) state else past ?: SummaryRepository.State(null, 0, null), problems, onNavigate, onTransactions, onCategory, onOpenTx, settings.serverUrl,
         currentMonth = current, pastMonth = month != null, onMonth = { mo -> month = if (mo == current) null else mo },
+        saveTotal = { mo, amount ->
+            withContext(Dispatchers.IO) { app.api.putTotalBudget(mo, amount) }.let { r ->
+                if (r is ApiResult.Ok) { WidgetRefresher.refresh(ctx); null } else r.plain()
+            }
+        },
+        loadMonthTx = { mo ->
+            withContext(Dispatchers.IO) { app.api.transactions(limit = 300, month = mo) }.let { if (it is ApiResult.Ok) it.value.transactions else null }
+        },
     )
 }
 
@@ -247,6 +257,10 @@ internal fun InUseHome(
     /** 지난 기간을 보는 중이면 할 일·최근 거래를 숨긴다 */
     pastMonth: Boolean = false,
     onMonth: (String) -> Unit = {},
+    /** 분류 박스를 펼칠 때 그 기간 결제를 받는다(못 받으면 null → 요약의 최근 결제만) */
+    loadMonthTx: suspend (String) -> List<TransactionDto>? = { null },
+    /** 한 달 전체 예산 저장(기간, 금액 또는 null = 분류 합계). 실패하면 이유 */
+    saveTotal: suspend (String, Long?) -> String? = { _, _ -> "저장할 수 없어요" },
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -273,10 +287,24 @@ internal fun InUseHome(
             }
             val month = WidgetModel.monthName(s.period.label)
             val spent = s.totals.spent - s.totals.settled
+            // 누르면 한 달 예산 고치기(사용자 요청, 2026-11-10). 지난 기간은 보기만
+            var editTotal by remember { mutableStateOf(false) }
             SpendCard(
                 s, if (pastMonth) month else "이번 달", spent,
-                onClick = if (pastMonth) null else ({ onTransactions(0) }),
+                onClick = if (pastMonth) null else ({ editTotal = true }),
             )
+            if (editTotal) {
+                TotalBudgetDialog(s.totals, onDismiss = { editTotal = false }) { amount ->
+                    scope.launch {
+                        val err = saveTotal(s.period.label, amount) // 저장하면 요약도 새로 받는다(HomeScreen)
+                        if (err == null) {
+                            editTotal = false
+                        } else {
+                            Toast.makeText(ctx, err, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
 
             // 해야 할 일: 박스 대신 위아래 선으로 나눈 줄(이번 기간만)
             val todo = buildList<@Composable () -> Unit> {
@@ -299,58 +327,53 @@ internal fun InUseHome(
                     FlatRow("한 달 예산 정하기", onClick = { onNavigate(Screen.BUDGETS) })
                 }
             }
+            // 덩어리마다 둥근 박스(토스 홈처럼, 사용자 요청 2026-11-10)
             if (todo.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
-                todo.forEachIndexed { i, row ->
-                    row()
-                    if (i < todo.lastIndex) Hairline(Modifier.padding(horizontal = Gutter))
+                Spacer(Modifier.height(CardGap))
+                HomeCard {
+                    todo.forEachIndexed { i, row ->
+                        row()
+                        if (i < todo.lastIndex) Hairline(Modifier.padding(horizontal = Gutter))
+                    }
                 }
             }
 
+            // 분류별 남은 돈(사용자 요청, 2026-11-10): 맨 위 분류마다 박스 하나. 누르면 그 박스가 펼쳐져
+            // 안의 분류(두 칸)와 그 분류의 최근 결제 3개가 박스 안에 보인다. "더 보기·접기" 줄은 두지 않는다
             val cats = WidgetModel.homeCategories(s, topCount = 3)
-            if (cats.top.isNotEmpty() || cats.rest.isNotEmpty()) {
-                // 펼친 분류가 없으면(기간 시작 직후) 처음부터 다 보인다
-                var showRest by rememberSaveable { mutableStateOf(false) }
-                val open = showRest || cats.top.isEmpty()
-                val more = cats.rest.isNotEmpty() && cats.top.isNotEmpty()
-                HomeSection("분류별 남은 돈", action = "예산 변경", chevron = false, onAction = { onNavigate(Screen.BUDGETS) })
-                // 폴더: 처음 보이는 것은 펼치고 접어 둔 것은 접는다. 누르면 반대로(기억해 둔다)
-                var flipped by rememberSaveable { mutableStateOf(listOf<Long>()) }
-                val topIds = cats.top.map { it.id }.toSet()
-                val shown = cats.top + if (open) cats.rest else emptyList()
-                shown.forEachIndexed { i, c ->
-                    val kids = WidgetModel.childrenOf(s, c.id)
-                    val isOpen = kids.isNotEmpty() && ((c.id in topIds) != (c.id in flipped))
-                    if (i > 0 && shown[i - 1].let { p -> WidgetModel.childrenOf(s, p.id).isNotEmpty() && ((p.id in topIds) != (p.id in flipped)) }) {
-                        Hairline(Modifier.padding(horizontal = Gutter))
-                    }
-                    CategoryBlock(
-                        c, kids, isOpen,
-                        onToggle = { flipped = if (c.id in flipped) flipped - c.id else flipped + c.id },
-                        onCategory = onCategory,
-                    )
+            val shown = cats.top + cats.rest
+            if (shown.isNotEmpty()) {
+                HomeSection("분류별 남은 돈", action = "예산 변경", chevron = false, top = 28.dp, onAction = { onNavigate(Screen.BUDGETS) })
+                var opened by rememberSaveable { mutableStateOf(listOf<Long>()) }
+                // 펼친 박스의 최근 결제: 처음엔 요약에 온 최근 결제로, 이번 기간 결제를 받으면 그것으로
+                var monthTx by remember(s.period.label, state.updatedAt) { mutableStateOf<List<TransactionDto>?>(null) }
+                LaunchedEffect(opened.isNotEmpty(), s.period.label, state.updatedAt) {
+                    if (opened.isNotEmpty() && monthTx == null) monthTx = loadMonthTx(s.period.label)
                 }
-                if (more) {
-                    Hairline(Modifier.padding(horizontal = Gutter))
-                    Row(
-                        Modifier.fillMaxWidth().tap(role = Role.Button) { showRest = !open }.padding(horizontal = Gutter, vertical = 18.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(if (open) "접기" else "분류 ${cats.rest.size}개 더 보기", Modifier.weight(1f), fontSize = 16.sp, color = m.muted)
-                        Icon(ChevronDownIcon, contentDescription = null, tint = m.muted, modifier = Modifier.size(20.dp).rotate(if (open) 180f else 0f))
-                    }
+                val pool = monthTx ?: s.recent
+                for (c in shown) {
+                    Spacer(Modifier.height(CardGap))
+                    val isOpen = c.id in opened
+                    CategoryBox(
+                        c, WidgetModel.childrenOf(s, c.id), isOpen,
+                        recent = if (isOpen) WidgetModel.recentIn(s, pool, c.id, 3) else emptyList(),
+                        onToggle = { opened = if (isOpen) opened - c.id else opened + c.id },
+                        onCategory = onCategory,
+                        onOpenTx = onOpenTx,
+                    )
                 }
             }
 
             if (!pastMonth) {
                 val recent = WidgetModel.recentPayments(s, 3)
-                HomeSection("최근 거래", action = "전체 보기", onAction = { onTransactions(0) })
-                if (recent.isEmpty()) {
-                    Text("아직 결제가 없어요", Modifier.padding(horizontal = Gutter, vertical = 12.dp), fontSize = 14.sp, color = m.muted)
-                }
-                for (t in recent) {
-                    TxRow(t, withDay = true) { onOpenTx(t) }
-                    Hairline(Modifier.padding(horizontal = Gutter))
+                Spacer(Modifier.height(CardGap))
+                HomeCard {
+                    HomeSection("최근 거래", action = "전체 보기", top = 20.dp, onAction = { onTransactions(0) })
+                    if (recent.isEmpty()) {
+                        Text("아직 결제가 없어요", Modifier.padding(horizontal = Gutter, vertical = 12.dp), fontSize = 14.sp, color = m.muted)
+                    }
+                    for (t in recent) TxRow(t, withDay = true) { onOpenTx(t) }
+                    Spacer(Modifier.height(8.dp))
                 }
             }
 
@@ -414,9 +437,9 @@ private fun SpendCard(s: Summary, monthWord: String, spent: Long, onClick: (() -
     val hasBudget = s.totals.budget > 0
     val over = hasBudget && s.totals.remaining < 0
     Column(
-        Modifier.padding(horizontal = Gutter).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(m.card)
+        Modifier.padding(horizontal = CardMargin).fillMaxWidth().clip(RoundedCornerShape(CardRadius)).background(m.card)
             .then(if (onClick != null) Modifier.tap(onClickLabel = "거래 보기", onClick = onClick) else Modifier)
-            .padding(horizontal = 22.dp, vertical = 22.dp),
+            .padding(horizontal = Gutter, vertical = 22.dp),
     ) {
         Text(
             when {
@@ -455,11 +478,55 @@ private fun SpendCard(s: Summary, monthWord: String, spent: Long, onClick: (() -
     }
 }
 
+/** 홈 박스: 화면 옆 14dp, 모서리 22dp, 카드 바탕. 안의 줄은 평소처럼 Gutter만큼 들여 쓴다 */
+private val CardMargin = 14.dp
+private val CardRadius = 22.dp
+private val CardGap = 12.dp
+
+@Composable
+private fun HomeCard(content: @Composable () -> Unit) {
+    val m = LocalModo.current
+    Column(Modifier.padding(horizontal = CardMargin).fillMaxWidth().clip(RoundedCornerShape(CardRadius)).background(m.card)) { content() }
+}
+
+/**
+ * 한 달 예산 고치기: 숫자 칸(+1천·+1만·+10만, "분류 합계"), 아래에 그러면 쓸 수 있는 돈.
+ * 분류 예산 합계와 같은 값으로 저장하면 null(분류 합계를 따라감)로 보낸다.
+ */
+@Composable
+private fun TotalBudgetDialog(t: com.yuntyu.myhome.core.api.Totals, onDismiss: () -> Unit, onSave: (Long?) -> Unit) {
+    val m = LocalModo.current
+    var text by remember { mutableStateOf(t.budget.takeIf { it > 0 }?.toString().orEmpty()) }
+    val won = text.toLongOrNull() ?: 0L
+    val left = won - t.spent + t.settled
+    ModoAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("이번 달 예산") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                LineField(
+                    text, { v -> text = v.filter(Char::isDigit).trimStart('0').take(12).let { d -> if ((d.toLongOrNull() ?: 0L) > MONEY_MAX) MONEY_MAX.toString() else d } },
+                    if (won > 0) Money.won(won) else "예산", keyboardType = KeyboardType.Number, suffix = "원",
+                )
+                MoneyQuickAdd(won, { text = it.toString() }, extra = if (t.categoryBudget > 0) "분류 합계" to t.categoryBudget else null)
+                Text(
+                    if (left >= 0) "쓸 수 있는 돈 ${Money.won(left)}" else "${Money.won(-left)} 넘음",
+                    Modifier.padding(top = 6.dp), fontSize = 14.sp, color = if (left >= 0) m.muted else m.over,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = text.isNotEmpty(), onClick = { onSave(if (t.categoryBudget > 0 && won == t.categoryBudget) null else won) }) { Text("저장") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
+    )
+}
+
 /** 묶음 머리: 굵은 제목, 오른쪽 "전체 보기 ›" */
 @Composable
-private fun HomeSection(title: String, action: String?, chevron: Boolean = true, onAction: () -> Unit) {
+private fun HomeSection(title: String, action: String?, chevron: Boolean = true, top: androidx.compose.ui.unit.Dp = 32.dp, onAction: () -> Unit) {
     val m = LocalModo.current
-    Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter - 6.dp, top = 32.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter - 6.dp, top = top, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.Bold)
         if (action != null) {
             Row(
@@ -471,6 +538,13 @@ private fun HomeSection(title: String, action: String?, chevron: Boolean = true,
             }
         }
     }
+}
+
+/** 한도 없는 분류 꼬리표: 예산 없음(한 달 예산에서 안 깎임) / 자유(한도 없이, 깎임). 한도가 있으면 없음 */
+private fun budgetTag(c: CategoryBudget): String? = when {
+    !c.inBudget -> "예산 없음"
+    c.budget <= 0 -> "자유"
+    else -> null
 }
 
 /** 남은 돈 글자와 색: 예산이 없으면 쓴 돈, 넘으면 "넘음", 80% 넘게 쓰면 주의색 */
@@ -486,56 +560,95 @@ private fun leftText(c: CategoryBudget): Pair<String, androidx.compose.ui.graphi
 }
 
 /**
- * 맨 위 분류 한 덩어리(2026-11-10 시안): 굵은 이름과 남은 돈, 아래 막대.
- * 폴더면 이름 옆 ⌄/⌃로 접고 펴고, 펼치면 안의 분류를 두 칸 격자로, 맨 아래 "○○ 거래 모두 보기 ›". 그냥 분류는 누르면 그 거래만.
+ * 맨 위 분류 박스 하나(2026-11-10 사용자 요청): 굵은 이름 ⌄와 남은 돈, 막대. 누르면 박스 안에서 펼쳐진다:
+ * 안의 분류(두 칸 격자) → 최근 결제 3개(날짜·가게·금액, 토스 통장 미리보기처럼) → "○○ 거래 모두 보기 ›".
  */
 @Composable
-private fun CategoryBlock(c: CategoryBudget, kids: List<CategoryBudget>, open: Boolean, onToggle: () -> Unit, onCategory: (Long) -> Unit) {
+private fun CategoryBox(
+    c: CategoryBudget,
+    kids: List<CategoryBudget>,
+    open: Boolean,
+    recent: List<TransactionDto>,
+    onToggle: () -> Unit,
+    onCategory: (Long) -> Unit,
+    onOpenTx: (TransactionDto) -> Unit,
+) {
     val m = LocalModo.current
-    val folder = kids.isNotEmpty()
-    Column(
-        Modifier.fillMaxWidth()
-            .tap(onClickLabel = if (!folder) "${c.name} 거래 보기" else if (open) "접기" else "펼치기") { if (folder) onToggle() else onCategory(c.id) }
-            .padding(start = Gutter, end = Gutter, top = 16.dp, bottom = if (folder && open) 6.dp else 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // 이름(+⌄)이 남는 칸을 다 차지하고 돈은 오른쪽 끝. 이름이 길면 이름만 줄어든다
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Text(c.name, Modifier.weight(1f, fill = false), fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (folder) {
+    HomeCard {
+        Column(
+            Modifier.fillMaxWidth().tap(onClickLabel = if (open) "접기" else "펼치기", onClick = onToggle)
+                .padding(start = Gutter, end = Gutter, top = 20.dp, bottom = if (open) 8.dp else 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 이름(+⌄)이 남는 칸을 다 차지하고 돈은 오른쪽 끝. 이름이 길면 이름만 줄어든다
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text(c.name, Modifier.weight(1f, fill = false), fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // 한도 없는 분류: 자유(이번 달 예산에서는 깎임) / 예산 없음(안 깎임)
+                    budgetTag(c)?.let { tag ->
+                        Text(
+                            tag, Modifier.padding(start = 8.dp).clip(RoundedCornerShape(6.dp)).background(m.raised).padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 12.sp, color = m.muted, maxLines = 1,
+                        )
+                    }
                     Icon(
-                        ChevronDownIcon, contentDescription = if (open) "접기" else "펼치기",
+                        ChevronDownIcon, contentDescription = if (open) "접기" else "펼치기", tint = m.muted,
                         modifier = Modifier.padding(start = 6.dp).size(20.dp).rotate(if (open) 180f else 0f),
                     )
                 }
+                Spacer(Modifier.width(12.dp))
+                val (text, color) = leftText(c)
+                Text(text, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
             }
-            Spacer(Modifier.width(12.dp))
-            val (text, color) = leftText(c)
-            Text(text, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
+            if (c.budget > 0) ModoBar(c.ratio, budgetColor(c.ratio))
         }
-        if (c.budget > 0) ModoBar(c.ratio, budgetColor(c.ratio))
-    }
-    if (folder && open) {
-        Column(
-            Modifier.fillMaxWidth().padding(start = Gutter + 10.dp, end = Gutter, top = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            for (pair in kids.chunked(2)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    for (k in pair) KidCell(k, Modifier.weight(1f)) { onCategory(k.id) }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+        if (open) {
+        if (kids.isNotEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                for (pair in kids.chunked(2)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        for (k in pair) KidCell(k, Modifier.weight(1f)) { onCategory(k.id) }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         }
+        if (recent.isNotEmpty()) {
+            Hairline(Modifier.padding(start = Gutter, end = Gutter, top = 12.dp, bottom = 6.dp))
+            var lastDay = ""
+            for (t in recent) {
+                val day = WidgetModel.shortTime(t.occurredAt).take(5).replace('/', '.')
+                PreviewTxRow(t, if (day != lastDay) day else "") { onOpenTx(t) }
+                lastDay = day
+            }
+        }
         Row(
-            Modifier.padding(start = Gutter + 4.dp, top = 6.dp, bottom = 10.dp).clip(RoundedCornerShape(10.dp))
+            Modifier.padding(start = Gutter - 6.dp, top = 4.dp, bottom = 12.dp).clip(RoundedCornerShape(10.dp))
                 .tap(onClickLabel = "${c.name} 거래 보기") { onCategory(c.id) }.padding(horizontal = 6.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("${c.name} 거래 모두 보기", fontSize = 15.sp, color = m.muted)
             Icon(ChevronRightIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 2.dp).size(16.dp))
         }
+        }
+    }
+}
+
+/** 박스 안 최근 결제 한 줄: "11.10  가게 이름  6,550원"(같은 날이면 날짜는 첫 줄에만) */
+@Composable
+private fun PreviewTxRow(t: TransactionDto, day: String, onClick: () -> Unit) {
+    val m = LocalModo.current
+    Row(
+        Modifier.fillMaxWidth().tap(onClickLabel = "${t.merchant} 결제 보기", onClick = onClick).padding(horizontal = Gutter, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(day, Modifier.width(52.dp), fontSize = 14.sp, color = m.muted, maxLines = 1)
+        Text(t.merchant.ifBlank { "이름 없는 결제" }, Modifier.weight(1f), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(12.dp))
+        Text((if (t.flow == "in") "+" else "") + Money.won(t.amount), fontSize = 15.sp, color = if (t.flow == "in") m.income else MaterialTheme.colorScheme.onBackground, maxLines = 1)
     }
 }
 

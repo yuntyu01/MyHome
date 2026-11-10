@@ -85,8 +85,9 @@ class WidgetModelTest {
             ),
         )
         val h = WidgetModel.homeCategories(s)
-        assertEquals(listOf("생활", "경조사", "카페", "교통", "식비"), h.top.map { it.name })
-        assertEquals(listOf("문화", "구독", "쇼핑", "의료"), h.rest.map { it.name })
+        // 넘은 것 → 한도(쓴 비율 순) → 자유(예산 0인 경조사는 "넘음"이 아니다, 2026-11-10) → 안 쓴 것
+        assertEquals(listOf("생활", "카페", "교통", "식비", "문화"), h.top.map { it.name })
+        assertEquals(listOf("구독", "쇼핑", "경조사", "의료"), h.rest.map { it.name })
     }
 
     @Test fun homeCategoriesKeepEveryOverBudget() {
