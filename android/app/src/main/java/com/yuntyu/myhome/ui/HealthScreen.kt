@@ -61,7 +61,6 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
-import kotlin.math.abs
 import kotlin.math.max
 
 /** 건강 첫 화면(핏두잉 "오늘"): 요일 줄, 끼니 칸, 오늘 합계(탄단지 위주), 끼니마다 박스, 헬스 한 줄, 주간 그래프, 아래 촬영 버튼. */
@@ -132,21 +131,19 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
                 Text(if (error != null) "불러오지 못했어요. 인터넷 연결을 확인해 주세요" else "불러오는 중…", color = m.muted, modifier = Modifier.padding(horizontal = 6.dp))
                 return@Column
             }
-            if (error != null) Text("새로 불러오지 못했어요. 마지막으로 받은 기록이에요", style = MaterialTheme.typography.bodySmall, color = m.over, modifier = Modifier.padding(horizontal = 6.dp))
+            if (error != null) Text("새로 못 받았어요", style = MaterialTheme.typography.bodySmall, color = m.over, modifier = Modifier.padding(horizontal = 6.dp))
             WeekStrip(d, openDay)
             if (d.outbox.isNotEmpty()) {
                 val failed = d.outbox.values.count { it.error != null }
                 Text(
-                    if (failed > 0) "보내지 못한 끼니가 ${failed}개 있어요. 눌러서 다시 저장해 주세요"
-                    else "보내는 중인 끼니가 ${d.outbox.size}개 있어요. 연결되면 자동으로 보내요",
+                    if (failed > 0) "못 보낸 끼니 ${failed}개"
+                    else "보내는 중 ${d.outbox.size}개",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (failed > 0) m.warn else m.muted,
                     modifier = Modifier.padding(horizontal = 6.dp),
                 )
             }
-            MealTiles(d, nav, onNavigate)
-            val streak = if (d.today.streak > 0) " · ${d.today.streak}일째" else ""
-            NutritionTotals(d.today.total, d.today.targets, "오늘 합계", "${d.today.loggedCount}끼 기록$streak") { openDay(d.day) }
+            NutritionTotals(d.today.total, d.today.targets, null, null) { openDay(d.day) }
             MealCards(d, nav, onNavigate)
             GymLine(d) { onNavigate(Screen.HEALTH_GYM) }
             d.weekly?.let { WeeklyCard(it, openDay) }
@@ -201,59 +198,6 @@ private fun WeekStrip(d: HealthHome, onDay: (LocalDate) -> Unit) {
     }
 }
 
-/** 위 끼니 칸(1끼·2끼…). 헬스는 아래 따로 한 줄로 뺐다. 칸이 4개 이하면 화면 폭을 나눠 쓰고, 많으면 옆으로 넘긴다 */
-@Composable
-private fun MealTiles(d: HealthHome, nav: HealthNav, onNavigate: (Screen) -> Unit) {
-    val meals = d.card?.meals.orEmpty().associateBy { it.index }
-    val now = LocalDateTime.now()
-    val statuses = HealthPlan.statuses(HealthPlan.deadlinesFor(d.day, d.settings.meals), meals.keys + d.outbox.keys, now)
-    val fit = statuses.size <= 4
-    Row(
-        Modifier.fillMaxWidth().then(if (fit) Modifier else Modifier.horizontalScroll(rememberScrollState())),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        for ((dl, state) in statuses) {
-            val current = state == HealthPlan.TileState.CURRENT
-            val waiting = d.outbox[dl.index]?.takeIf { dl.index !in meals }
-            val sub = if (waiting != null) {
-                if (waiting.error != null) "보내지 못함" else "보내는 중"
-            } else {
-                when (state) {
-                    HealthPlan.TileState.LOGGED -> meals[dl.index]?.loggedAt?.let(::localHhmm) ?: "기록함"
-                    HealthPlan.TileState.CURRENT -> remainText(java.time.Duration.between(now, dl.at).toMinutes())
-                    HealthPlan.TileState.MISSED -> "놓침"
-                    HealthPlan.TileState.UPCOMING -> HealthPlan.hhmm(dl.at.hour * 60 + dl.at.minute)
-                }
-            }
-            Tile(
-                HealthPlan.label(dl.index), sub, current, done = state == HealthPlan.TileState.LOGGED && waiting == null,
-                modifier = if (fit) Modifier.weight(1f) else Modifier.widthIn(min = 80.dp),
-            ) {
-                nav.openCapture(d.day.toString(), dl.index, meals[dl.index])
-                onNavigate(Screen.HEALTH_CAPTURE)
-            }
-        }
-    }
-}
-
-@Composable
-private fun Tile(title: String, sub: String, current: Boolean, done: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val m = LocalModo.current
-    val fg = if (current) m.onAccent else MaterialTheme.colorScheme.onSurface
-    Column(
-        modifier.heightIn(min = 84.dp).clip(RoundedCornerShape(16.dp)).background(if (current) m.accent else m.card)
-            .tap(onClick = onClick).padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f), color = fg, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            if (done) Text("✓", color = if (current) m.onAccent else m.muted, fontSize = 12.sp)
-        }
-        // "3시간 41분"이 좁은 칸에서 잘리지 않게 두 줄까지
-        Text(sub, color = if (current) m.onAccent else m.muted, style = MaterialTheme.typography.bodySmall, fontWeight = if (current) FontWeight.Bold else FontWeight.Normal, maxLines = 2)
-    }
-}
-
 /** 서버 시각(ISO)을 폰 시각 "HH:mm"으로 */
 fun localHhmm(iso: String): String? = runCatching {
     OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()).toLocalTime().toString().take(5)
@@ -275,7 +219,7 @@ private fun MealCards(d: HealthHome, nav: HealthNav, onNavigate: (Screen) -> Uni
     for (meal in eaten) EatenMealCard(day, meal) { open(meal.index) }
     // 못 보낸 끼니
     for ((i, e) in d.outbox.filterKeys { it !in meals }.toSortedMap()) {
-        PlanCard(HealthPlan.label(i), if (e.error != null) "보내지 못했어요. 눌러서 다시 저장해 주세요" else "보내는 중이에요. 연결되면 자동으로 보내요", null, dashed = false) { open(i) }
+        PlanCard(HealthPlan.label(i), if (e.error != null) "못 보냄 · 눌러서 다시" else "보내는 중", null, dashed = false) { open(i) }
     }
     // 아직 안 먹은 끼니: 점선 박스
     for ((dl, state) in statuses) {
@@ -283,7 +227,7 @@ private fun MealCards(d: HealthHome, nav: HealthNav, onNavigate: (Screen) -> Uni
         val label = HealthPlan.label(dl.index)
         val until = HealthPlan.hhmm(dl.at.hour * 60 + dl.at.minute)
         when (state) {
-            HealthPlan.TileState.MISSED -> PlanCard("$label 놓침", "${until}까지였어요. 지금이라도 기록할 수 있어요", null, dashed = true, faint = true) { open(dl.index) }
+            HealthPlan.TileState.MISSED -> PlanCard("$label 놓침", "${until}까지", null, dashed = true, faint = true) { open(dl.index) }
             HealthPlan.TileState.CURRENT, HealthPlan.TileState.UPCOMING ->
                 PlanCard("$label 예정", "${until}까지", rows[dl.index]?.target, dashed = true) { open(dl.index) }
             HealthPlan.TileState.LOGGED -> Unit
@@ -363,9 +307,6 @@ private fun PlanCard(title: String, sub: String, target: Nutrition?, dashed: Boo
             Icon(CameraIcon, contentDescription = "기록", tint = m.muted, modifier = Modifier.size(20.dp))
         }
         Text(sub, style = MaterialTheme.typography.bodySmall, color = m.muted)
-        if (target != null && target.kcal > 0) {
-            Text("이만큼 먹으면 좋아요 · ${macroLine(target)}", style = MaterialTheme.typography.bodySmall, color = m.muted)
-        }
     }
 }
 
@@ -424,7 +365,7 @@ private fun WeeklyCard(w: HealthWeekly, onDay: (LocalDate) -> Unit) {
             if (start != null) Text("${start.monthValue}.${start.dayOfMonth} - ${start.plusDays(6).monthValue}.${start.plusDays(6).dayOfMonth}", style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
         val s = w.summary?.get(metric)
-        if (s != null) Text("완료한 ${s.completed}일 중 ${s.achieved}일 달성", style = MaterialTheme.typography.bodyMedium)
+        if (s != null) Text("${s.achieved}/${s.completed}일 달성", style = MaterialTheme.typography.bodyMedium)
         Row(Modifier.fillMaxWidth().height(130.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
             for (wd in days) {
                 val date = runCatching { LocalDate.parse(wd.date) }.getOrNull() ?: start?.plusDays(wd.index.toLong())
@@ -445,11 +386,6 @@ private fun WeeklyCard(w: HealthWeekly, onDay: (LocalDate) -> Unit) {
             }
         }
         MetricTabs(metric) { metric = it }
-        val label = METRICS.first { it.first == metric }.second
-        s?.furthest?.let { f ->
-            val more = f.diff > 0
-            Text("${WEEKDAYS.getOrElse(f.index) { "" }}요일은 $label 목표보다 ${num(abs(f.diff))} $unit ${if (more) "많았어요" else "적었어요"}", style = MaterialTheme.typography.bodyMedium)
-        }
         val avg = pick(w.avg, metric)
         val lastAvg = pick(w.lastAvg, metric)
         if (avg != null || lastAvg != null) {

@@ -430,3 +430,9 @@
 - **카메라 권한(CAMERA)을 새로 묻는다** - 처음 찍을 때 한 번. 거절하면 예전처럼 기본 카메라 앱으로 찍고 "소리가 날 수 있어요"라고 알린다. 카메라 없는 기기도 설치되게 `uses-feature required=false`.
 - 새 의존성: `androidx.camera:camera-camera2/lifecycle/view` 1.4.1(앱 안 카메라 미리보기).
 - 되돌리려면 `rememberSilentCamera` 대신 `ActivityResultContracts.TakePicture()`(git 기록의 HealthCaptureScreen·HealthGymScreen).
+
+## 건강 첫 화면 글자 빼기 (사용자 요청, 2026-11-10)
+
+- **날짜 줄 밑 1끼·2끼·3끼 칸을 뺐다** - 아래 끼니 박스(먹은 끼니·예정·놓침)와 아래 "사진 찍어서 ○끼 기록" 버튼이 같은 일을 해서 겹쳤다. 되살리려면 git 기록의 `HealthScreen.MealTiles`.
+- **영양 합계 카드의 "오늘 합계"·"○끼 기록 · ○일째" 글자를 뺐다** - 숫자(탄단지·칼로리와 목표)만 남는다. 기록 화면의 "이날 합계"는 그대로.
+- **"이만큼 먹으면 좋아요" 같은 안내 문장을 뺐다** - 예정 끼니 박스는 "○끼 예정 · ○시까지"만, 놓친 끼니는 "○시까지"만. 주간 그래프의 "○요일은 목표보다 ○g 많았어요" 문장도 빼고 "달성 ○/○일"로 줄였다.

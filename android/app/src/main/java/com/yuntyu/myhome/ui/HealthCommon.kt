@@ -90,7 +90,7 @@ fun remainText(minutes: Long): String = when {
  * (핏두잉 규칙: 많이 먹은 것을 탓하지 않는다).
  */
 @Composable
-fun NutritionTotals(total: Nutrition, targets: Nutrition, title: String, trailing: String?, onClick: (() -> Unit)? = null) {
+fun NutritionTotals(total: Nutrition, targets: Nutrition, title: String?, trailing: String?, onClick: (() -> Unit)? = null) {
     val m = LocalModo.current
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card)
@@ -98,8 +98,8 @@ fun NutritionTotals(total: Nutrition, targets: Nutrition, title: String, trailin
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        if (title != null || trailing != null) Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
             if (trailing != null) Text(trailing, style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
