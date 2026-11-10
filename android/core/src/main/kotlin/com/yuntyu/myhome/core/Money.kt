@@ -18,6 +18,21 @@ object Money {
         return (if (amount < 0) "-" else "") + sb.toString()
     }
 
+    /**
+     * 읽기 쉬운 한국식 금액(금액 칸 위에 보여 준다): 500000 → "50만원", 12345000 → "1,234만 5,000원",
+     * 120000000 → "1억 2,000만원", 3000 → "3,000원". 버리는 자리 없이 정확하다.
+     */
+    fun korean(amount: Long): String {
+        val abs = amount.absoluteValue
+        if (abs == 0L) return "0원"
+        val parts = listOfNotNull(
+            (abs / 100_000_000).takeIf { it > 0 }?.let { grouped(it) + "억" },
+            ((abs % 100_000_000) / 10_000).takeIf { it > 0 }?.let { grouped(it) + "만" },
+            (abs % 10_000).takeIf { it > 0 }?.let { grouped(it) },
+        )
+        return (if (amount < 0) "-" else "") + parts.joinToString(" ") + "원"
+    }
+
     /** 위젯처럼 좁은 곳용: 1234567 → "123만", 9800 → "9,800" */
     fun compact(amount: Long): String {
         val abs = amount.absoluteValue

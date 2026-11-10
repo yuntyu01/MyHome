@@ -318,6 +318,8 @@ fun LineField(
     maxLines: Int = 1,
     /** 칸 안 오른쪽 단위(cm, kg, 원). 라벨에 단위를 붙이면 좁은 칸에서 두 줄이 된다 */
     suffix: String? = null,
+    /** 금액 칸: 치는 동안 세 자리마다 쉼표("500,000"). 값은 숫자만 그대로 */
+    money: Boolean = false,
 ) {
     val m = LocalModo.current
     androidx.compose.material3.TextField(
@@ -329,7 +331,11 @@ fun LineField(
         singleLine = maxLines <= 1,
         maxLines = maxLines,
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = keyboardType),
-        visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        visualTransformation = when {
+            secret -> androidx.compose.ui.text.input.PasswordVisualTransformation()
+            money -> ThousandsTransformation
+            else -> androidx.compose.ui.text.input.VisualTransformation.None
+        },
         colors = androidx.compose.material3.TextFieldDefaults.colors(
             focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent,
             focusedIndicatorColor = MaterialTheme.colorScheme.onBackground, unfocusedIndicatorColor = m.line,
@@ -403,5 +409,33 @@ fun MoneyQuickAdd(value: Long, onChange: (Long) -> Unit, extra: Pair<String, Lon
             Chip(label) { onChange((value + add).coerceAtMost(MONEY_MAX)) }
         }
         extra?.let { (label, v) -> Chip(label) { onChange(v) } }
+    }
+}
+
+/** 숫자만 든 칸을 세 자리마다 쉼표로 보여 준다("500000" → "500,000"). 커서 자리도 쉼표를 건너 맞춘다 */
+object ThousandsTransformation : androidx.compose.ui.text.input.VisualTransformation {
+    override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
+        val raw = text.text
+        if (raw.isEmpty() || raw.any { !it.isDigit() }) {
+            return androidx.compose.ui.text.input.TransformedText(text, androidx.compose.ui.text.input.OffsetMapping.Identity)
+        }
+        val n = raw.length
+        val out = StringBuilder()
+        val toOut = IntArray(n + 1)
+        val toRaw = ArrayList<Int>(n + n / 3 + 1)
+        for (i in 0 until n) {
+            if (i > 0 && (n - i) % 3 == 0) { out.append(','); toRaw.add(i) }
+            toOut[i] = out.length
+            out.append(raw[i]); toRaw.add(i)
+        }
+        toOut[n] = out.length
+        toRaw.add(n)
+        return androidx.compose.ui.text.input.TransformedText(
+            androidx.compose.ui.text.AnnotatedString(out.toString()),
+            object : androidx.compose.ui.text.input.OffsetMapping {
+                override fun originalToTransformed(offset: Int) = toOut[offset.coerceIn(0, n)]
+                override fun transformedToOriginal(offset: Int) = toRaw[offset.coerceIn(0, toRaw.size - 1)]
+            },
+        )
     }
 }

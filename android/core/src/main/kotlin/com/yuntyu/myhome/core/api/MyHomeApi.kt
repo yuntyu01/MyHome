@@ -119,6 +119,17 @@ class MyHomeApi(
     fun putTotalBudget(month: String, amount: Long?): ApiResult<TotalsReply> =
         call("PUT", "/v1/budgets/total", MyHomeJson.encodeToString(TotalBudgetInput.serializer(), TotalBudgetInput(month, amount)), TotalsReply.serializer())
 
+    /** 고정으로 빠지는 돈 목록·만들기·고치기·지우기(보관) */
+    fun fixedItems(): ApiResult<FixedList> = call("GET", "/v1/fixed", null, FixedList.serializer())
+
+    fun createFixed(name: String, amount: Long): ApiResult<FixedItem> =
+        call("POST", "/v1/fixed", MyHomeJson.encodeToString(FixedInput.serializer(), FixedInput(name, amount)), FixedItem.serializer())
+
+    fun updateFixed(id: Long, name: String? = null, amount: Long? = null): ApiResult<FixedItem> =
+        call("PATCH", "/v1/fixed/$id", MyHomeJson.encodeToString(FixedInput.serializer(), FixedInput(name, amount)), FixedItem.serializer())
+
+    fun archiveFixed(id: Long): ApiResult<FixedItem> = call("DELETE", "/v1/fixed/$id", null, FixedItem.serializer())
+
     /** 예산 시작일(매달 1~28일) */
     fun budgetStartDay(): ApiResult<Int> = when (val r = call("GET", "/v1/settings", null, ServerSettings.serializer())) {
         is ApiResult.Ok -> ApiResult.Ok(r.value.settings["budget_start_day"]?.let { runCatching { it.toString().trim('"').toInt() }.getOrNull() } ?: 1, r.code)

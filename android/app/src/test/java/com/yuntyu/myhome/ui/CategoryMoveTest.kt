@@ -124,11 +124,13 @@ class CategoryMoveTest {
                 cb(4, "교통", 1, budget = 50_000, spent = 0),
                 cb(5, "구독", 1, budget = 15_000, spent = 0),
                 cb(6, "쇼핑", budget = 100_000, spent = 0),
+                CategoryBudget(7, "배달", parentId = 2, depth = 2, budget = 0, spent = 2_000, remaining = -2_000), // 식비 안의 분류 → 식비는 작은 박스
             ),
             // 최근 거래 박스에는 앞의 쇼핑 셋이 나오고, 생활 박스 미리보기에는 생활 안 결제 중 새것 셋
             recent = listOf(
                 tx(1, 6, "합성옷가게1", "13:00"), tx(2, 6, "합성옷가게2", "12:50"), tx(3, 6, "합성옷가게3", "12:40"),
                 tx(4, 2, "합성식당", "12:00"), tx(5, 3, "합성카페", "11:00"), tx(6, 2, "합성분식", "10:00"), tx(7, 4, "합성버스", "09:00"),
+                tx(8, 7, "합성치킨", "08:00"),
             ),
         )
         var opened = -1L
@@ -156,9 +158,26 @@ class CategoryMoveTest {
         rule.onNodeWithText("합성버스").assertDoesNotExist() // 넷째는 안 보임
         rule.onNodeWithText("생활 거래 모두 보기").assertExists()
 
-        rule.onNodeWithText("카페·간식").performClick()
+        // 안의 분류를 누르면 그 분류가 골라지고 최근 결제·"거래 모두 보기"가 그것으로
+        rule.onNodeWithText("카페·간식").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("합성카페").assertExists()
+        rule.onNodeWithText("합성식당").assertDoesNotExist()
+        rule.onNodeWithText("구독").assertExists() // 고른 뒤에도 옆 칸들은 그대로
+        rule.onNodeWithText("카페·간식 거래 모두 보기").performScrollTo().performClick()
         rule.waitForIdle()
         assertEquals(3L, opened)
+        // 안의 폴더(식비, 안에 배달)는 작은 박스: 머리를 누르면 식비 아래 전부, 배달을 누르면 배달만
+        rule.onNodeWithText("식비").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("합성치킨").assertExists()
+        rule.onNodeWithText("합성카페").assertDoesNotExist()
+        rule.onNodeWithText("배달").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("합성식당").assertDoesNotExist()
+        rule.onNodeWithText("합성치킨").assertExists()
+        rule.onNodeWithText("배달").performScrollTo().performClick() // 다시 누르면 풀려서 생활 전체
+        rule.waitForIdle()
         rule.onNodeWithText("합성식당").performScrollTo().performClick()
         rule.waitForIdle()
         assertEquals(4L, openedTx)
@@ -186,6 +205,7 @@ class CategoryMoveTest {
         rule.onNodeWithText("+1만").performClick()
         rule.waitForIdle()
         rule.onNodeWithText("쓸 수 있는 돈 2,098,100원").assertExists()
+        rule.onNodeWithText("211만원").assertExists() // 칸 위는 한국식으로 읽기 쉽게
         rule.onNodeWithText("저장").performClick()
         rule.waitForIdle()
         assertEquals("2026-11" to 2_110_000L, saved.last())

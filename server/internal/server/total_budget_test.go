@@ -111,3 +111,59 @@ func TestBudgetScope(t *testing.T) {
 		t.Fatalf("폴더째 빠진다 %+v", s.Totals)
 	}
 }
+
+// 고정으로 빠지는 돈: 만들면 쓸 수 있는 돈에서 빠지고, 고치고 지우면(보관) 따라 바뀐다.
+func TestFixedDeductions(t *testing.T) {
+	c := newClient(t)
+	type totals struct {
+		Budget    int64 `json:"budget"`
+		Fixed     int64 `json:"fixed"`
+		Remaining int64 `json:"remaining"`
+	}
+	sum := func() totals {
+		var s struct {
+			Totals totals `json:"totals"`
+		}
+		c.do("GET", "/v1/summary", nil, &s)
+		return s.Totals
+	}
+	c.do("PUT", "/v1/budgets/total", map[string]any{"amount": 2000000}, nil)
+	var f struct {
+		ID     int64  `json:"id"`
+		Name   string `json:"name"`
+		Amount int64  `json:"amount"`
+	}
+	if code := c.do("POST", "/v1/fixed", map[string]any{"name": " 주식 적립 ", "amount": 500000}, &f); code != 201 || f.Name != "주식 적립" {
+		t.Fatalf("만들기 %d %+v", code, f)
+	}
+	c.do("POST", "/v1/fixed", map[string]any{"name": "적금", "amount": 300000}, nil)
+	if x := sum(); x.Fixed != 800000 || x.Remaining != 1200000 {
+		t.Fatalf("고정 빼기 %+v", x)
+	}
+	if code := c.do("PATCH", "/v1/fixed/"+itoa(f.ID), map[string]any{"amount": 400000}, nil); code != 200 {
+		t.Fatalf("고치기 %d", code)
+	}
+	if code := c.do("DELETE", "/v1/fixed/"+itoa(f.ID), nil, nil); code != 200 {
+		t.Fatalf("지우기 %d", code)
+	}
+	var list struct {
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	c.do("GET", "/v1/fixed", nil, &list)
+	if len(list.Items) != 1 || list.Items[0].Name != "적금" {
+		t.Fatalf("목록 %+v", list)
+	}
+	if x := sum(); x.Fixed != 300000 || x.Remaining != 1700000 {
+		t.Fatalf("지운 뒤 %+v", x)
+	}
+	for _, bad := range []map[string]any{{"name": "", "amount": 1}, {"name": "x", "amount": 0}, {"name": "x"}} {
+		if code := c.do("POST", "/v1/fixed", bad, nil); code != 400 {
+			t.Fatalf("잘못된 값 %v → %d", bad, code)
+		}
+	}
+	if code := c.do("PATCH", "/v1/fixed/999999", map[string]any{"amount": 1}, nil); code != 404 {
+		t.Fatalf("없는 것 %d", code)
+	}
+}

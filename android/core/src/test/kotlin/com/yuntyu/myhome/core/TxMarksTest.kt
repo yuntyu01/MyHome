@@ -73,3 +73,15 @@ class HomeOrderTest {
         assertEquals(listOf(4L, 5L, 3L, 2L, 1L), (h.top + h.rest).map { it.id })
     }
 }
+
+/** 금액 칸 위 한국식 읽기 */
+class MoneyKoreanTest {
+    @Test fun readsLikeKorean() {
+        assertEquals("50만원", Money.korean(500_000))
+        assertEquals("1,234만 5,000원", Money.korean(12_345_000))
+        assertEquals("1억 2,000만원", Money.korean(120_000_000))
+        assertEquals("211만원", Money.korean(2_110_000))
+        assertEquals("3,000원", Money.korean(3_000))
+        assertEquals("0원", Money.korean(0))
+    }
+}

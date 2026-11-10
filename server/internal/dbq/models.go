@@ -53,6 +53,15 @@ type Device struct {
 	Email      *string    `json:"email"`
 }
 
+type FixedDeduction struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Amount    int64     `json:"amount"`
+	Sort      int32     `json:"sort"`
+	Archived  bool      `json:"archived"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type FocusSession struct {
 	ID        string    `json:"id"`
 	SubjectID string    `json:"subject_id"`

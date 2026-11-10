@@ -115,4 +115,13 @@ class SimpleScreensTest {
              "notes":["최악·하위10%를 먼저 보라."]}
         """.trimIndent()
     }
+
+    // 금액 칸: 치는 값은 숫자만, 보이는 것은 "500,000"(쉼표), 커서는 쉼표를 건너 맞는다
+    @Test fun moneyFieldShowsCommas() {
+        val t = ThousandsTransformation.filter(androidx.compose.ui.text.AnnotatedString("1234567"))
+        assertTrue(t.text.text == "1,234,567")
+        assertTrue(t.offsetMapping.originalToTransformed(1) == 2 && t.offsetMapping.originalToTransformed(7) == 9)
+        assertTrue(t.offsetMapping.transformedToOriginal(2) == 1 && t.offsetMapping.transformedToOriginal(9) == 7)
+        assertTrue(ThousandsTransformation.filter(androidx.compose.ui.text.AnnotatedString("500000")).text.text == "500,000")
+    }
 }

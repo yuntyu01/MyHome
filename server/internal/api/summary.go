@@ -41,12 +41,14 @@ type Totals struct {
 	// CategoryBudget은 맨 위 분류 예산 합계, OwnBudget은 정한 한 달 전체 예산(안 정했으면 null).
 	CategoryBudget int64  `json:"category_budget"`
 	OwnBudget      *int64 `json:"own_budget"`
-	Spent          int64  `json:"spent"`
-	Settled        int64  `json:"settled"`
-	Remaining      int64  `json:"remaining"`
-	Income         int64  `json:"income"`
-	Investment     int64  `json:"investment"`
-	OwnTransfer    int64  `json:"own_transfer"`
+	// Fixed는 고정으로 빠지는 돈 합계(주식 적립 등)다. Remaining = Budget - Fixed - Spent + Settled
+	Fixed       int64 `json:"fixed"`
+	Spent       int64 `json:"spent"`
+	Settled     int64 `json:"settled"`
+	Remaining   int64 `json:"remaining"`
+	Income      int64 `json:"income"`
+	Investment  int64 `json:"investment"`
+	OwnTransfer int64 `json:"own_transfer"`
 }
 
 // Summary는 GET /v1/summary 응답이다. 위젯이 쓰므로 가볍게 유지한다.
@@ -160,8 +162,13 @@ func (a *API) BuildSummary(r *http.Request, p period.Period, recentN int) (Summa
 	if err == nil && own != nil {
 		s.Totals.Budget, s.Totals.OwnBudget = *own, own
 	}
-	s.Totals.Settled = tot.SettledTotal - outSettled
-	s.Totals.Remaining = s.Totals.Budget - s.Totals.Spent + tot.SettledTotal
+	fixed, err := q.FixedDeductionTotal(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+	s.Totals.Fixed = fixed
+	s.Totals.Settled = tot.SettledTotal - outSettled // 예산 없음 분류로 돌려놓은 정산은 빼고
+	s.Totals.Remaining = s.Totals.Budget - s.Totals.Fixed - s.Totals.Spent + s.Totals.Settled
 	s.Totals.Income, s.Totals.Investment, s.Totals.OwnTransfer = tot.Income, tot.Investment, tot.OwnTransfer
 	for _, t := range recent {
 		s.Recent = append(s.Recent, recentDTO(t))

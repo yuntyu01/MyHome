@@ -54,6 +54,7 @@ import com.yuntyu.myhome.data.SummaryRepository
 import com.yuntyu.myhome.widget.WidgetRefresher
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.heightIn
@@ -355,8 +356,9 @@ internal fun InUseHome(
                     Spacer(Modifier.height(CardGap))
                     val isOpen = c.id in opened
                     CategoryBox(
-                        c, WidgetModel.childrenOf(s, c.id), isOpen,
-                        recent = if (isOpen) WidgetModel.recentIn(s, pool, c.id, 3) else emptyList(),
+                        c, isOpen,
+                        kidsOf = { WidgetModel.childrenOf(s, it) },
+                        recentFor = { WidgetModel.recentIn(s, pool, it, 3) },
                         onToggle = { opened = if (isOpen) opened - c.id else opened + c.id },
                         onCategory = onCategory,
                         onOpenTx = onOpenTx,
@@ -459,7 +461,7 @@ private fun SpendCard(s: Summary, monthWord: String, spent: Long, onClick: (() -
             fontSize = 36.sp, fontWeight = FontWeight.Bold, color = if (over) m.over else MaterialTheme.colorScheme.onBackground, maxLines = 1,
         )
         if (hasBudget) {
-            val r = spent.toDouble() / s.totals.budget
+            val r = (spent + s.totals.fixed).toDouble() / s.totals.budget // 고정으로 빠지는 돈도 쓴 쪽으로
             ModoBar(r, budgetColor(r), Modifier.padding(top = 18.dp))
         }
         Row(Modifier.padding(top = 18.dp).height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
@@ -474,6 +476,10 @@ private fun SpendCard(s: Summary, monthWord: String, spent: Long, onClick: (() -
                 Text(l2, fontSize = 14.sp, color = m.muted)
                 Text(v2, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
+        }
+        // 고정으로 빠지는 돈(주식 적립 등)이 있으면 한 줄
+        if (hasBudget && s.totals.fixed > 0) {
+            Text("고정으로 빠지는 돈 -${Money.won(s.totals.fixed)}", Modifier.padding(top = 14.dp), fontSize = 14.sp, color = m.muted)
         }
     }
 }
@@ -498,7 +504,7 @@ private fun TotalBudgetDialog(t: com.yuntyu.myhome.core.api.Totals, onDismiss: (
     val m = LocalModo.current
     var text by remember { mutableStateOf(t.budget.takeIf { it > 0 }?.toString().orEmpty()) }
     val won = text.toLongOrNull() ?: 0L
-    val left = won - t.spent + t.settled
+    val left = won - t.fixed - t.spent + t.settled
     ModoAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("이번 달 예산") },
@@ -506,7 +512,7 @@ private fun TotalBudgetDialog(t: com.yuntyu.myhome.core.api.Totals, onDismiss: (
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 LineField(
                     text, { v -> text = v.filter(Char::isDigit).trimStart('0').take(12).let { d -> if ((d.toLongOrNull() ?: 0L) > MONEY_MAX) MONEY_MAX.toString() else d } },
-                    if (won > 0) Money.won(won) else "예산", keyboardType = KeyboardType.Number, suffix = "원",
+                    if (won > 0) Money.korean(won) else "예산", keyboardType = KeyboardType.Number, suffix = "원", money = true,
                 )
                 MoneyQuickAdd(won, { text = it.toString() }, extra = if (t.categoryBudget > 0) "분류 합계" to t.categoryBudget else null)
                 Text(
@@ -560,20 +566,23 @@ private fun leftText(c: CategoryBudget): Pair<String, androidx.compose.ui.graphi
 }
 
 /**
- * 맨 위 분류 박스 하나(2026-11-10 사용자 요청): 굵은 이름 ⌄와 남은 돈, 막대. 누르면 박스 안에서 펼쳐진다:
- * 안의 분류(두 칸 격자) → 최근 결제 3개(날짜·가게·금액, 토스 통장 미리보기처럼) → "○○ 거래 모두 보기 ›".
+ * 맨 위 분류 박스 하나(2026-11-10 사용자 요청): 굵은 이름과 남은 돈, 막대. 누르면 박스 안에서 펼쳐진다:
+ * 안의 분류는 두 칸 격자, 안의 폴더는 작은 박스(그 안 분류는 칸) → 최근 결제 3개 → "○○ 거래 모두 보기".
+ * 안의 분류·폴더를 누르면 고른 것이 되고(다시 누르면 풀림) 최근 결제와 "거래 모두 보기"가 그것으로 바뀐다.
  */
 @Composable
 private fun CategoryBox(
     c: CategoryBudget,
-    kids: List<CategoryBudget>,
     open: Boolean,
-    recent: List<TransactionDto>,
+    kidsOf: (Long) -> List<CategoryBudget>,
+    recentFor: (Long) -> List<TransactionDto>,
     onToggle: () -> Unit,
     onCategory: (Long) -> Unit,
     onOpenTx: (TransactionDto) -> Unit,
 ) {
     val m = LocalModo.current
+    var selected by rememberSaveable(c.id) { mutableStateOf<Long?>(null) }
+    val select: (Long) -> Unit = { id -> selected = if (selected == id) null else id }
     HomeCard {
         Column(
             Modifier.fillMaxWidth().tap(onClickLabel = if (open) "접기" else "펼치기", onClick = onToggle)
@@ -581,20 +590,10 @@ private fun CategoryBox(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 이름(+⌄)이 남는 칸을 다 차지하고 돈은 오른쪽 끝. 이름이 길면 이름만 줄어든다
+                // 이름이 남는 칸을 다 차지하고 돈은 오른쪽 끝. 이름 옆 화살표는 두지 않는다(사용자 요청)
                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Text(c.name, Modifier.weight(1f, fill = false), fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    // 한도 없는 분류: 자유(이번 달 예산에서는 깎임) / 예산 없음(안 깎임)
-                    budgetTag(c)?.let { tag ->
-                        Text(
-                            tag, Modifier.padding(start = 8.dp).clip(RoundedCornerShape(6.dp)).background(m.raised).padding(horizontal = 6.dp, vertical = 2.dp),
-                            fontSize = 12.sp, color = m.muted, maxLines = 1,
-                        )
-                    }
-                    Icon(
-                        ChevronDownIcon, contentDescription = if (open) "접기" else "펼치기", tint = m.muted,
-                        modifier = Modifier.padding(start = 6.dp).size(20.dp).rotate(if (open) 180f else 0f),
-                    )
+                    budgetTag(c)?.let { tag -> Tag(tag) }
                 }
                 Spacer(Modifier.width(12.dp))
                 val (text, color) = leftText(c)
@@ -603,36 +602,98 @@ private fun CategoryBox(
             if (c.budget > 0) ModoBar(c.ratio, budgetColor(c.ratio))
         }
         if (open) {
-        if (kids.isNotEmpty()) {
-            Column(
-                Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                for (pair in kids.chunked(2)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        for (k in pair) KidCell(k, Modifier.weight(1f)) { onCategory(k.id) }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+            val kids = kidsOf(c.id)
+            if (kids.isNotEmpty()) {
+                Column(
+                    Modifier.fillMaxWidth().padding(start = Gutter - 8.dp, end = Gutter - 8.dp, top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // 이어지는 분류는 두 칸씩, 폴더는 한 줄 전체 작은 박스. 줄을 먼저 만들고 그린다
+                    val rows = mutableListOf<Pair<CategoryBudget?, List<CategoryBudget>>>()
+                    val pending = mutableListOf<CategoryBudget>()
+                    fun flushLeaves() { pending.chunked(2).forEach { rows += null to it }; pending.clear() }
+                    for (k in kids) {
+                        val grand = kidsOf(k.id)
+                        if (grand.isEmpty()) pending += k else { flushLeaves(); rows += k to grand }
+                    }
+                    flushLeaves()
+                    for ((folder, list) in rows) {
+                        if (folder != null) {
+                            InnerFolderBox(folder, list, selected, select)
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                for (k in list) KidCell(k, selected == k.id, Modifier.weight(1f)) { select(k.id) }
+                                if (list.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
-        }
-        if (recent.isNotEmpty()) {
-            Hairline(Modifier.padding(start = Gutter, end = Gutter, top = 12.dp, bottom = 6.dp))
-            var lastDay = ""
-            for (t in recent) {
-                val day = WidgetModel.shortTime(t.occurredAt).take(5).replace('/', '.')
-                PreviewTxRow(t, if (day != lastDay) day else "") { onOpenTx(t) }
-                lastDay = day
+            val focus = selected ?: c.id
+            val focusName = if (selected == null) c.name else (kids + kids.flatMap { kidsOf(it.id) }).firstOrNull { it.id == selected }?.name ?: c.name
+            val recent = recentFor(focus)
+            if (recent.isNotEmpty()) {
+                Hairline(Modifier.padding(start = Gutter, end = Gutter, top = 12.dp, bottom = 6.dp))
+                var lastDay = ""
+                for (t in recent) {
+                    val day = WidgetModel.shortTime(t.occurredAt).take(5).replace('/', '.')
+                    PreviewTxRow(t, if (day != lastDay) day else "") { onOpenTx(t) }
+                    lastDay = day
+                }
+            }
+            Row(
+                Modifier.padding(start = Gutter - 6.dp, top = 4.dp, bottom = 12.dp).clip(RoundedCornerShape(10.dp))
+                    .tap(onClickLabel = "$focusName 거래 보기") { onCategory(focus) }.padding(horizontal = 6.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("$focusName 거래 모두 보기", fontSize = 15.sp, color = m.muted)
+                Icon(ChevronRightIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 2.dp).size(16.dp))
             }
         }
-        Row(
-            Modifier.padding(start = Gutter - 6.dp, top = 4.dp, bottom = 12.dp).clip(RoundedCornerShape(10.dp))
-                .tap(onClickLabel = "${c.name} 거래 보기") { onCategory(c.id) }.padding(horizontal = 6.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    }
+}
+
+/** 이름 옆 작은 꼬리표(자유·예산 없음) */
+@Composable
+private fun Tag(text: String) {
+    val m = LocalModo.current
+    Text(
+        text, Modifier.padding(start = 8.dp).clip(RoundedCornerShape(6.dp)).background(m.raised).padding(horizontal = 6.dp, vertical = 2.dp),
+        fontSize = 12.sp, color = m.muted, maxLines = 1,
+    )
+}
+
+/** 박스 안의 폴더(2단계): 어두운 작은 박스에 이름·남은 돈·막대, 그 안 분류는 칸. 머리를 누르면 이 폴더를 고른다 */
+@Composable
+private fun InnerFolderBox(f: CategoryBudget, kids: List<CategoryBudget>, selected: Long?, onSelect: (Long) -> Unit) {
+    val m = LocalModo.current
+    val on = selected == f.id
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.bg)
+            .then(if (on) Modifier.border(1.5.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f), RoundedCornerShape(16.dp)) else Modifier),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().tap(onClickLabel = "${f.name} 고르기") { onSelect(f.id) }.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("${c.name} 거래 모두 보기", fontSize = 15.sp, color = m.muted)
-            Icon(ChevronRightIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 2.dp).size(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text(f.name, Modifier.weight(1f, fill = false), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    budgetTag(f)?.let { Tag(it) }
+                }
+                Spacer(Modifier.width(10.dp))
+                val (text, color) = leftText(f)
+                Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
+            }
+            if (f.budget > 0) ModoBar(f.ratio, budgetColor(f.ratio))
         }
+        Column(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            for (pair in kids.chunked(2)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (k in pair) KidCell(k, selected == k.id, Modifier.weight(1f)) { onSelect(k.id) }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
         }
     }
 }
@@ -652,15 +713,16 @@ private fun PreviewTxRow(t: TransactionDto, day: String, onClick: () -> Unit) {
     }
 }
 
-/** 폴더 안 한 칸: 회색 이름, 남은 돈, 얇은 막대(예산이 없으면 막대 자리만) */
+/** 폴더 안 한 칸: 회색 이름, 남은 돈, 얇은 막대(예산이 없으면 막대 자리만). 고른 칸은 옅게 칠한다 */
 @Composable
-private fun KidCell(k: CategoryBudget, modifier: Modifier, onClick: () -> Unit) {
+private fun KidCell(k: CategoryBudget, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val m = LocalModo.current
     Column(
-        modifier.clip(RoundedCornerShape(10.dp)).tap(onClickLabel = "${k.name} 거래 보기", onClick = onClick).padding(vertical = 8.dp),
+        modifier.clip(RoundedCornerShape(12.dp)).background(if (selected) m.raised else androidx.compose.ui.graphics.Color.Transparent)
+            .tap(onClickLabel = "${k.name} 고르기", onClick = onClick).padding(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(k.name, fontSize = 15.sp, color = m.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(k.name, fontSize = 15.sp, color = if (selected) MaterialTheme.colorScheme.onBackground else m.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         val (text, color) = leftText(k)
         Text(text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
         if (k.budget > 0) ModoBar(k.ratio, budgetColor(k.ratio), Modifier.padding(top = 4.dp)) else Spacer(Modifier.height(9.dp))

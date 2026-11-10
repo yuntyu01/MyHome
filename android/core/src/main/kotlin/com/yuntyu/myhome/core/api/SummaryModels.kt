@@ -27,6 +27,8 @@ data class Totals(
     @SerialName("category_budget") val categoryBudget: Long = 0,
     /** 정한 한 달 전체 예산(안 정했으면 null) */
     @SerialName("own_budget") val ownBudget: Long? = null,
+    /** 고정으로 빠지는 돈 합계(주식 적립 등). remaining = budget - fixed - spent + settled */
+    val fixed: Long = 0,
     val spent: Long = 0,
     val settled: Long = 0,
     val remaining: Long = 0,
@@ -152,6 +154,16 @@ data class CategoryInput(
     /** false면 "예산 없음"(한 달 예산에서 안 깎임). null이면 그대로 */
     @SerialName("in_budget") val inBudget: Boolean? = null,
 )
+
+/** 고정으로 빠지는 돈 한 줄(주식 적립 등): 매달 이번 달 쓸 수 있는 돈에서 미리 뺀다 */
+@Serializable
+data class FixedItem(val id: Long, val name: String, val amount: Long)
+
+@Serializable
+data class FixedList(val items: List<FixedItem> = emptyList())
+
+@Serializable
+data class FixedInput(val name: String? = null, val amount: Long? = null)
 
 /** PUT /v1/budgets/total 본문. amount가 null이면 분류 예산 합계로 */
 @Serializable

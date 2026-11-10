@@ -54,6 +54,7 @@ import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.core.api.BudgetItem
 import com.yuntyu.myhome.core.api.BudgetList
 import com.yuntyu.myhome.core.api.Category
+import com.yuntyu.myhome.core.api.FixedItem
 import com.yuntyu.myhome.widget.WidgetRefresher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -122,6 +123,10 @@ fun BudgetsScreen(modifier: Modifier) {
     // AI 분류 공통 메모(분류마다 다는 설명과 따로, 모든 가게에 먼저 적용). null = 아직 못 받음
     var aiMemo by remember { mutableStateOf<String?>(null) }
     var memoDialog by remember { mutableStateOf(false) }
+    // 고정으로 빠지는 돈(주식 적립 등). null = 아직 못 받음. 고치는 중: Pair(항목 또는 null(새로), 열림)
+    var fixed by remember { mutableStateOf<List<FixedItem>?>(null) }
+    var fixedEdit by remember { mutableStateOf<FixedItem?>(null) }
+    var fixedNew by remember { mutableStateOf(false) }
 
     LaunchedEffect(tick) {
         val c = withContext(Dispatchers.IO) { app.api.categories() }
@@ -132,6 +137,8 @@ fun BudgetsScreen(modifier: Modifier) {
         if (d is ApiResult.Ok) startDay = d.value
         val memo = withContext(Dispatchers.IO) { app.api.aiMemo() }
         if (memo is ApiResult.Ok) aiMemo = memo.value
+        val fx = withContext(Dispatchers.IO) { app.api.fixedItems() }
+        if (fx is ApiResult.Ok) fixed = fx.value.items
     }
     fun changed(msg: String) {
         Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
@@ -248,6 +255,17 @@ fun BudgetsScreen(modifier: Modifier) {
             }
         }
 
+        // 고정으로 빠지는 돈: 매달 이번 달 쓸 수 있는 돈에서 미리 뺀다(사용자 요청, 2026-11-10)
+        SectionLabel(
+            "고정으로 빠지는 돈",
+            help = "주식 적립, 적금처럼 매달 정해서 빠지는 돈이에요. 이번 달 쓸 수 있는 돈에서 미리 빼요.\n\n카드로 내서 결제로 잡히는 돈(월세, 통신비 등)은 여기 넣지 말고 분류 예산으로 두세요. 두 번 빠져요.",
+        )
+        fixed?.let { items ->
+            for (f in items) FlatRow(f.name, value = "-${Money.won(f.amount)}", onClick = { fixedEdit = f })
+            if (items.size > 1) FlatRow("합계", value = "-${Money.won(items.sumOf { it.amount })}", titleColor = m.muted, valueColor = m.muted, chevron = false)
+        }
+        AddRow("고정 항목 추가") { fixedNew = true }
+
         SectionLabel("기간")
         FlatRow("예산 시작일", value = startDay?.let { "매달 ${it}일" } ?: "", help = "월급날로 바꾸면 그날부터 한 달로 쳐요.", onClick = { dayDialog = true })
     }
@@ -292,6 +310,35 @@ fun BudgetsScreen(modifier: Modifier) {
                         else -> "저장했어요"
                     },
                 ) else Toast.makeText(ctx, err, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    if (fixedNew || fixedEdit != null) {
+        val cur = fixedEdit
+        FixedDialog(
+            cur,
+            onDismiss = { fixedNew = false; fixedEdit = null },
+            onDelete = cur?.let { f ->
+                {
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) { app.api.archiveFixed(f.id) }
+                        if (r is ApiResult.Ok) changed("'${f.name}'을 뺐어요") else Toast.makeText(ctx, r.plain(), Toast.LENGTH_LONG).show()
+                        fixedEdit = null
+                    }
+                }
+            },
+        ) { name, amount ->
+            scope.launch {
+                val r = withContext(Dispatchers.IO) {
+                    if (cur == null) app.api.createFixed(name, amount) else app.api.updateFixed(cur.id, name, amount)
+                }
+                if (r is ApiResult.Ok) {
+                    fixedNew = false
+                    fixedEdit = null
+                    changed("저장했어요")
+                } else {
+                    Toast.makeText(ctx, r.plain(), Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -341,6 +388,35 @@ fun BudgetsScreen(modifier: Modifier) {
             dismissButton = { TextButton(onClick = { dayDialog = false }) { Text("닫기") } },
         )
     }
+}
+
+/** 고정으로 빠지는 돈 한 줄 고치기·추가: 이름, 금액(+버튼), 빼기 */
+@Composable
+private fun FixedDialog(item: FixedItem?, onDismiss: () -> Unit, onDelete: (() -> Unit)?, onSave: (String, Long) -> Unit) {
+    var name by remember { mutableStateOf(item?.name.orEmpty()) }
+    var amount by remember { mutableStateOf(item?.amount?.toString().orEmpty()) }
+    val won = amount.toLongOrNull() ?: 0L
+    ModoAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(item?.name ?: "고정 항목 추가") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                LineField(name, { name = it.take(40) }, "이름(예: 주식 적립)")
+                LineField(
+                    amount, { v -> amount = v.filter(Char::isDigit).trimStart('0').take(12) },
+                    if (won > 0) Money.korean(won) else "매달 금액", keyboardType = KeyboardType.Number, suffix = "원", money = true,
+                )
+                MoneyQuickAdd(won, { amount = it.toString() })
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete, modifier = Modifier.padding(top = 4.dp)) { Text("이 항목 빼기", color = LocalModo.current.over) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = name.isNotBlank() && won > 0, onClick = { onSave(name.trim(), won) }) { Text("저장") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
+    )
 }
 
 /** AI 분류 공통 메모 길이 상한(서버 pipeline.AIMemoMax와 같다) */
@@ -409,11 +485,13 @@ private fun CategorySheet(
                     LineField(
                         amount, { amount = it.filter(Char::isDigit).take(10) },
                         when {
-                            won > 0 -> "한 달 예산 · ${Money.won(won)}"
-                            folder && sum > 0 -> "한 달 예산 · 비우면 ${Money.won(sum)}"
+                            won > 0 -> Money.korean(won)
+                            folder && sum > 0 -> "비우면 ${Money.korean(sum)}"
                             else -> "한 달 예산"
                         },
                         keyboardType = KeyboardType.Number,
+                        suffix = "원",
+                        money = true,
                     )
                     MoneyQuickAdd(won, { amount = it.toString() })
                     }

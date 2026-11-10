@@ -549,7 +549,7 @@ private fun ClassifySheet(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LineField(name, { name = it.take(MERCHANT_MAX) }, "가게 이름")
-                    LineField(amount, { amount = it.filter(Char::isDigit).take(10) }, if (won > 0) "금액 · ${Money.won(won)}" else "금액(원)", keyboardType = KeyboardType.Number)
+                    LineField(amount, { amount = it.filter(Char::isDigit).take(10) }, if (won > 0) Money.korean(won) else "금액", keyboardType = KeyboardType.Number, suffix = "원", money = true)
                 }
             },
             confirmButton = {
@@ -597,7 +597,7 @@ private fun CashSheet(cats: List<Category>, onDismiss: () -> Unit, onSaved: () -
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 Text("현금으로 쓴 돈", Modifier.padding(horizontal = Gutter), fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Column(Modifier.padding(horizontal = Gutter, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    LineField(amount, { amount = it.filter(Char::isDigit).take(10) }, if (won > 0) "금액 · ${Money.won(won)}" else "금액(원)", keyboardType = KeyboardType.Number)
+                    LineField(amount, { amount = it.filter(Char::isDigit).take(10) }, if (won > 0) Money.korean(won) else "금액", keyboardType = KeyboardType.Number, suffix = "원", money = true)
                     LineField(where, { where = it.take(40) }, "어디서 썼나요 (안 써도 돼요)")
                 }
                 SectionLabel("분류")
