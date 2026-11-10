@@ -46,3 +46,6 @@ tmp/
 
 # Claude Code 작업 공간(에이전트 worktree)
 /.claude/worktrees/
+
+# 화면 캡처(로컬 확인용, 저장소에 넣지 않음)
+docs/screenshots/
