@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -163,7 +164,8 @@ func (w *Worker) RunOnce(ctx context.Context) (Stats, error) {
 	if len(names) == 0 {
 		return st, nil
 	}
-	catalog := Catalog(names)
+	// 공통 메모를 바꾸면 지문이 바뀌어 같은 가게를 한 번 다시 묻는다(메모가 없으면 예전 지문 그대로)
+	catalog := CatalogWith(names, cfg.AIMemo)
 
 	rows, err := q.ListSuggestionMerchants(ctx, candidateLimit)
 	if err != nil {
@@ -216,7 +218,7 @@ func (w *Worker) RunOnce(ctx context.Context) (Stats, error) {
 			break
 		}
 		chunk := todo[start:min(start+size, len(todo))]
-		if err := w.ask(ctx, q, chunk, names, byName, catalog, &st); err != nil {
+		if err := w.ask(ctx, q, chunk, names, byName, catalog, cfg.AIMemo, &st); err != nil {
 			return st, err
 		}
 	}
@@ -278,7 +280,7 @@ func (w *Worker) file(ctx context.Context, q *dbq.Queries, gateways []string) (i
 }
 
 // ask는 가맹점 한 묶음을 묻고 답을 저장한다.
-func (w *Worker) ask(ctx context.Context, q *dbq.Queries, chunk []target, names []ai.CategoryChoice, byName map[string]int64, catalog string, st *Stats) error {
+func (w *Worker) ask(ctx context.Context, q *dbq.Queries, chunk []target, names []ai.CategoryChoice, byName map[string]int64, catalog, guide string, st *Stats) error {
 	ctx, cancel := context.WithTimeout(ctx, orDur(w.CallTimeout, DefaultCallTimeout))
 	defer cancel()
 	merchants := make([]string, len(chunk))
@@ -286,7 +288,7 @@ func (w *Worker) ask(ctx context.Context, q *dbq.Queries, chunk []target, names 
 		merchants[i] = t.name
 	}
 	st.Calls++
-	guesses, err := w.Classifier.ClassifyMerchants(ctx, merchants, names)
+	guesses, err := w.Classifier.ClassifyMerchants(ctx, merchants, names, guide)
 	if err != nil {
 		return err
 	}
@@ -336,6 +338,14 @@ func Choices(cats []dbq.Category) ([]ai.CategoryChoice, map[string]int64) {
 		byName[label] = c.ID
 	}
 	return out, byName
+}
+
+// CatalogWith는 분류 목록과 공통 메모를 함께 본 지문이다. 메모가 없으면 Catalog와 같다(저장된 추천이 그대로 쓰인다).
+func CatalogWith(choices []ai.CategoryChoice, memo string) string {
+	if strings.TrimSpace(memo) == "" {
+		return Catalog(choices)
+	}
+	return Catalog(append(append([]ai.CategoryChoice(nil), choices...), ai.CategoryChoice{Name: "\x00공통 메모", Memo: strings.TrimSpace(memo)}))
 }
 
 // Catalog는 분류 목록의 지문이다. 저장된 추천의 지문이 지금과 다르면 그 가맹점을 다시 묻는다.

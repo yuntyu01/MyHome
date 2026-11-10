@@ -750,3 +750,39 @@ func TestHealthMealPhotosOff(t *testing.T) {
 	c.serve(req, c.tok).code(503, "PHOTO_STORAGE_OFF")
 	c.get("/v1/health/meals/photos?date=2026-09-26&index=1").is(200).size("photos", 0)
 }
+
+// 몸무게: 하루에 하나(다시 넣으면 바뀐다), 기간 목록, 지우기, 범위 검사. 저울 사진은 mock이 늘 72.4kg로 읽는다(합성 바이트).
+func TestHealthBodyWeight(t *testing.T) {
+	c := newHealthClient(t)
+	c.put("/v1/health/body", `{"date":"2026-09-20","weightKg":73.26}`).is(200).eq("weightKg", 73.3)
+	c.put("/v1/health/body", `{"date":"2026-09-26","weightKg":72.0}`).is(200)
+	c.put("/v1/health/body", `{"date":"2026-09-26","weightKg":71.5}`).is(200).eq("weightKg", 71.5)
+	c.put("/v1/health/body", `{"date":"2026-09-26","weightKg":5}`).code(400, "INVALID")
+	c.put("/v1/health/body", `{"date":"2026-09-26"}`).code(400, "INVALID")
+	c.put("/v1/health/body", `{"weightKg":70}`).code(400, "INVALID")
+	r := c.get("/v1/health/body?from=2026-09-01&to=2026-09-30").is(200)
+	if n := len(at(t, r.Body, "weights").([]any)); n != 2 {
+		t.Fatalf("2개여야 함: %s", r.Raw)
+	}
+	if at(t, r.Body, "weights.0.date") != "2026-09-20" || at(t, r.Body, "weights.1.weightKg") != 71.5 {
+		t.Fatalf("날짜 순·나중 값: %s", r.Raw)
+	}
+	// 기간을 안 주면 오늘(서버 시계)까지 1년
+	if n := len(at(t, c.get("/v1/health/body").is(200).Body, "weights").([]any)); n != 2 {
+		t.Fatalf("기본 기간: %d", n)
+	}
+	c.do("DELETE", "/v1/health/body?date=2026-09-20", "").is(200)
+	if n := len(at(t, c.get("/v1/health/body?from=2026-09-01&to=2026-09-30").Body, "weights").([]any)); n != 1 {
+		t.Fatalf("지운 뒤 1개: %d", n)
+	}
+
+	body, ct := multipartBody(t, "photo", "image/jpeg", []byte{1, 2, 3})
+	req := httptest.NewRequest("POST", "/v1/health/body/scan", body)
+	req.Header.Set("Content-Type", ct)
+	c.serve(req, c.tok).is(200).eq("weightKg", 72.4)
+	// 사진 없음
+	body, ct = multipartBody(t, "other", "image/jpeg", []byte{1})
+	req = httptest.NewRequest("POST", "/v1/health/body/scan", body)
+	req.Header.Set("Content-Type", ct)
+	c.serve(req, c.tok).code(400, "INVALID_PHOTO")
+}

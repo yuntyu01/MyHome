@@ -84,7 +84,7 @@ func New(d Deps) http.Handler {
 
 	var h http.Handler = mux
 	// 끼니 사진 분석만 사진 크기(최대 16MB)까지 받는다. 나머지는 MAX_BODY_BYTES 그대로
-	h = httpx.LimitBodyRoutes(d.Config.MaxBodyBytes, map[string]int64{"POST " + health.AnalyzePath: health.MaxAnalyzeBytes, "PUT " + health.MealPhotosPath: health.MaxAnalyzeBytes}, h)
+	h = httpx.LimitBodyRoutes(d.Config.MaxBodyBytes, map[string]int64{"POST " + health.AnalyzePath: health.MaxAnalyzeBytes, "PUT " + health.MealPhotosPath: health.MaxAnalyzeBytes, "POST " + health.BodyScanPath: health.MaxAnalyzeBytes}, h)
 	h = httpx.RateLimitByIP(httpx.NewRateLimiter(d.Config.RateLimitRPS*4, d.Config.RateLimitBurst*2), d.Config.TrustProxyHeaders, h)
 	h = httpx.Recover(d.Logger, h)
 	h = httpx.Logging(d.Logger, h)

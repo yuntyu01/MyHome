@@ -117,6 +117,20 @@ class MyHomeApi(
     fun putBudgetStartDay(day: Int): ApiResult<JsonElement> =
         call("PUT", "/v1/settings/budget_start_day", day.toString(), JsonElement.serializer())
 
+    /** AI 분류 공통 메모(모든 가게에 먼저 적용, 없으면 "") */
+    fun aiMemo(): ApiResult<String> = when (val r = call("GET", "/v1/settings", null, ServerSettings.serializer())) {
+        is ApiResult.Ok -> ApiResult.Ok(
+            r.value.settings["ai_classify_memo"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content } ?: "",
+            r.code,
+        )
+        is ApiResult.HttpError -> r
+        is ApiResult.NetworkError -> r
+        is ApiResult.NotConfigured -> r
+    }
+
+    fun putAiMemo(text: String): ApiResult<JsonElement> =
+        call("PUT", "/v1/settings/ai_classify_memo", kotlinx.serialization.json.JsonPrimitive(text).toString(), JsonElement.serializer())
+
     /** 거래 분류 변경. rememberRule이면 "이 가맹점은 항상" 규칙을 저장한다. */
     fun editTransaction(id: Long, edit: TransactionEdit): ApiResult<EditResponse> =
         call("PATCH", "/v1/transactions/$id", MyHomeJson.encodeToString(TransactionEdit.serializer(), edit), EditResponse.serializer())
@@ -275,6 +289,24 @@ class MyHomeApi(
         // 서버는 Gemini를 두 번까지 부르고 55초 안에 답한다
         val slow = client.newBuilder().readTimeout(70, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
         return send("POST", "/v1/health/meals/analyze", form.build(), FoodResult.serializer(), true, slow)
+    }
+
+    // ── 몸 기록(몸무게는 서버, 몸 사진은 폰에만) ──
+    fun bodyWeights(from: String? = null, to: String? = null): ApiResult<WeightList> {
+        val qs = listOfNotNull(from?.let { "from=$it" }, to?.let { "to=$it" }).joinToString("&")
+        return call("GET", "/v1/health/body" + if (qs.isEmpty()) "" else "?$qs", null, WeightList.serializer())
+    }
+
+    fun saveWeight(date: String, kg: Double): ApiResult<Weight> =
+        call("PUT", "/v1/health/body", MyHomeJson.encodeToString(Weight.serializer(), Weight(date, kg)), Weight.serializer())
+
+    fun deleteWeight(date: String): ApiResult<JsonElement> = call("DELETE", "/v1/health/body?date=$date", null, JsonElement.serializer())
+
+    /** 저울 사진 한 장에서 몸무게 읽기(저장은 하지 않는다). weightKg가 0이면 못 읽은 것 */
+    fun scanScale(photo: ByteArray): ApiResult<ScaleReading> {
+        val form = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("photo", "scale.jpg", photo.toRequestBody(JPEG))
+        val slow = client.newBuilder().readTimeout(70, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
+        return send("POST", "/v1/health/body/scan", form.build(), ScaleReading.serializer(), true, slow)
     }
 
     private fun q(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")

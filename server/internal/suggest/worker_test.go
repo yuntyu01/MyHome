@@ -129,14 +129,16 @@ type fake struct {
 	calls   [][]string
 	cats    [][]string
 	choices [][]ai.CategoryChoice
+	guides  []string
 	answer  func(name string) ai.MerchantGuess
 	err     func(call int) error // nil이 아닌 에러면 실패(패닉도 여기서)
 }
 
 func (f *fake) Model() string { return "fake-model" }
 
-func (f *fake) ClassifyMerchants(_ context.Context, merchants []string, categories []ai.CategoryChoice) ([]ai.MerchantGuess, error) {
+func (f *fake) ClassifyMerchants(_ context.Context, merchants []string, categories []ai.CategoryChoice, guide string) ([]ai.MerchantGuess, error) {
 	f.mu.Lock()
+	f.guides = append(f.guides, guide)
 	f.calls = append(f.calls, append([]string(nil), merchants...))
 	var names []string
 	for _, c := range categories {
@@ -371,7 +373,7 @@ func TestWorkerGeminiRequestHasOnlyNames(t *testing.T) {
 		t.Fatalf("글 조각 하나만: %s", raw)
 	}
 	// 가맹점 순서는 최근 거래 먼저
-	want := ai.MerchantPromptText([]string{"골목철물", "동네분식"}, h.expenseChoices())
+	want := ai.MerchantPromptText([]string{"골목철물", "동네분식"}, h.expenseChoices(), "")
 	if got := req.Contents[0].Parts[0]["text"]; got != want {
 		t.Errorf("프롬프트\n got %q\nwant %q", got, want)
 	}
@@ -718,5 +720,33 @@ func TestAutoFilesConfidentAnswers(t *testing.T) {
 	}
 	if got := get(off); got.Status != "needs_review" {
 		t.Errorf("Auto 꺼짐: %+v", got)
+	}
+}
+
+// 공통 메모(설정 ai_classify_memo)를 AI에 함께 보내고, 메모를 바꾸면 같은 가게를 한 번 다시 묻는다(지운 뒤에도)
+func TestWorkerSendsCommonMemoAndReasksWhenItChanges(t *testing.T) {
+	h := newHarness(t)
+	h.kb("동네분식")
+	f := &fake{answer: func(string) ai.MerchantGuess { return ai.MerchantGuess{Category: "식비", Confidence: 0.7} }}
+	setMemo := func(v string) {
+		raw, _ := json.Marshal(v)
+		if err := h.q.UpsertSetting(context.Background(), dbq.UpsertSettingParams{Key: "ai_classify_memo", Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setMemo("분식집은 식비로")
+	if st := h.runOnce(h.worker(f)); st.Calls != 1 || f.guides[0] != "분식집은 식비로" {
+		t.Fatalf("메모를 보내야 함: %+v %q", st, f.guides)
+	}
+	if st := h.runOnce(h.worker(f)); st.Calls != 0 {
+		t.Fatalf("같은 메모면 다시 묻지 않음: %+v", st)
+	}
+	setMemo("분식집은 외식으로")
+	if st := h.runOnce(h.worker(f)); st.Calls != 1 || f.guides[1] != "분식집은 외식으로" {
+		t.Fatalf("메모가 바뀌면 다시 물음: %+v %q", st, f.guides)
+	}
+	setMemo("")
+	if st := h.runOnce(h.worker(f)); st.Calls != 1 || f.guides[2] != "" {
+		t.Fatalf("메모를 지우면 다시 물음: %+v %q", st, f.guides)
 	}
 }

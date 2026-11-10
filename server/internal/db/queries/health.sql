@@ -137,3 +137,16 @@ VALUES ($1, $2, $3, $4, $5, $6);
 DELETE FROM meal_photos
 WHERE meal_date = $1 AND meal_index = $2
 RETURNING file;
+
+-- name: UpsertBodyWeight :one
+INSERT INTO body_weights (day, weight_kg)
+VALUES (@day, @weight_kg)
+ON CONFLICT (day) DO UPDATE SET weight_kg = excluded.weight_kg, updated_at = now()
+RETURNING *;
+
+-- name: DeleteBodyWeight :execrows
+DELETE FROM body_weights WHERE day = @day;
+
+-- name: ListBodyWeights :many
+-- 기간 몸무게(날짜 순)
+SELECT * FROM body_weights WHERE day >= @from_day AND day <= @to_day ORDER BY day;

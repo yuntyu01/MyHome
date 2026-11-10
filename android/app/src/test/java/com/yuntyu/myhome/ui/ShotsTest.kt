@@ -113,6 +113,7 @@ class ShotsTest {
         shadowOf(app.getSystemService(PowerManager::class.java)).setIgnoringBatteryOptimizations(app.packageName, true)
         android.provider.Settings.Secure.putString(app.contentResolver, "enabled_notification_listeners", "${app.packageName}/com.yuntyu.myhome.capture.CaptureService")
         seedFocus(app)
+        seedBodyPhotos(app)
         scenario = ActivityScenario.launch(MainActivity::class.java)
         settle(15)
 
@@ -126,6 +127,7 @@ class ShotsTest {
         if (tap("지난 기록")) { shot("07-건강-지난기록"); back() }
         if (tap("건강 설정")) { shot("08-건강-설정"); back() }
         if (tap("헬스")) { shot("09-헬스"); back() }
+        if (tap("몸무게")) { shot("09b-몸-기록"); back() }
 
         tap("집중"); shot("10-집중")
 
@@ -150,6 +152,20 @@ class ShotsTest {
     }
 
     companion object {
+        /** 몸 사진: 합성 그림 석 장(폰에만 두는 사진이라 앱 폴더에 바로 넣는다) */
+        fun seedBodyPhotos(app: MyHomeApp) {
+            val dir = File(app.filesDir, "body_photos").apply { mkdirs() }
+            val today = java.time.LocalDate.now()
+            listOf(0L to 0xFF8E9AAF.toInt(), 7L to 0xFFB8A1C9.toInt(), 14L to 0xFF9FC2B4.toInt()).forEach { (ago, color) ->
+                val bmp = Bitmap.createBitmap(300, 400, Bitmap.Config.ARGB_8888)
+                val c = Canvas(bmp)
+                c.drawColor(color)
+                val p = android.graphics.Paint().apply { this.color = 0x55FFFFFF; isAntiAlias = true }
+                c.drawCircle(150f, 110f, 55f, p); c.drawRoundRect(85f, 175f, 215f, 380f, 50f, 50f, p)
+                File(dir, "${today.minusDays(ago)}_${1_000 + ago}.jpg").outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+            }
+        }
+
         /** 집중: 합성 과목 셋과 오늘 기록(앱 DB에 바로 넣는다) */
         fun seedFocus(app: MyHomeApp) = kotlinx.coroutines.runBlocking {
             val dao = app.db.focus()

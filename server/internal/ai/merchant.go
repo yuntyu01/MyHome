@@ -33,7 +33,8 @@ type CategoryChoice struct {
 // 보내는 것은 가맹점 이름과 분류 이름·설명뿐이다. 금액·시각·알림 원문·카드·계좌 정보는 받지도 보내지도 않는다.
 // 답은 merchants와 같은 길이·순서다. Category는 categories의 Name 중 하나이거나 ""(모름)이다.
 type MerchantClassifier interface {
-	ClassifyMerchants(ctx context.Context, merchants []string, categories []CategoryChoice) ([]MerchantGuess, error)
+	// guide는 분류마다 다는 설명과 따로, 모든 가맹점에 먼저 적용할 사용자 공통 메모다(없으면 "")
+	ClassifyMerchants(ctx context.Context, merchants []string, categories []CategoryChoice, guide string) ([]MerchantGuess, error)
 	Model() string
 }
 
@@ -52,6 +53,7 @@ func NewMerchantClassifier(provider, geminiKey, geminiModel string) (MerchantCla
 const merchantPrompt = `한국 카드 결제 알림에 찍힌 가맹점 이름이다. 가맹점마다 아래 지출 분류 중 가장 알맞은 것 하나를 골라라.
 분류 이름의 " › "는 폴더 구분이다(위 폴더 › 아래 분류). 더 알맞은 아래 분류가 있으면 아래 분류를 골라라.
 분류 뒤 설명은 사용자가 그 분류에 넣고 싶은 것을 적은 글이다. 설명이 있으면 설명을 가장 먼저 따르라.
+"공통 메모"가 있으면 사용자가 모든 가맹점에 대해 적은 규칙이다. 분류 설명과 함께 가장 먼저 따르라.
 가맹점 이름만 보고 판단해라. 어떤 가게인지 모르겠거나, 이름만으로 무엇을 샀는지 알 수 없으면(결제대행사·간편결제·사람 이름 등) "모름"이라고 답해라.
 confidence는 그 분류가 맞을 가능성(0~1)이다. 추측이면 낮게 줘라. results에는 받은 id마다 하나씩 답해라.`
 
@@ -63,7 +65,7 @@ type merchantItem struct {
 
 // MerchantPromptText는 Gemini에 보내는 글 전체다(테스트가 요청 본문과 똑같이 맞춰 본다).
 // 분류는 한 줄에 하나: "- 이름" 또는 "- 이름: 설명"(설명의 줄바꿈은 띄어쓰기로 바꾼다).
-func MerchantPromptText(merchants []string, categories []CategoryChoice) string {
+func MerchantPromptText(merchants []string, categories []CategoryChoice, guide string) string {
 	items := make([]merchantItem, len(merchants))
 	for i, m := range merchants {
 		items[i] = merchantItem{ID: i, Name: m}
@@ -71,6 +73,9 @@ func MerchantPromptText(merchants []string, categories []CategoryChoice) string 
 	list, _ := json.Marshal(items) // 문자열·정수뿐이라 실패하지 않는다
 	var b strings.Builder
 	b.WriteString(merchantPrompt)
+	if g := strings.TrimSpace(guide); g != "" {
+		b.WriteString("\n공통 메모:\n" + g + "\n")
+	}
 	b.WriteString("\n분류:\n")
 	for _, c := range categories {
 		b.WriteString("- " + c.Name)
@@ -99,12 +104,12 @@ func merchantSchema(categories []string) Schema {
 }
 
 // ClassifyMerchants는 MerchantClassifier 구현이다. 실패하면 ErrFailed를 감싼 에러다.
-func (g *Gemini) ClassifyMerchants(ctx context.Context, merchants []string, categories []CategoryChoice) ([]MerchantGuess, error) {
+func (g *Gemini) ClassifyMerchants(ctx context.Context, merchants []string, categories []CategoryChoice, guide string) ([]MerchantGuess, error) {
 	if err := checkMerchantArgs(merchants, categories); err != nil {
 		return nil, err
 	}
 	names := choiceNames(categories)
-	text, err := g.GenerateJSON(ctx, []Part{Text(MerchantPromptText(merchants, categories))}, merchantSchema(names))
+	text, err := g.GenerateJSON(ctx, []Part{Text(MerchantPromptText(merchants, categories, guide))}, merchantSchema(names))
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +185,7 @@ var mockMerchantWords = []struct {
 
 // ClassifyMerchants는 Mock의 MerchantClassifier 구현이다. 같은 이름이면 늘 같은 답이다.
 // 낱말 표의 분류 이름은 폴더 경로의 마지막 이름과 맞춘다("생활비 › 식비"도 "식비"로 본다).
-func (Mock) ClassifyMerchants(_ context.Context, merchants []string, categories []CategoryChoice) ([]MerchantGuess, error) {
+func (Mock) ClassifyMerchants(_ context.Context, merchants []string, categories []CategoryChoice, _ string) ([]MerchantGuess, error) {
 	if err := checkMerchantArgs(merchants, categories); err != nil {
 		return nil, err
 	}

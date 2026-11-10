@@ -146,6 +146,7 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
             NutritionTotals(d.today.total, d.today.targets, null, null) { openDay(d.day) }
             MealCards(d, nav, onNavigate)
             GymLine(d) { onNavigate(Screen.HEALTH_GYM) }
+            BodyLine(resumeTick) { onNavigate(Screen.BODY) }
             d.weekly?.let { WeeklyCard(it, openDay) }
         }
         }

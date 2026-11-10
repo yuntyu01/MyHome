@@ -53,7 +53,7 @@ func TestGeminiClassifyMerchantsRequestAndParse(t *testing.T) {
 	g.WithBase(srv.URL)
 	merchants := []string{"동네분식", "홍길동", "어떤술집", "철물점", "빠진가게"}
 	cats := []CategoryChoice{{Name: "식비", Memo: "밥, 배달\n편의점 도시락"}, {Name: "카페·간식"}, {Name: "생활"}}
-	got, err := g.ClassifyMerchants(context.Background(), merchants, cats)
+	got, err := g.ClassifyMerchants(context.Background(), merchants, cats, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,14 +67,14 @@ func TestGeminiClassifyMerchantsRequestAndParse(t *testing.T) {
 	if len(body.Contents) != 1 || len(body.Contents[0].Parts) != 1 {
 		t.Fatalf("글 조각 하나만: %+v", body.Contents)
 	}
-	if text, _ := body.Contents[0].Parts[0]["text"].(string); text != MerchantPromptText(merchants, cats) {
+	if text, _ := body.Contents[0].Parts[0]["text"].(string); text != MerchantPromptText(merchants, cats, "") {
 		t.Errorf("프롬프트가 고정 문구 + 분류 + 가맹점 이름만이 아님:\n%s", text)
 	}
 	if enum := body.GenerationConfig.ResponseSchema.Properties.Results.Items.Properties.Category.Enum; !reflect.DeepEqual(enum, []string{"식비", "카페·간식", "생활", "모름"}) {
 		t.Errorf("enum %v", enum)
 	}
 	// 분류는 한 줄에 하나, 설명은 줄바꿈 없이 이름 뒤에
-	text := MerchantPromptText(merchants, cats)
+	text := MerchantPromptText(merchants, cats, "")
 	if !strings.Contains(text, "\n- 식비: 밥, 배달 편의점 도시락\n- 카페·간식\n- 생활\n") {
 		t.Errorf("분류 목록 모양:\n%s", text)
 	}
@@ -99,7 +99,7 @@ func TestGeminiClassifyMerchantsBadAnswer(t *testing.T) {
 			_, _ = w.Write(resp)
 		}))
 		g, _ := NewGemini("k", "m", srv.Client())
-		_, err := g.WithBase(srv.URL).ClassifyMerchants(context.Background(), []string{"동네분식"}, []CategoryChoice{{Name: "식비"}})
+		_, err := g.WithBase(srv.URL).ClassifyMerchants(context.Background(), []string{"동네분식"}, []CategoryChoice{{Name: "식비"}}, "")
 		srv.Close()
 		if !errors.Is(err, ErrFailed) || strings.Contains(err.Error(), "동네분식") {
 			t.Errorf("%s: %v", answer, err)
@@ -107,10 +107,10 @@ func TestGeminiClassifyMerchantsBadAnswer(t *testing.T) {
 	}
 	g, _ := NewGemini("k", "m", nil)
 	many := make([]string, MaxMerchantsPerCall+1)
-	if _, err := g.ClassifyMerchants(context.Background(), many, []CategoryChoice{{Name: "식비"}}); err == nil {
+	if _, err := g.ClassifyMerchants(context.Background(), many, []CategoryChoice{{Name: "식비"}}, ""); err == nil {
 		t.Error("한 번에 너무 많은 가맹점")
 	}
-	if _, err := g.ClassifyMerchants(context.Background(), []string{"a"}, nil); err == nil {
+	if _, err := g.ClassifyMerchants(context.Background(), []string{"a"}, nil, ""); err == nil {
 		t.Error("분류 없음")
 	}
 }
@@ -118,7 +118,7 @@ func TestGeminiClassifyMerchantsBadAnswer(t *testing.T) {
 // mock은 낱말 표로 늘 같은 답을 준다. 받은 분류 목록에 없는 분류는 고르지 않고, 폴더 경로는 마지막 이름으로 맞춘다.
 func TestMockClassifyMerchants(t *testing.T) {
 	cats := []CategoryChoice{{Name: "생활비 › 식비"}, {Name: "카페·간식"}, {Name: "생활"}}
-	got, err := Mock{}.ClassifyMerchants(context.Background(), []string{"동네분식", "골목커피", "주유소앞", "대박상회", "알수없음"}, cats)
+	got, err := Mock{}.ClassifyMerchants(context.Background(), []string{"동네분식", "골목커피", "주유소앞", "대박상회", "알수없음"}, cats, "")
 	if err != nil {
 		t.Fatal(err)
 	}

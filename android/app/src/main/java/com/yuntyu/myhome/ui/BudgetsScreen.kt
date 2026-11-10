@@ -78,6 +78,9 @@ fun BudgetsScreen(modifier: Modifier) {
     var editing by remember { mutableStateOf<EditTarget?>(null) }
     var showHidden by remember { mutableStateOf(false) }
     var dayDialog by remember { mutableStateOf(false) }
+    // AI 분류 공통 메모(분류마다 다는 설명과 따로, 모든 가게에 먼저 적용). null = 아직 못 받음
+    var aiMemo by remember { mutableStateOf<String?>(null) }
+    var memoDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(tick) {
         val c = withContext(Dispatchers.IO) { app.api.categories() }
@@ -86,6 +89,8 @@ fun BudgetsScreen(modifier: Modifier) {
         if (c is ApiResult.Ok) cats = c.value.categories.filter { it.kind == "expense" || it.kind == "income" } else error = c.plain()
         if (b is ApiResult.Ok) budgets = b.value else error = b.plain()
         if (d is ApiResult.Ok) startDay = d.value
+        val memo = withContext(Dispatchers.IO) { app.api.aiMemo() }
+        if (memo is ApiResult.Ok) aiMemo = memo.value
     }
     fun changed(msg: String) {
         Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
@@ -136,6 +141,14 @@ fun BudgetsScreen(modifier: Modifier) {
             }
         }
 
+        FlatRow(
+            "AI 분류 메모",
+            value = aiMemo?.let { t -> t.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.let { if (it.length > 14) it.take(14) + "…" else it } ?: "없음" } ?: "",
+            valueColor = if (aiMemo.isNullOrBlank()) m.faint else MaterialTheme.colorScheme.onBackground,
+            help = "AI가 결제를 분류하기 전에 모든 가게에 먼저 적용하는 메모예요. 분류마다 다는 설명과 따로예요.\n\n예: 회사 근처 식당은 식비, 편의점 도시락은 식비, 다이소는 생활\n\n가게 이름과 분류 이름·설명, 이 메모만 AI에게 보내요.",
+            onClick = { memoDialog = true },
+        )
+        Hairline(Modifier.padding(horizontal = Gutter))
         SectionLabel(
             "쓰는 돈",
             help = "분류 안에 분류를 넣으면 폴더가 돼요(3단계까지). 폴더를 만든 뒤 분류를 눌러 '들어갈 폴더'에서 고르거나, 폴더를 눌러 '이 안에 분류 추가'를 누르세요. 폴더 예산을 안 정하면 안에 있는 분류 예산을 더해요.",
@@ -165,7 +178,7 @@ fun BudgetsScreen(modifier: Modifier) {
         }
 
         SectionLabel("기간")
-        FlatRow("예산 시작일", value = startDay?.let { "매달 ${it}일" } ?: "", sub = "월급날로 바꾸면 그날부터 한 달로 쳐요", onClick = { dayDialog = true })
+        FlatRow("예산 시작일", value = startDay?.let { "매달 ${it}일" } ?: "", help = "월급날로 바꾸면 그날부터 한 달로 쳐요.", onClick = { dayDialog = true })
     }
 
     editing?.let { target ->
@@ -210,6 +223,27 @@ fun BudgetsScreen(modifier: Modifier) {
             }
         }
     }
+    if (memoDialog) {
+        var text by remember { mutableStateOf(aiMemo.orEmpty()) }
+        ModoAlertDialog(
+            onDismissRequest = { memoDialog = false },
+            title = { Text("AI 분류 메모") },
+            text = {
+                LineField(text, { text = it.take(AI_MEMO_MAX) }, "모든 가게에 먼저 적용해요", maxLines = 8)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) { app.api.putAiMemo(text.trim()) }
+                        memoDialog = false
+                        if (r is ApiResult.Ok) { aiMemo = text.trim(); Toast.makeText(ctx, "저장했어요. 새 결제부터 참고해요", Toast.LENGTH_SHORT).show() }
+                        else Toast.makeText(ctx, r.plain(), Toast.LENGTH_LONG).show()
+                    }
+                }) { Text("저장") }
+            },
+            dismissButton = { TextButton(onClick = { memoDialog = false }) { Text("닫기") } },
+        )
+    }
     if (dayDialog) {
         var text by remember { mutableStateOf(startDay?.toString() ?: "1") }
         val n = text.toIntOrNull()
@@ -236,6 +270,9 @@ fun BudgetsScreen(modifier: Modifier) {
         )
     }
 }
+
+/** AI 분류 공통 메모 길이 상한(서버 pipeline.AIMemoMax와 같다) */
+private const val AI_MEMO_MAX = 1000
 
 /** 분류 고치기·추가: 이름, 한 달 예산(쓰는 돈만), 설명(AI 참고), 들어갈 폴더, 지우기, 이 안에 분류 추가 */
 @OptIn(ExperimentalMaterial3Api::class)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
 )
@@ -26,6 +27,8 @@ type Config struct {
 	CardCompanyNames       []string
 	PrepaidKeywords        []string
 	ReviewMerchantPatterns []string
+	// AIMemo는 AI 분류가 모든 가맹점에 먼저 적용할 사용자 공통 메모다(분류마다 다는 설명과 따로, 2026-11-10)
+	AIMemo string
 }
 
 // DefaultConfig는 settings에 값이 없을 때 쓰는 기본값이다(마이그레이션 seed와 같다).
@@ -45,8 +48,11 @@ func DefaultConfig() Config {
 var SettingKeys = map[string]bool{
 	"budget_start_day": true, "dedupe_window_seconds": true, "own_accounts": true,
 	"card_payment_keywords": true, "card_company_names": true, "prepaid_keywords": true,
-	"review_merchant_patterns": true,
+	"review_merchant_patterns": true, "ai_classify_memo": true,
 }
+
+// AIMemoMax는 AI 공통 메모 길이 상한(글자)이다. 분류 설명(300자)보다 넉넉하게.
+const AIMemoMax = 1000
 
 // LoadConfig는 settings 테이블을 읽는다. 값이 깨져 있으면 그 항목만 기본값을 쓴다.
 func LoadConfig(ctx context.Context, q *dbq.Queries) (Config, error) {
@@ -80,6 +86,11 @@ func LoadConfig(ctx context.Context, q *dbq.Queries) (Config, error) {
 			unmarshalList(r.Value, &cfg.PrepaidKeywords)
 		case "review_merchant_patterns":
 			unmarshalList(r.Value, &cfg.ReviewMerchantPatterns)
+		case "ai_classify_memo":
+			var v string
+			if json.Unmarshal(r.Value, &v) == nil {
+				cfg.AIMemo = v
+			}
 		}
 	}
 	return cfg, nil
@@ -115,6 +126,9 @@ func ValidateSetting(key string, raw json.RawMessage) bool {
 	case "card_payment_keywords", "card_company_names", "prepaid_keywords", "review_merchant_patterns":
 		var v []string
 		return json.Unmarshal(raw, &v) == nil
+	case "ai_classify_memo":
+		var v string
+		return json.Unmarshal(raw, &v) == nil && utf8.RuneCountInString(v) <= AIMemoMax
 	}
 	return false
 }

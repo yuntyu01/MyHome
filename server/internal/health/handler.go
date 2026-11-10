@@ -80,6 +80,10 @@ func (h *Handler) Register(mux *http.ServeMux, wrap func(http.Handler) http.Hand
 	route("PUT /v1/health/settings", h.putSettings)
 	route("GET /v1/health/targets/recommend", h.recommend)
 	route("GET /v1/health/foods/barcode/{code}", h.barcode)
+	route("GET /v1/health/body", h.getBody)
+	route("PUT /v1/health/body", h.putBody)
+	route("DELETE /v1/health/body", h.deleteBody)
+	route("POST "+BodyScanPath, h.scanBody)
 }
 
 // handle은 에러를 {"error": 메시지, "code": 코드}로 쓴다. 모르는 에러는 로그를 남기고 500.

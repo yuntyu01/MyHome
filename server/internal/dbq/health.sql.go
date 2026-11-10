@@ -60,6 +60,18 @@ func (q *Queries) CountPlannedMealsByDay(ctx context.Context, arg CountPlannedMe
 	return items, nil
 }
 
+const deleteBodyWeight = `-- name: DeleteBodyWeight :execrows
+DELETE FROM body_weights WHERE day = $1
+`
+
+func (q *Queries) DeleteBodyWeight(ctx context.Context, day time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBodyWeight, day)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteMealItems = `-- name: DeleteMealItems :exec
 DELETE FROM meal_items
 WHERE meal_log_id = $1
@@ -295,6 +307,36 @@ func (q *Queries) InsertTargetHistory(ctx context.Context, arg InsertTargetHisto
 		arg.Fat,
 	)
 	return err
+}
+
+const listBodyWeights = `-- name: ListBodyWeights :many
+SELECT day, weight_kg, updated_at FROM body_weights WHERE day >= $1 AND day <= $2 ORDER BY day
+`
+
+type ListBodyWeightsParams struct {
+	FromDay time.Time `json:"from_day"`
+	ToDay   time.Time `json:"to_day"`
+}
+
+// 기간 몸무게(날짜 순)
+func (q *Queries) ListBodyWeights(ctx context.Context, arg ListBodyWeightsParams) ([]BodyWeight, error) {
+	rows, err := q.db.Query(ctx, listBodyWeights, arg.FromDay, arg.ToDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BodyWeight{}
+	for rows.Next() {
+		var i BodyWeight
+		if err := rows.Scan(&i.Day, &i.WeightKg, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listGymVisitDatesBetween = `-- name: ListGymVisitDatesBetween :many
@@ -585,6 +627,25 @@ func (q *Queries) LockMealLog(ctx context.Context, arg LockMealLogParams) (int64
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const upsertBodyWeight = `-- name: UpsertBodyWeight :one
+INSERT INTO body_weights (day, weight_kg)
+VALUES ($1, $2)
+ON CONFLICT (day) DO UPDATE SET weight_kg = excluded.weight_kg, updated_at = now()
+RETURNING day, weight_kg, updated_at
+`
+
+type UpsertBodyWeightParams struct {
+	Day      time.Time `json:"day"`
+	WeightKg float64   `json:"weight_kg"`
+}
+
+func (q *Queries) UpsertBodyWeight(ctx context.Context, arg UpsertBodyWeightParams) (BodyWeight, error) {
+	row := q.db.QueryRow(ctx, upsertBodyWeight, arg.Day, arg.WeightKg)
+	var i BodyWeight
+	err := row.Scan(&i.Day, &i.WeightKg, &i.UpdatedAt)
+	return i, err
 }
 
 const upsertGymCheckIn = `-- name: UpsertGymCheckIn :one

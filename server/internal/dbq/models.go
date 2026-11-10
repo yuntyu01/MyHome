@@ -17,6 +17,12 @@ type AppLinkCode struct {
 	UsedAt    *time.Time `json:"used_at"`
 }
 
+type BodyWeight struct {
+	Day       time.Time `json:"day"`
+	WeightKg  float64   `json:"weight_kg"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Budget struct {
 	PeriodStart time.Time `json:"period_start"`
 	CategoryID  int64     `json:"category_id"`

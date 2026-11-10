@@ -83,6 +83,8 @@ enum class Screen(val title: String) {
     HEALTH_RECORDS("기록"),
     HEALTH_GYM("헬스"),
     HEALTH_SETTINGS("건강 설정"),
+    /** 몸무게(서버)·몸 사진(폰에만) */
+    BODY("몸 기록"),
     /** 처음 설정(온보딩). 머리·하단바 없이 화면을 다 쓴다 */
     ONBOARDING(""),
     ;
@@ -102,7 +104,7 @@ enum class Screen(val title: String) {
             PERMISSIONS, LOGS -> STATUS
             STATUS, APPS, BUDGETS, HEALTH_SETTINGS -> SETTINGS
             INVEST_VALUE, INVEST_BACKTEST -> INVEST
-            HEALTH_CAPTURE, HEALTH_RECORDS, HEALTH_GYM -> HEALTH
+            HEALTH_CAPTURE, HEALTH_RECORDS, HEALTH_GYM, BODY -> HEALTH
             else -> HOME
         }
 }
@@ -281,6 +283,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                 )
                 Screen.LOGS -> LogScreen(mod)
                 Screen.BUDGETS -> BudgetsScreen(mod)
+                Screen.BODY -> BodyScreen(mod)
                 Screen.FOCUS -> FocusScreen(mod, resumeTick)
                 Screen.INVEST -> InvestScreen(mod, resumeTick, onNavigate = { go(it) })
                 Screen.INVEST_VALUE -> InvestValueScreen(mod)

@@ -223,3 +223,14 @@ data class BarcodeAnswer(val product: BarcodeProduct = BarcodeProduct(), val res
 
 @Serializable
 data class BarcodeProduct(val barcode: String = "", val name: String = "", val maker: String = "", val amount: String = "")
+
+/** 하루 몸무게(GET·PUT /v1/health/body) */
+@Serializable
+data class Weight(val date: String, val weightKg: Double)
+
+@Serializable
+data class WeightList(val weights: List<Weight> = emptyList())
+
+/** 저울 사진에서 읽은 몸무게(POST /v1/health/body/scan). weightKg 0 = 못 읽음 */
+@Serializable
+data class ScaleReading(val weightKg: Double = 0.0, val confidence: Double = 0.0)

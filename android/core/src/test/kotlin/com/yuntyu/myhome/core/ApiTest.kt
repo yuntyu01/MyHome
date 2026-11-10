@@ -246,4 +246,37 @@ class ApiTest {
         val b2 = server.takeRequest().body.readUtf8()
         assertTrue(b2.contains("\"merchant\":\"합성식당\"") && b2.contains("\"amount\":7000") && !b2.contains("memo"))
     }
+
+    // AI 공통 메모: 설정 목록에서 읽고(없으면 ""), JSON 문자열로 보낸다
+    @Test fun aiMemoReadsAndWritesAJsonString() {
+        server.enqueue(MockResponse().setBody("""{"settings":{"budget_start_day":1,"ai_classify_memo":"회사 근처 \"식당\"은 식비"}}"""))
+        server.enqueue(MockResponse().setBody("""{"settings":{}}"""))
+        server.enqueue(MockResponse().setBody("""{"key":"ai_classify_memo","value":"x"}"""))
+        assertEquals("회사 근처 \"식당\"은 식비", (api().aiMemo() as ApiResult.Ok).value)
+        assertEquals("", (api().aiMemo() as ApiResult.Ok).value)
+        server.takeRequest(); server.takeRequest()
+        api().putAiMemo("편의점은 \"생활\"")
+        val put = server.takeRequest()
+        assertEquals("PUT", put.method)
+        assertEquals("/v1/settings/ai_classify_memo", put.path)
+        assertEquals("\"편의점은 \\\"생활\\\"\"", put.body.readUtf8())
+    }
+
+    // 몸무게: 목록·저장·저울 읽기(사진 한 장 multipart)
+    @Test fun bodyWeightsAndScaleScan() {
+        server.enqueue(MockResponse().setBody("""{"weights":[{"date":"2026-11-09","weightKg":72.4}]}"""))
+        server.enqueue(MockResponse().setBody("""{"date":"2026-11-10","weightKg":72.1}"""))
+        server.enqueue(MockResponse().setBody("""{"weightKg":71.8,"confidence":0.9}"""))
+        assertEquals(72.4, (api().bodyWeights(from = "2026-11-01") as ApiResult.Ok).value.weights.single().weightKg, 0.0)
+        assertEquals("/v1/health/body?from=2026-11-01", server.takeRequest().path)
+        api().saveWeight("2026-11-10", 72.1)
+        val put = server.takeRequest()
+        assertEquals("PUT", put.method)
+        assertTrue(put.body.readUtf8().contains("\"weightKg\":72.1"))
+        val r = api().scanScale(byteArrayOf(1, 2, 3)) as ApiResult.Ok
+        assertEquals(71.8, r.value.weightKg, 0.0)
+        val scan = server.takeRequest()
+        assertEquals("/v1/health/body/scan", scan.path)
+        assertTrue(scan.getHeader("Content-Type")!!.startsWith("multipart/form-data"))
+    }
 }
