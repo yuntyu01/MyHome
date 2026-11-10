@@ -2,7 +2,7 @@ package com.yuntyu.myhome.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -39,6 +40,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+
+/**
+ * 누르면 동작하는 칸. 화면 안에서는 clickable 대신 이것을 쓴다(하단바·머리처럼 글자 고르기 밖이면 clickable도 된다).
+ * 앱 전체가 꾹 눌러 글자 고르기다. 글자 위를 꾹 누르면 clickable이어도 골라지기만 하지만, 손가락이 글자를 살짝 벗어나
+ * 줄의 빈 곳을 꾹 눌렀다 떼면 clickable은 누르기로 친다(복사하려다 분류 판이 열림). 길게 누르기를 받아서 버리면
+ * 그때도 열리지 않고, 글자 고르기·복사는 그대로 된다(SelectionTest). 인자는 clickable과 같은 이름·순서다.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun Modifier.tap(enabled: Boolean = true, onClickLabel: String? = null, role: Role? = null, onClick: () -> Unit): Modifier =
+    combinedClickable(enabled = enabled, onClickLabel = onClickLabel, role = role, onLongClick = {}, onClick = onClick)
 
 /** modo 카드: 테두리·그림자 없이 바탕색만 다른 둥근 블록(16dp). 제목은 카드 위의 작은 회색 글자. */
 @Composable
@@ -120,7 +131,7 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, action: String? = 
     Row(modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 24.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(text, Modifier.weight(1f), fontSize = 14.sp, color = m.muted)
         if (action != null && onAction != null) {
-            Text(action, Modifier.clickable(role = Role.Button, onClick = onAction).padding(vertical = 4.dp, horizontal = 2.dp), fontSize = 14.sp, color = m.muted)
+            Text(action, Modifier.tap(role = Role.Button, onClick = onAction).padding(vertical = 4.dp, horizontal = 2.dp), fontSize = 14.sp, color = m.muted)
         }
     }
 }
@@ -147,7 +158,7 @@ fun FlatRow(
     val m = LocalModo.current
     Row(
         modifier.fillMaxWidth().heightIn(min = 56.dp)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.tap(onClick = onClick) else Modifier)
             .padding(horizontal = Gutter, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -190,10 +201,11 @@ fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean 
     val m = LocalModo.current
     Box(
         modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(14.dp)).background(if (enabled) m.cta else m.line)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+            .tap(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = if (enabled) m.onCta else m.faint, maxLines = 1)
+        // 버튼 글자는 꾹 눌러도 고르지 않는다(누르는 것이라)
+        DisableSelection { Text(text, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = if (enabled) m.onCta else m.faint, maxLines = 1) }
     }
 }
 
@@ -202,7 +214,7 @@ fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean 
 fun AddRow(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val m = LocalModo.current
     Row(
-        modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = Gutter, vertical = 14.dp),
+        modifier.fillMaxWidth().heightIn(min = 56.dp).tap(role = Role.Button, onClick = onClick).padding(horizontal = Gutter, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -235,17 +247,17 @@ fun CheckCircle(checked: Boolean) {
 fun TextTabs(items: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
     val m = LocalModo.current
     Column(modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        DisableSelection { Row(Modifier.fillMaxWidth().padding(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             items.forEachIndexed { i, label ->
                 val on = i == selected
                 // 밑줄 폭을 글자 폭에 맞춘다(IntrinsicSize.Max 없이 fillMaxWidth를 쓰면 첫 탭이 줄 전체를 차지한다)
-                Column(Modifier.width(IntrinsicSize.Max).clickable(role = Role.Tab) { onSelect(i) }.padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.width(IntrinsicSize.Max).tap(role = Role.Tab) { onSelect(i) }.padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(label, fontSize = 15.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, color = if (on) MaterialTheme.colorScheme.onBackground else m.muted, maxLines = 1)
                     Spacer(Modifier.height(8.dp))
                     Box(Modifier.height(2.dp).fillMaxWidth().background(if (on) MaterialTheme.colorScheme.onBackground else Color.Transparent))
                 }
             }
-        }
+        } }
         Hairline()
     }
 }

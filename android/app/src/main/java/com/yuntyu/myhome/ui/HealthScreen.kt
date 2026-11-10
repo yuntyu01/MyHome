@@ -1,7 +1,6 @@
 package com.yuntyu.myhome.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,7 +25,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -98,17 +101,30 @@ suspend fun loadHealthHome(): Result<HealthHome> = withContext(Dispatchers.IO) {
     Result.success(HealthHome(day, st, today, weekly, card, outbox))
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate: (Screen) -> Unit) {
     var data by remember { mutableStateOf<HealthHome?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(resumeTick) {
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    suspend fun load() {
         loadHealthHome().onSuccess { data = it; error = null }.onFailure { error = it.message }
     }
+    LaunchedEffect(resumeTick) { load() }
     val m = LocalModo.current
+    // 날짜·합계·그래프 막대를 누르면 그날 기록으로
+    val openDay: (LocalDate) -> Unit = { date ->
+        if (!date.isAfter(LocalDate.now())) { nav.recordsDate = date.toString(); onNavigate(Screen.HEALTH_RECORDS) }
+    }
     Column(modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { scope.launch { refreshing = true; load(); refreshing = false } },
+            modifier = Modifier.weight(1f),
+        ) {
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val d = data
@@ -117,7 +133,7 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
                 return@Column
             }
             if (error != null) Text("새로 불러오지 못했어요. 마지막으로 받은 기록이에요", style = MaterialTheme.typography.bodySmall, color = m.over, modifier = Modifier.padding(horizontal = 6.dp))
-            WeekStrip(d)
+            WeekStrip(d, openDay)
             if (d.outbox.isNotEmpty()) {
                 val failed = d.outbox.values.count { it.error != null }
                 Text(
@@ -130,10 +146,11 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
             }
             MealTiles(d, nav, onNavigate)
             val streak = if (d.today.streak > 0) " · ${d.today.streak}일째" else ""
-            NutritionTotals(d.today.total, d.today.targets, "오늘 합계", "${d.today.loggedCount}끼 기록$streak")
+            NutritionTotals(d.today.total, d.today.targets, "오늘 합계", "${d.today.loggedCount}끼 기록$streak") { openDay(d.day) }
             MealCards(d, nav, onNavigate)
             GymLine(d) { onNavigate(Screen.HEALTH_GYM) }
-            d.weekly?.let { WeeklyCard(it) }
+            d.weekly?.let { WeeklyCard(it, openDay) }
+        }
         }
         // 찍기 버튼은 내용 위에 떠 있지 않고 아래에 붙인다(표·그래프를 가리지 않게)
         val d = data
@@ -158,7 +175,7 @@ private fun currentIndex(d: HealthHome): Int? {
 }
 
 @Composable
-private fun WeekStrip(d: HealthHome) {
+private fun WeekStrip(d: HealthHome, onDay: (LocalDate) -> Unit) {
     val m = LocalModo.current
     val days = d.weekly?.days.orEmpty()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -167,7 +184,9 @@ private fun WeekStrip(d: HealthHome) {
             val date = wd?.date?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: d.day.minusDays((HealthPlan.weekdayMon0(d.day) - i).toLong())
             val isToday = date == d.day
             Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (isToday) m.card else androidx.compose.ui.graphics.Color.Transparent).padding(vertical = 8.dp),
+                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (isToday) m.card else androidx.compose.ui.graphics.Color.Transparent)
+                    .tap(enabled = !date.isAfter(d.day), onClickLabel = "${date.monthValue}월 ${date.dayOfMonth}일 기록") { onDay(date) }
+                    .padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -223,7 +242,7 @@ private fun Tile(title: String, sub: String, current: Boolean, done: Boolean, mo
     val fg = if (current) m.onAccent else MaterialTheme.colorScheme.onSurface
     Column(
         modifier.heightIn(min = 84.dp).clip(RoundedCornerShape(16.dp)).background(if (current) m.accent else m.card)
-            .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 10.dp),
+            .tap(onClick = onClick).padding(horizontal = 10.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -283,7 +302,7 @@ private fun EatenMealCard(day: String, meal: com.yuntyu.myhome.core.api.MealView
     }
     val photos = remember(day, meal.index, photosTick) { com.yuntyu.myhome.health.MealPhotos.photosOf(ctx, day, meal.index) }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).tap(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -336,7 +355,7 @@ private fun PlanCard(title: String, sub: String, target: Nutrition?, dashed: Boo
                     )
                 } else Modifier.background(m.card),
             )
-            .clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp),
+            .tap(onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -364,7 +383,7 @@ private fun GymLine(d: HealthHome, onClick: () -> Unit) {
         else -> "오늘은 안 가는 날"
     }
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).tap(onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -388,7 +407,7 @@ private fun pick(n: Nutrition?, key: String): Int? = n?.let {
 
 /** 주간 그래프: 지난주(옅게)와 이번 주를 요일별로, 목표선과 함께. 목표를 넘은 것을 경고로 그리지 않는다. */
 @Composable
-private fun WeeklyCard(w: HealthWeekly) {
+private fun WeeklyCard(w: HealthWeekly, onDay: (LocalDate) -> Unit) {
     val m = LocalModo.current
     var metric by rememberSaveable { mutableStateOf("carbs") }
     val unit = if (metric == "kcal") "kcal" else "g"
@@ -408,7 +427,11 @@ private fun WeeklyCard(w: HealthWeekly) {
         if (s != null) Text("완료한 ${s.completed}일 중 ${s.achieved}일 달성", style = MaterialTheme.typography.bodyMedium)
         Row(Modifier.fillMaxWidth().height(130.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
             for (wd in days) {
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                val date = runCatching { LocalDate.parse(wd.date) }.getOrNull() ?: start?.plusDays(wd.index.toLong())
+                Column(
+                    Modifier.weight(1f).then(if (date != null) Modifier.tap { onDay(date) } else Modifier),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Box(Modifier.height(110.dp).fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
                         // 목표선
                         if (target > 0) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = (110f * target / top).dp).fillMaxWidth().height(1.dp).background(m.muted.copy(alpha = 0.5f)))
@@ -453,7 +476,7 @@ private fun MetricTabs(metric: String, onPick: (String) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
         for ((k, label) in METRICS) {
             val on = metric == k
-            Column(Modifier.clickable { onPick(k) }.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.tap { onPick(k) }.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(label, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, color = if (on) MaterialTheme.colorScheme.onSurface else m.muted, maxLines = 1)
                 Spacer(Modifier.height(6.dp))
                 Box(Modifier.height(2.dp).width(24.dp).background(if (on) MaterialTheme.colorScheme.onSurface else androidx.compose.ui.graphics.Color.Transparent))

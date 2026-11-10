@@ -21,6 +21,9 @@ android {
     namespace = "com.yuntyu.myhome"
     compileSdk = 36
 
+    // Robolectric(화면 테스트)이 앱 리소스·매니페스트를 읽는다
+    testOptions { unitTests.isIncludeAndroidResources = true }
+
     defaultConfig {
         // Play에서는 예전 핏두잉 앱 자리를 그대로 쓴다(패키지 이름은 바꿀 수 없다). docs/DECISIONS.md 「Play 배포」
         applicationId = "com.fitdoing.app"
@@ -106,4 +109,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

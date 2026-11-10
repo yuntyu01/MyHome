@@ -8,7 +8,6 @@ import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -184,7 +183,7 @@ private fun SearchBox(value: String, onChange: (String) -> Unit) {
 private fun AppRow(a: AppEntry, checked: Boolean, notified: Int, onClick: () -> Unit) {
     val m = LocalModo.current
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = Gutter, vertical = 10.dp),
+        Modifier.fillMaxWidth().tap(onClick = onClick).padding(horizontal = Gutter, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {

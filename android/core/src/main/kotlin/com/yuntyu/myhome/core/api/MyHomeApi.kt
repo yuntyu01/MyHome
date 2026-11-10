@@ -48,14 +48,28 @@ class MyHomeApi(
 
     /**
      * 기간 거래 목록. month는 "2026-11"처럼 기간 이름(없으면 이번 기간), status는 "needs_review" 같은 상태,
-     * direction은 "income" 같은 방향으로 거른다.
+     * direction은 "income" 같은 방향으로 거른다. from·to("2026-11-01", 둘 다 줄 때만)를 주면 month 대신 그 날짜 사이,
+     * search를 주면 가게 이름·메모에 그 글자가 든 것만(검색).
      */
-    fun transactions(limit: Int = 50, month: String? = null, status: String? = null, direction: String? = null): ApiResult<TransactionList> {
+    fun transactions(
+        limit: Int = 50,
+        month: String? = null,
+        status: String? = null,
+        direction: String? = null,
+        from: String? = null,
+        to: String? = null,
+        search: String? = null,
+    ): ApiResult<TransactionList> {
         val qs = buildString {
             append("limit=").append(limit)
-            month?.let { append("&month=").append(q(it)) }
+            if (from != null && to != null) {
+                append("&from=").append(q(from)).append("&to=").append(q(to))
+            } else {
+                month?.let { append("&month=").append(q(it)) }
+            }
             status?.let { append("&status=").append(q(it)) }
             direction?.let { append("&direction=").append(q(it)) }
+            search?.trim()?.takeIf { it.isNotEmpty() }?.let { append("&q=").append(q(it)) }
         }
         return call("GET", "/v1/transactions?$qs", null, TransactionList.serializer())
     }

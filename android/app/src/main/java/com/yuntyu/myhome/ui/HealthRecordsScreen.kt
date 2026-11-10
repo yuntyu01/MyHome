@@ -2,7 +2,6 @@ package com.yuntyu.myhome.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -80,7 +79,12 @@ fun HealthRecordsScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onN
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${month.year}년 ${month.monthValue}월", Modifier.weight(1f).padding(start = 4.dp), style = MaterialTheme.typography.titleMedium)
+                // 달 이름을 누르면 오늘로 돌아온다
+                Text(
+                    "${month.year}년 ${month.monthValue}월",
+                    Modifier.weight(1f).tap(onClickLabel = "오늘로") { month = YearMonth.now(); selected = LocalDate.now() }.padding(start = 4.dp, top = 6.dp, bottom = 6.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 TextButton(onClick = { month = month.minusMonths(1) }) { Text("‹", color = m.muted) }
                 TextButton(onClick = { month = month.plusMonths(1) }, enabled = month < YearMonth.now()) { Text("›", color = m.muted) }
             }
@@ -105,7 +109,7 @@ fun HealthRecordsScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onN
                         val isSel = date == selected
                         Column(
                             Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (isSel) m.selected else androidx.compose.ui.graphics.Color.Transparent)
-                                .clickable(enabled = !date.isAfter(LocalDate.now())) { selected = date }.padding(vertical = 6.dp),
+                                .tap(enabled = !date.isAfter(LocalDate.now())) { selected = date }.padding(vertical = 6.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
@@ -147,7 +151,7 @@ fun HealthRecordsScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onN
                 if (meals.isEmpty()) Text("기록한 끼니가 없어요", color = m.muted)
                 for (meal in meals) {
                     Row(
-                        Modifier.fillMaxWidth().clickable {
+                        Modifier.fillMaxWidth().tap {
                             nav.openCapture(selected.toString(), meal.index, meal)
                             onNavigate(Screen.HEALTH_CAPTURE)
                         },
@@ -169,7 +173,7 @@ fun HealthRecordsScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onN
                 }
                 }
             }
-            SectionCard("헬스") {
+            SectionCard("헬스", Modifier.tap(onClickLabel = "헬스 열기") { onNavigate(Screen.HEALTH_GYM) }) {
                 Text(
                     when (c.gymVerifiedBy) {
                         "geofence" -> "갔어요 · 위치로 확인"

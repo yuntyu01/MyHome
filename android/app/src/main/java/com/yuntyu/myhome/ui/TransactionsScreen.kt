@@ -1,7 +1,6 @@
 package com.yuntyu.myhome.ui
 
 import android.widget.Toast
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +12,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -21,10 +25,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -73,10 +76,20 @@ private val reviewReasonLabels = mapOf(
 /**
  * 거래: 달 넘기기, 탭(전체 · 분류 고를 것 · 들어온 돈), 날짜별 줄. 줄을 누르면 분류를 고른다(확인 필요 건이면 AI 추천도).
  * 아래에 "현금으로 쓴 돈 직접 적기". 떠 있는 버튼 대신 목록 아래 줄로 둔다(내용을 가리지 않게).
+ * 돋보기: 가게 이름·메모로 전체 기간을 찾는다(서버 q). 홈에서 분류를 눌러 들어오면 그 분류(안 분류 포함)만 본다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TransactionsScreen(modifier: Modifier, resumeTick: Int, tab: Int, onTab: (Int) -> Unit, openTxId: Long?, onOpened: () -> Unit) {
+fun TransactionsScreen(
+    modifier: Modifier,
+    resumeTick: Int,
+    tab: Int,
+    onTab: (Int) -> Unit,
+    openTxId: Long?,
+    onOpened: () -> Unit,
+    categoryFilter: Long? = null,
+    onCategoryFilter: (Long?) -> Unit = {},
+) {
     val ctx = LocalContext.current
     val app = MyHomeApp.instance
     val scope = rememberCoroutineScope()
@@ -94,6 +107,10 @@ fun TransactionsScreen(modifier: Modifier, resumeTick: Int, tab: Int, onTab: (In
     var selected by remember { mutableStateOf<TransactionDto?>(null) }
     var cashOpen by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableIntStateOf(0) }
+    // 검색: null이면 닫힘. 글자가 있으면 전체 기간에서 찾은 것(found)을 보여준다
+    var query by rememberSaveable { mutableStateOf<String?>(null) }
+    var found by remember { mutableStateOf<List<TransactionDto>?>(null) }
+    val searching = !query.isNullOrBlank()
 
     suspend fun load() {
         val list = withContext(Dispatchers.IO) { app.api.transactions(500, month = shown) }
@@ -103,8 +120,21 @@ fun TransactionsScreen(modifier: Modifier, resumeTick: Int, tab: Int, onTab: (In
         if (q is ApiResult.Ok) review = q.value.transactions
         if (c is ApiResult.Ok) cats = c.value.categories.filter { !it.archived }
     }
+    suspend fun search(text: String) {
+        val r = withContext(Dispatchers.IO) {
+            app.api.transactions(SEARCH_LIMIT, from = SEARCH_FROM, to = LocalDate.now(KST).toString(), search = text)
+        }
+        if (r is ApiResult.Ok) { found = r.value.transactions; error = null } else { found = emptyList(); error = r.plain() }
+    }
     LaunchedEffect(shown, resumeTick, reloadTick) { load() }
-    // 위젯에서 확인 필요 항목을 눌러 들어왔으면 바로 분류 고르기를 연다
+    // 글자를 칠 때마다 부르지 않게 잠깐 기다렸다가 찾는다
+    LaunchedEffect(query, reloadTick) {
+        val text = query?.trim().orEmpty()
+        if (text.isEmpty()) { found = null; return@LaunchedEffect }
+        kotlinx.coroutines.delay(300)
+        search(text)
+    }
+    // 위젯·홈에서 거래를 눌러 들어왔으면 바로 그 거래를 연다
     LaunchedEffect(openTxId, review) {
         val id = openTxId ?: return@LaunchedEffect
         val q = review ?: return@LaunchedEffect
@@ -127,15 +157,28 @@ fun TransactionsScreen(modifier: Modifier, resumeTick: Int, tab: Int, onTab: (In
         }
     }
 
+    // 고른 분류와 그 안 분류들(폴더면 안까지)
+    val tree = remember(cats) { CategoryTree(cats) }
+    val catIds = remember(tree, categoryFilter) { categoryFilter?.let { descendantsOf(tree, it) } }
+    val catName = categoryFilter?.let { id -> cats.firstOrNull { it.id == id }?.name ?: "고른 분류" }
+
     Column(modifier.fillMaxSize()) {
         PageTitle("거래") {
-            // 분류 고를 것은 달과 상관없이 모두 보여주므로 달 넘기기를 숨긴다
-            if (tab != 1) {
+            IconButton(onClick = { query = if (query == null) "" else null }) {
+                Icon(if (query == null) SearchIcon else CloseIcon, contentDescription = if (query == null) "거래 찾기" else "찾기 닫기", tint = m.muted)
+            }
+            // 분류 고를 것·찾기는 달과 상관없이 보여주므로 달 넘기기를 숨긴다
+            if (tab != 1 && !searching) {
                 IconButton(onClick = { month = YearMonth.parse(shown).minusMonths(1).toString() }) {
                     Icon(ChevronLeftIcon, contentDescription = "지난달", tint = m.muted)
                 }
-                Text(WidgetModel.monthName(shown), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 val atCurrent = shown >= current
+                // 달 이름을 누르면 이번 달로 돌아온다
+                Text(
+                    WidgetModel.monthName(shown),
+                    Modifier.tap(enabled = !atCurrent, onClickLabel = "이번 달로") { month = null }.padding(vertical = 6.dp),
+                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                )
                 IconButton(
                     onClick = { val next = YearMonth.parse(shown).plusMonths(1).toString(); month = if (next >= current) null else next },
                     enabled = !atCurrent,
@@ -144,30 +187,41 @@ fun TransactionsScreen(modifier: Modifier, resumeTick: Int, tab: Int, onTab: (In
                 }
             }
         }
+        if (query != null) SearchField(query.orEmpty()) { query = it }
         val reviewCount = review?.size ?: 0
         TextTabs(listOf("전체", if (reviewCount > 0) "분류 고를 것 $reviewCount" else "분류 고를 것", "들어온 돈"), tab, onSelect = onTab)
+        if (catName != null) FilterChipRow("$catName 거래만 보는 중") { onCategoryFilter(null) }
         PullToRefreshBox(
             isRefreshing = refreshing,
-            onRefresh = { scope.launch { refreshing = true; load(); refreshing = false } },
+            onRefresh = { scope.launch { refreshing = true; load(); query?.trim()?.takeIf { it.isNotEmpty() }?.let { search(it) }; refreshing = false } },
             modifier = Modifier.weight(1f),
         ) {
-            val list = when (tab) {
-                1 -> review
-                2 -> items?.filter { it.flow == "in" }
+            val needle = query?.trim().orEmpty()
+            val base = when {
+                tab == 1 -> review?.let { r -> if (searching) r.filter { matches(it, needle) } else r }
+                searching -> found
                 else -> items
             }
+            val list = base
+                ?.let { l -> if (tab == 2) l.filter { it.flow == "in" } else l }
+                ?.let { l -> if (catIds != null && tab != 1) l.filter { it.categoryId in catIds } else l }
             val monthName = WidgetModel.monthName(shown)
             LazyColumn(Modifier.fillMaxSize()) {
                 when {
+                    searching && list == null -> item { EmptyNote("찾는 중이에요") }
                     list == null -> item { EmptyNote(if (error != null) "불러오지 못했어요" else "불러오는 중이에요", error) }
                     list.isEmpty() -> item {
-                        when (tab) {
-                            1 -> EmptyNote("분류 고를 결제가 없어요", "모든 결제가 분류돼 있어요")
-                            2 -> EmptyNote("${monthName}에 들어온 돈이 없어요")
+                        when {
+                            searching -> EmptyNote("'$needle'이(가) 든 거래가 없어요", "가게 이름과 메모에서 찾아요")
+                            catName != null -> EmptyNote("${monthName}에 $catName 거래가 없어요")
+                            tab == 1 -> EmptyNote("분류 고를 결제가 없어요", "모든 결제가 분류돼 있어요")
+                            tab == 2 -> EmptyNote("${monthName}에 들어온 돈이 없어요")
                             else -> EmptyNote("${monthName} 거래가 아직 없어요", "결제 알림이 오면 여기에 바로 적혀요")
                         }
                     }
                     else -> {
+                        // 찾기·분류로 거른 때는 합계를 맨 위에(몇 건, 얼마)
+                        if (searching || catName != null) item(key = "sum") { TotalsLine(list, if (searching) "전체 기간" else monthName, searching && list.size >= SEARCH_LIMIT) }
                         val groups = list.groupBy { kstDate(it.occurredAt) }
                         for ((day, txs) in groups) {
                             item(key = "d$day") { DayHeader(day, txs) }
@@ -185,7 +239,13 @@ fun TransactionsScreen(modifier: Modifier, resumeTick: Int, tab: Int, onTab: (In
         AddRow("현금으로 쓴 돈 직접 적기") { cashOpen = true }
     }
 
-    selected?.let { t -> ClassifySheet(t, cats, onDismiss = { selected = null }) { edit -> submit(t, edit) } }
+    selected?.let { t ->
+        ClassifySheet(
+            t, cats,
+            onDismiss = { selected = null },
+            onSearch = { text -> selected = null; onTab(0); query = text },
+        ) { edit -> submit(t, edit) }
+    }
     if (cashOpen) {
         CashSheet(cats, onDismiss = { cashOpen = false }) {
             cashOpen = false
@@ -193,6 +253,65 @@ fun TransactionsScreen(modifier: Modifier, resumeTick: Int, tab: Int, onTab: (In
             scope.launch { WidgetRefresher.refresh(ctx) }
         }
     }
+}
+
+/** 찾기는 서버에서 전체 기간을 이만큼까지 받는다 */
+private const val SEARCH_LIMIT = 200
+private const val SEARCH_FROM = "2000-01-01"
+
+/** 분류 고를 것 목록은 폰에서 거른다(서버 q와 같게 가게 이름·메모, 대소문자 무시) */
+private fun matches(t: TransactionDto, needle: String): Boolean =
+    needle.isEmpty() || t.merchant.contains(needle, ignoreCase = true) || t.memo.contains(needle, ignoreCase = true)
+
+/** 분류와 그 안 분류 전부 */
+private fun descendantsOf(tree: CategoryTree, id: Long): Set<Long> {
+    val out = mutableSetOf(id)
+    for (c in tree.children(id)) out += descendantsOf(tree, c.id)
+    return out
+}
+
+/** 찾기 칸: 밑줄 입력칸. 빈 칸으로 열리면 바로 칠 수 있게 포커스(가게 이름을 넣어 열면 키보드를 띄우지 않는다) */
+@Composable
+private fun SearchField(value: String, onChange: (String) -> Unit) {
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val startEmpty = remember { value.isEmpty() }
+    LaunchedEffect(Unit) { if (startEmpty) runCatching { focus.requestFocus() } }
+    Column(Modifier.padding(horizontal = Gutter)) {
+        LineField(value, { onChange(it.take(40)) }, "가게 이름이나 메모로 찾기 (전체 기간)", Modifier.focusRequester(focus))
+    }
+}
+
+/** 거른 조건을 알리는 줄. 오른쪽 ×로 푼다 */
+@Composable
+private fun FilterChipRow(text: String, onClear: () -> Unit) {
+    val m = LocalModo.current
+    Row(
+        Modifier.fillMaxWidth().tap(onClickLabel = "거르기 풀기", onClick = onClear).padding(horizontal = Gutter, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, Modifier.weight(1f), fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold)
+        Text("모두 보기", fontSize = 14.sp, color = m.muted)
+        Icon(CloseIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+    }
+    Hairline()
+}
+
+/** 몇 건 · 쓴 돈 · 들어온 돈(가계부에서 뺀 건 빼고) */
+@Composable
+private fun TotalsLine(list: List<TransactionDto>, scope: String, capped: Boolean) {
+    val m = LocalModo.current
+    val live = list.filter { it.status != "excluded" }
+    val out = live.filter { it.flow == "out" }.sumOf { it.amount }
+    val inn = live.filter { it.flow == "in" }.sumOf { it.amount }
+    Text(
+        listOfNotNull(
+            "$scope ${list.size}건" + if (capped) "(최근 것만)" else "",
+            if (out > 0) "쓴 돈 ${Money.won(out)}" else null,
+            if (inn > 0) "들어온 돈 ${Money.won(inn)}" else null,
+        ).joinToString(" · "),
+        Modifier.padding(start = Gutter, end = Gutter, top = 14.dp),
+        fontSize = 14.sp, color = m.muted,
+    )
 }
 
 /** 서버 시각(KST)의 날짜. 형식이 다르면 오늘 */
@@ -244,9 +363,9 @@ fun TxRow(t: TransactionDto, withDay: Boolean, onClick: (() -> Unit)? = null) {
         review -> (t.suggestion?.let { "AI 추천 ${it.category} · 눌러서 확인" } ?: "분류를 골라 주세요") + " · $time" to m.over
         excluded -> "가계부에서 뺌 · $time" to m.faint
         else -> "${t.category.ifBlank { "분류 없음" }} · $time" to m.muted
-    }
+    }.let { (text, color) -> (if (t.memo.isNotBlank()) "$text · ${t.memo}" else text) to color }
     Row(
-        Modifier.fillMaxWidth().clickable(enabled = onClick != null) { onClick?.invoke() }.padding(horizontal = Gutter, vertical = 12.dp),
+        Modifier.fillMaxWidth().tap(enabled = onClick != null) { onClick?.invoke() }.padding(horizontal = Gutter, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -269,15 +388,24 @@ fun TxRow(t: TransactionDto, withDay: Boolean, onClick: (() -> Unit)? = null) {
 /** 분류 고르기: 아래에서 올라오는 판에 분류를 줄로 늘어놓는다. 고르면 바로 저장 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ClassifySheet(t: TransactionDto, cats: List<Category>, onDismiss: () -> Unit, onSubmit: (TransactionEdit) -> Unit) {
+private fun ClassifySheet(
+    t: TransactionDto,
+    cats: List<Category>,
+    onDismiss: () -> Unit,
+    /** "이 가게 거래 모두 보기": 판을 닫고 가게 이름으로 찾는다 */
+    onSearch: (String) -> Unit,
+    onSubmit: (TransactionEdit) -> Unit,
+) {
     val m = LocalModo.current
     var learn by remember { mutableStateOf(t.merchant.isNotBlank()) }
+    var memoOpen by remember { mutableStateOf(false) }
+    var fixOpen by remember { mutableStateOf(false) }
     // 폴더 순서대로 들여 쓴다. 들어온 돈이면 수입·정산·내 계좌 같은 특수 분류를 먼저 보여준다
     val tree = remember(cats) { CategoryTree(cats) }
     val (exp, other) = tree.preorder().partition { it.first.kind == "expense" }
     val ordered = if (t.flow == "in") other + exp else exp + other
     val excluded = t.status == "excluded"
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = m.bg) {
+    ModoBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().heightIn(max = 640.dp).verticalScroll(rememberScrollState()).navigationBarsPadding()) {
             Column(Modifier.padding(horizontal = Gutter).padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(t.merchant.ifBlank { "이름 없는 결제" }, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -289,6 +417,13 @@ private fun ClassifySheet(t: TransactionDto, cats: List<Category>, onDismiss: ()
                     ).joinToString(" · "),
                     fontSize = 14.sp, color = m.muted,
                 )
+                if (t.memo.isNotBlank()) Text("메모 · ${t.memo}", fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground)
+                // 자주 쓰는 일: 메모, 이름·금액 고치기, 같은 가게 거래 보기
+                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SheetPill(if (t.memo.isBlank()) "메모 남기기" else "메모 고치기") { memoOpen = true }
+                    SheetPill("이름·금액 고치기") { fixOpen = true }
+                    if (t.merchant.isNotBlank()) SheetPill("이 가게 거래") { onSearch(t.merchant) }
+                }
             }
             if (t.merchant.isNotBlank()) {
                 FlatRow(
@@ -327,6 +462,60 @@ private fun ClassifySheet(t: TransactionDto, cats: List<Category>, onDismiss: ()
             Spacer(Modifier.height(16.dp))
         }
     }
+    if (memoOpen) {
+        var memo by remember { mutableStateOf(t.memo) }
+        ModoAlertDialog(
+            onDismissRequest = { memoOpen = false },
+            title = { Text("메모") },
+            text = { LineField(memo, { memo = it.take(MEMO_MAX) }, "예: 점심 더치페이, 선물", maxLines = 3) },
+            confirmButton = {
+                TextButton(onClick = { memoOpen = false; onSubmit(TransactionEdit(memo = memo.trim())) }, enabled = memo.trim() != t.memo) { Text("저장") }
+            },
+            dismissButton = { TextButton(onClick = { memoOpen = false }) { Text("취소") } },
+        )
+    }
+    if (fixOpen) {
+        var name by remember { mutableStateOf(t.merchant) }
+        var amount by remember { mutableStateOf(t.amount.toString()) }
+        val won = amount.toLongOrNull() ?: 0L
+        val edit = TransactionEdit(
+            merchant = name.trim().takeIf { it.isNotEmpty() && it != t.merchant },
+            amount = won.takeIf { it > 0 && it != t.amount },
+        )
+        ModoAlertDialog(
+            onDismissRequest = { fixOpen = false },
+            title = { Text("이름·금액 고치기") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LineField(name, { name = it.take(MERCHANT_MAX) }, "가게 이름")
+                    LineField(amount, { amount = it.filter(Char::isDigit).take(10) }, if (won > 0) "금액 · ${Money.won(won)}" else "금액(원)", keyboardType = KeyboardType.Number)
+                    Text("알림을 잘못 읽었을 때 고쳐요. 고친 거래는 다시 읽어도 그대로 둬요.", fontSize = 13.sp, color = m.muted, lineHeight = 18.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { fixOpen = false; onSubmit(edit) }, enabled = edit.merchant != null || edit.amount != null) { Text("저장") }
+            },
+            dismissButton = { TextButton(onClick = { fixOpen = false }) { Text("취소") } },
+        )
+    }
+}
+
+/** 메모·가게 이름 글자 수(서버는 따로 막지 않아서 앱에서 적당히 자른다) */
+private const val MEMO_MAX = 200
+private const val MERCHANT_MAX = 60
+
+/** 판 안의 작은 알약 버튼 */
+@Composable
+private fun SheetPill(text: String, onClick: () -> Unit) {
+    val m = LocalModo.current
+    androidx.compose.foundation.text.selection.DisableSelection {
+        Text(
+            text,
+            Modifier.clip(RoundedCornerShape(12.dp)).background(m.pill).tap(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1,
+        )
+    }
 }
 
 /** 현금으로 쓴 돈 적기: 금액, 어디서(선택), 분류 */
@@ -343,7 +532,7 @@ private fun CashSheet(cats: List<Category>, onDismiss: () -> Unit, onSaved: () -
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     val won = amount.toLongOrNull() ?: 0L
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = m.bg) {
+    ModoBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().heightIn(max = 680.dp).imePadding().navigationBarsPadding()) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 Text("현금으로 쓴 돈", Modifier.padding(horizontal = Gutter), fontSize = 20.sp, fontWeight = FontWeight.Bold)

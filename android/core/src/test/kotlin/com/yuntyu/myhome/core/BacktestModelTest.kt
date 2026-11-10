@@ -2,6 +2,7 @@ package com.yuntyu.myhome.core
 
 import com.yuntyu.myhome.core.api.Backtest
 import com.yuntyu.myhome.core.api.MyHomeJson
+import com.yuntyu.myhome.core.api.sortedByColumn
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,5 +39,36 @@ class BacktestModelTest {
         assertEquals("−60%", star.text("mdd_worst_pct"))
         assertEquals("−98%", b.key[1].text("mdd_worst_pct"))
         assertEquals("★ SPX185+vol30", star.shortName)
+    }
+
+    // 머리 칸을 누르면 그 열의 1등부터: 손실%는 낮은 쪽, 최악·MDD는 높은(0에 가까운) 쪽이 위
+    @Test
+    fun sortsBestFirstByEachColumnsDirection() {
+        val b = MyHomeJson.decodeFromString(Backtest.serializer(), json)
+        val (worst, loss, mdd) = b.columns
+        val tq = b.key[1]
+        val star = b.key[0]
+        assertEquals(listOf(star, tq), listOf(tq, star).sortedByColumn(worst))
+        assertEquals(listOf(tq, star), listOf(star, tq).sortedByColumn(worst, bestFirst = false))
+        assertEquals(listOf(star, tq), listOf(tq, star).sortedByColumn(loss))
+        assertEquals(listOf(star, tq), listOf(tq, star).sortedByColumn(mdd))
+    }
+
+    // 줄을 누르면 ★와 견준다: 차이 글자와 나은지
+    @Test
+    fun comparesARowWithTheStar() {
+        val b = MyHomeJson.decodeFromString(Backtest.serializer(), json)
+        val (worst, loss, mdd) = b.columns
+        val star = b.key[0]
+        val tq = b.key[1]
+        assertEquals("−0.43억", tq.diffText("worst", star))
+        assertEquals("+9.9%p", tq.diffText("loss_pct", star))
+        assertEquals("−38%p", tq.diffText("mdd_worst_pct", star))
+        assertEquals("같음", star.diffText("worst", star))
+        assertEquals(false, tq.betterThan(worst, star))
+        assertEquals(false, tq.betterThan(loss, star)) // 손실%는 높으면 못하다
+        assertEquals(false, tq.betterThan(mdd, star))
+        assertEquals(true, star.betterThan(loss, tq))
+        assertEquals(null, star.betterThan(worst, star))
     }
 }

@@ -62,9 +62,10 @@ fun StatusScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { localTick++ }
     val login = { if (!AppLink.start(ctx)) Toast.makeText(ctx, "아래 고급에서 서버 주소를 먼저 넣어 주세요", Toast.LENGTH_LONG).show() }
 
+    // 정상인 줄도 누르면 그 설정으로 간다(확인하거나 바꾸려고)
     @Composable
     fun Check(title: String, ok: Boolean, sub: String, action: (() -> Unit)? = null) {
-        FlatRow(title, sub = sub, subColor = if (ok) m.muted else m.over, leading = { Dot(if (ok) m.faint else m.over) }, onClick = if (ok) null else action)
+        FlatRow(title, sub = sub, subColor = if (ok) m.muted else m.over, leading = { Dot(if (ok) m.faint else m.over) }, onClick = action)
     }
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
@@ -83,7 +84,9 @@ fun StatusScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
                 else "멈춰 있어요. 다시 연결을 요청했어요. 계속 멈춰 있으면 눌러서 권한을 껐다 켜 주세요",
             ) { PermissionStatus.openListenerSettings(ctx) }
         }
-        Check("마지막으로 읽은 결제 알림", lastCaptured > 0, if (lastCaptured > 0) formatTime(lastCaptured, "M월 d일 HH:mm") else "아직 없어요. 결제하면 여기에 시각이 나와요")
+        Check("마지막으로 읽은 결제 알림", lastCaptured > 0, if (lastCaptured > 0) formatTime(lastCaptured, "M월 d일 HH:mm") + " · 눌러서 보낸 기록" else "아직 없어요. 결제하면 여기에 시각이 나와요") {
+            onNavigate(Screen.LOGS)
+        }
         Check("배터리 절전 예외", batteryOk, if (batteryOk) "되어 있어요" else "안 되어 있어요. 절전 때문에 알림을 놓칠 수 있어요. 눌러서 허용") { PermissionStatus.requestBatteryExemption(ctx) }
         Check(
             "로그인",
@@ -101,7 +104,7 @@ fun StatusScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
         Check(
             "아직 못 보낸 알림",
             pending == 0,
-            if (pending == 0) "없어요" else "${pending}건 있어요. 인터넷이 되면 자동으로 보내요. 눌러서 지금 보내기",
+            if (pending == 0) "없어요. 눌러서 지금 한 번 더 보내 보기" else "${pending}건 있어요. 인터넷이 되면 자동으로 보내요. 눌러서 지금 보내기",
         ) {
             WorkScheduler.flushNow(ctx)
             Toast.makeText(ctx, "지금 보내요", Toast.LENGTH_SHORT).show()

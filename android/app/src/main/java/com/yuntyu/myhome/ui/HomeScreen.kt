@@ -5,7 +5,6 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,6 +46,7 @@ import com.yuntyu.myhome.core.Money
 import com.yuntyu.myhome.core.WidgetModel
 import com.yuntyu.myhome.core.api.CategoryBudget
 import com.yuntyu.myhome.core.api.Summary
+import com.yuntyu.myhome.core.api.TransactionDto
 import com.yuntyu.myhome.data.SummaryRepository
 import com.yuntyu.myhome.widget.WidgetRefresher
 import kotlinx.coroutines.launch
@@ -55,7 +56,16 @@ import kotlinx.coroutines.launch
  * 다 끝났으면 이번 달 쓸 수 있는 돈, 해야 할 일 한 줄, 분류별 남은 돈, 최근 결제를 보여준다.
  */
 @Composable
-fun HomeScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Unit, onTransactions: (tab: Int) -> Unit) {
+fun HomeScreen(
+    modifier: Modifier,
+    resumeTick: Int,
+    onNavigate: (Screen) -> Unit,
+    onTransactions: (tab: Int) -> Unit,
+    /** 분류 줄을 누르면 그 분류 거래만 */
+    onCategory: (Long) -> Unit = {},
+    /** 최근 결제를 누르면 그 거래를 바로 연다 */
+    onOpenTx: (TransactionDto) -> Unit = {},
+) {
     val ctx = LocalContext.current
     val app = MyHomeApp.instance
     val state by app.summaryRepo.state.collectAsState()
@@ -110,7 +120,7 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Unit
         if (authProblem != null) add(Problem("로그인이 풀렸어요", "눌러서 다시 로그인해 주세요", login))
         if (!batteryOk) add(Problem("배터리 절전 예외가 꺼져 있어요", "결제 알림을 놓칠 수 있어요. 눌러서 허용해 주세요") { PermissionStatus.requestBatteryExemption(ctx) })
     }
-    InUseHome(modifier, state, problems, onNavigate, onTransactions)
+    InUseHome(modifier, state, problems, onNavigate, onTransactions, onCategory, onOpenTx, settings.serverUrl)
 }
 
 private class Problem(val title: String, val sub: String, val action: () -> Unit)
@@ -165,7 +175,7 @@ private fun SetupSteps(
 private fun StepRow(n: Int, st: Step, current: Boolean) {
     val m = LocalModo.current
     Row(
-        Modifier.fillMaxWidth().clickable(enabled = !st.done || st.optional, onClick = st.action).padding(horizontal = Gutter, vertical = 16.dp),
+        Modifier.fillMaxWidth().tap(enabled = !st.done || st.optional, onClick = st.action).padding(horizontal = Gutter, vertical = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Box(Modifier.width(24.dp).padding(top = 1.dp), contentAlignment = Alignment.TopCenter) {
@@ -198,14 +208,19 @@ private fun InUseHome(
     problems: List<Problem>,
     onNavigate: (Screen) -> Unit,
     onTransactions: (Int) -> Unit,
+    onCategory: (Long) -> Unit,
+    onOpenTx: (TransactionDto) -> Unit,
+    serverUrl: String?,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val m = LocalModo.current
+    val uri = LocalUriHandler.current
     var refreshing by remember { mutableStateOf(false) }
+    val refresh: () -> Unit = { scope.launch { refreshing = true; WidgetRefresher.refresh(ctx); refreshing = false } }
     PullToRefreshBox(
         isRefreshing = refreshing,
-        onRefresh = { scope.launch { refreshing = true; WidgetRefresher.refresh(ctx); refreshing = false } },
+        onRefresh = refresh,
         modifier = modifier.fillMaxSize(),
     ) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -216,7 +231,12 @@ private fun InUseHome(
             }
             val month = WidgetModel.monthName(s.period.label)
             val spent = s.totals.spent - s.totals.settled
-            Column(Modifier.padding(start = Gutter, end = Gutter, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // 큰 숫자를 누르면 이번 달 거래 전체로
+            Column(
+                Modifier.fillMaxWidth().tap(onClickLabel = "이번 달 거래 보기") { onTransactions(0) }
+                    .padding(start = Gutter, end = Gutter, top = 4.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 if (s.totals.budget > 0) {
                     val over = s.totals.remaining < 0
                     Text(if (over) "${month} 예산을 넘었어요" else "${month}에 쓸 수 있는 돈", fontSize = 16.sp, color = m.muted)
@@ -241,7 +261,14 @@ private fun InUseHome(
                 }
                 for (p in problems) add { FlatRow(p.title, sub = p.sub, leading = { Dot(m.over) }, onClick = p.action) }
                 if (s.failedEvents > 0) add {
-                    FlatRow("읽지 못한 결제 알림 ${s.failedEvents}건", sub = "가계부에 안 적혔을 수 있어요. 웹 관리 화면에서 확인해 주세요", leading = { Dot(m.warn) })
+                    // 눌러서 웹 관리 화면의 '읽지 못한 알림' 탭을 연다(서버 주소가 있을 때)
+                    val admin = serverUrl?.trimEnd('/')?.let { "$it/admin?tab=failed" }
+                    FlatRow(
+                        "읽지 못한 결제 알림 ${s.failedEvents}건",
+                        sub = if (admin != null) "가계부에 안 적혔을 수 있어요. 눌러서 웹 관리 화면에서 확인해 주세요" else "가계부에 안 적혔을 수 있어요. 웹 관리 화면에서 확인해 주세요",
+                        leading = { Dot(m.warn) },
+                        onClick = admin?.let { a -> { runCatching { uri.openUri(a) } } },
+                    )
                 }
                 if (s.totals.budget <= 0) add {
                     FlatRow("한 달 예산 정하기", sub = "분류마다 쓸 돈을 정하면 남은 돈을 알려 드려요", onClick = { onNavigate(Screen.BUDGETS) })
@@ -266,12 +293,12 @@ private fun InUseHome(
                 // 폴더는 누르면 안 분류가 펼쳐진다
                 var openFolders by remember { mutableStateOf(emptySet<Long>()) }
                 val toggle: (Long) -> Unit = { id -> openFolders = if (id in openFolders) openFolders - id else openFolders + id }
-                for (c in cats.top) CategoryTreeLine(s, c, 0, openFolders, toggle)
-                if (open) for (c in cats.rest) CategoryTreeLine(s, c, 0, openFolders, toggle)
+                for (c in cats.top) CategoryTreeLine(s, c, 0, openFolders, toggle, onCategory)
+                if (open) for (c in cats.rest) CategoryTreeLine(s, c, 0, openFolders, toggle, onCategory)
                 if (cats.rest.isNotEmpty() && cats.top.isNotEmpty()) {
                     Text(
                         if (open) "접기" else "분류 ${cats.rest.size}개 더 보기",
-                        Modifier.fillMaxWidth().clickable { showRest = !open }.padding(horizontal = Gutter, vertical = 12.dp),
+                        Modifier.fillMaxWidth().tap { showRest = !open }.padding(horizontal = Gutter, vertical = 12.dp),
                         fontSize = 15.sp, color = m.muted,
                     )
                 }
@@ -282,24 +309,34 @@ private fun InUseHome(
             if (recent.isEmpty()) {
                 Text("아직 적힌 결제가 없어요. 결제 알림이 오면 바로 적혀요.", Modifier.padding(horizontal = Gutter, vertical = 12.dp), fontSize = 14.sp, color = m.muted)
             }
-            for (t in recent) TxRow(t, withDay = true) { onTransactions(if (t.status == "needs_review") 1 else 0) }
+            for (t in recent) TxRow(t, withDay = true) { onOpenTx(t) }
 
+            // 눌러도 새로 받는다(당기기와 같다)
             Text(
-                if (state.error != null) "새로 받지 못했어요. 아래로 당겨서 다시 받아 보세요" else "${agoText(state.updatedAt)} 새로 받음",
-                Modifier.padding(horizontal = Gutter, vertical = 24.dp),
+                if (state.error != null) "새로 받지 못했어요. 눌러서 다시 받아 보세요" else "${agoText(state.updatedAt)} 새로 받음 · 눌러서 새로 받기",
+                Modifier.fillMaxWidth().tap(onClickLabel = "새로 받기", onClick = refresh).padding(horizontal = Gutter, vertical = 24.dp),
                 fontSize = 13.sp, color = m.faint,
             )
         }
     }
 }
 
-/** 분류와, 펼친 폴더면 그 안의 분류들(들여 써서) */
+/** 분류와, 펼친 폴더면 그 안의 분류들(들여 써서). 폴더는 누르면 펼치고, 펼친 폴더 맨 아래 "폴더 전체 거래"로 거래를 본다. 분류는 누르면 그 거래만 */
 @Composable
-private fun CategoryTreeLine(s: Summary, c: CategoryBudget, depth: Int, open: Set<Long>, toggle: (Long) -> Unit) {
+private fun CategoryTreeLine(s: Summary, c: CategoryBudget, depth: Int, open: Set<Long>, toggle: (Long) -> Unit, onCategory: (Long) -> Unit) {
     val kids = WidgetModel.childrenOf(s, c.id)
     val isOpen = c.id in open
-    CategoryLine(c, depth, folder = if (kids.isEmpty()) null else isOpen, onClick = if (kids.isEmpty()) null else ({ toggle(c.id) }))
-    if (isOpen) for (k in kids) CategoryTreeLine(s, k, depth + 1, open, toggle)
+    CategoryLine(c, depth, folder = if (kids.isEmpty()) null else isOpen, onClick = if (kids.isEmpty()) ({ onCategory(c.id) }) else ({ toggle(c.id) }))
+    if (isOpen) {
+        for (k in kids) CategoryTreeLine(s, k, depth + 1, open, toggle, onCategory)
+        val m = LocalModo.current
+        Text(
+            "${c.name} 거래 모두 보기",
+            Modifier.fillMaxWidth().tap(onClickLabel = "${c.name} 거래 보기") { onCategory(c.id) }
+                .padding(start = Gutter + 20.dp * (depth + 1), end = Gutter, top = 10.dp, bottom = 10.dp),
+            fontSize = 14.sp, color = m.muted,
+        )
+    }
 }
 
 /** 분류 한 줄: 이름과 남은 돈, 아래 얇은 막대. 예산이 없으면 쓴 돈만. folder가 null이 아니면 폴더(펼침 여부) */
@@ -308,7 +345,7 @@ private fun CategoryLine(c: CategoryBudget, depth: Int = 0, folder: Boolean? = n
     val m = LocalModo.current
     Column(
         Modifier.fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.tap(onClick = onClick) else Modifier)
             .padding(start = Gutter + 20.dp * depth, end = Gutter, top = 10.dp, bottom = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

@@ -5,7 +5,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,8 +23,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -139,7 +136,7 @@ fun FocusScreen(modifier: Modifier, resumeTick: Int) {
             openStays.firstOrNull()?.let { o ->
                 Row(
                     Modifier.align(Alignment.CenterStart).clip(RoundedCornerShape(12.dp)).background(m.pill)
-                        .clickable { tab = 2 }.padding(horizontal = 10.dp, vertical = 6.dp),
+                        .tap { tab = 2 }.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -149,9 +146,10 @@ fun FocusScreen(modifier: Modifier, resumeTick: Int) {
             }
             Text(dayLabel(today), Modifier.align(Alignment.Center), fontSize = 18.sp, fontWeight = FontWeight.Medium)
         }
+        // 큰 시간을 누르면 통계로(다시 누르면 타이머로)
         Text(
             formatHms(focusToday),
-            Modifier.fillMaxWidth().padding(top = 20.dp),
+            Modifier.fillMaxWidth().tap(onClickLabel = if (tab == 1) "타이머 보기" else "통계 보기") { tab = if (tab == 1) 0 else 1 }.padding(top = 20.dp),
             textAlign = TextAlign.Center,
             fontSize = 64.sp,
             fontWeight = FontWeight.SemiBold,
@@ -175,7 +173,9 @@ fun FocusScreen(modifier: Modifier, resumeTick: Int) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             when (tab) {
                 0 -> TimerTab(subjects, bySubject, running?.subjectId) { scope.launch { FocusTimer.toggle(ctx, it) } }
-                1 -> StatsTab(today, sessions, sessionSpans, staySpans, allSubjects, bySubject, focusToday, stayToday)
+                1 -> StatsTab(today, sessions, sessionSpans, staySpans, allSubjects, bySubject, focusToday, stayToday, running?.subjectId, onTab = { tab = it }) {
+                    scope.launch { FocusTimer.toggle(ctx, it) }
+                }
                 else -> PlacesTab(today, now, staySpans, resumeTick) { placeTick++ }
             }
         }
@@ -191,7 +191,7 @@ private fun EvenTabs(items: List<String>, selected: Int, onSelect: (Int) -> Unit
             items.forEachIndexed { i, label ->
                 val on = i == selected
                 Column(
-                    Modifier.weight(1f).clickable(role = Role.Tab) { onSelect(i) }.padding(top = 10.dp),
+                    Modifier.weight(1f).tap(role = Role.Tab) { onSelect(i) }.padding(top = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(label, fontSize = 16.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, color = if (on) MaterialTheme.colorScheme.onBackground else m.muted)
@@ -232,7 +232,7 @@ private fun TimerTab(subjects: List<FocusSubject>?, bySubject: Map<String, Long>
     }
     Row(
         Modifier.padding(start = Gutter, top = 12.dp, bottom = 32.dp).clip(RoundedCornerShape(12.dp)).background(m.pill)
-            .clickable(role = Role.Button) { adding = true }.padding(horizontal = 14.dp, vertical = 10.dp),
+            .tap(role = Role.Button) { adding = true }.padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -257,7 +257,7 @@ private fun TimerTab(subjects: List<FocusSubject>?, bySubject: Map<String, Long>
         )
     }
     hiding?.let { s ->
-        AlertDialog(
+        ModoAlertDialog(
             onDismissRequest = { hiding = null },
             title = { Text("'${s.name}' 숨기기") },
             text = { Text("목록에서 빼요. 지난 기록과 통계는 그대로 남아요.") },
@@ -282,7 +282,7 @@ private fun SubjectRow(
     val m = LocalModo.current
     var menu by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 76.dp).clickable(onClickLabel = if (running) "멈추기" else "시작", onClick = onToggle)
+        Modifier.fillMaxWidth().heightIn(min = 76.dp).tap(onClickLabel = if (running) "멈추기" else "시작", onClick = onToggle)
             .padding(start = Gutter, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -311,7 +311,7 @@ private fun SubjectRow(
         )
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "${s.name} 더보기", tint = m.muted) }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            ModoDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("이름·색 바꾸기") }, onClick = { menu = false; onEdit() })
                 if (!first) DropdownMenuItem(text = { Text("위로") }, onClick = { menu = false; onMove(-1) })
                 if (!last) DropdownMenuItem(text = { Text("아래로") }, onClick = { menu = false; onMove(1) })
@@ -325,7 +325,7 @@ private fun SubjectRow(
 private fun SubjectDialog(initial: FocusSubject?, usedColors: List<String>, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var color by remember { mutableStateOf(initial?.color ?: FocusSubjects.nextColor(usedColors)) }
-    AlertDialog(
+    ModoAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial == null) "과목 추가" else "과목 바꾸기") },
         text = {
@@ -337,7 +337,7 @@ private fun SubjectDialog(initial: FocusSubject?, usedColors: List<String>, onDi
                         Box(
                             Modifier.size(28.dp).clip(CircleShape).background(parseColor(c))
                                 .then(if (on) Modifier.border(2.dp, MaterialTheme.colorScheme.onBackground, CircleShape) else Modifier)
-                                .clickable(role = Role.RadioButton, onClickLabel = "이 색") { color = c },
+                                .tap(role = Role.RadioButton, onClickLabel = "이 색") { color = c },
                             contentAlignment = Alignment.Center,
                         ) {
                             if (on) Icon(CheckIcon, contentDescription = "고른 색", tint = Color.White, modifier = Modifier.size(16.dp))
@@ -361,6 +361,9 @@ private fun StatsTab(
     bySubject: Map<String, Long>,
     focusToday: Long,
     stayToday: Long,
+    runningId: String?,
+    onTab: (Int) -> Unit,
+    onToggle: (String) -> Unit,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -369,9 +372,9 @@ private fun StatsTab(
     var deleting by remember { mutableStateOf<FocusSession?>(null) }
 
     SectionLabel("오늘")
-    FlatRow("순공 시간", value = formatHms(focusToday), valueColor = MaterialTheme.colorScheme.onBackground)
-    FlatRow("머문 시간", sub = if (stayToday == 0L) "장소 탭에서 공부 장소를 정하면 자동으로 재요" else null, value = formatHms(stayToday))
-    FlatRow("집중률", sub = "머문 시간 중 타이머를 켠 비율", value = FocusStats.ratioPercent(focusToday, stayToday)?.let { "$it%" } ?: "—")
+    FlatRow("순공 시간", value = formatHms(focusToday), valueColor = MaterialTheme.colorScheme.onBackground, onClick = { onTab(0) })
+    FlatRow("머문 시간", sub = if (stayToday == 0L) "장소 탭에서 공부 장소를 정하면 자동으로 재요" else null, value = formatHms(stayToday), onClick = { onTab(2) })
+    FlatRow("집중률", sub = "머문 시간 중 타이머를 켠 비율", value = FocusStats.ratioPercent(focusToday, stayToday)?.let { "$it%" } ?: "—", onClick = { onTab(2) })
 
     SectionLabel("과목별")
     val rows = bySubject.entries.sortedByDescending { it.value }
@@ -379,13 +382,25 @@ private fun StatsTab(
         Text("오늘 잰 시간이 아직 없어요", Modifier.padding(horizontal = Gutter, vertical = 12.dp), fontSize = 14.sp, color = m.muted)
     }
     val max = rows.maxOfOrNull { it.value } ?: 1L
+    if (rows.isNotEmpty()) {
+        Text("과목을 누르면 그 과목 타이머를 켜고 꺼요", Modifier.padding(horizontal = Gutter, vertical = 2.dp), fontSize = 12.sp, color = m.faint)
+    }
     for ((id, ms) in rows) {
         val s = byId[id]
-        Column(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // 숨긴 과목·지운 과목은 타이머 목록에 없어서 누를 수 없다
+        val canToggle = s != null && !s.archived
+        val on = id == runningId
+        Column(
+            Modifier.fillMaxWidth()
+                .then(if (canToggle) Modifier.tap(onClickLabel = if (on) "멈추기" else "시작") { onToggle(id) } else Modifier)
+                .padding(horizontal = Gutter, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Dot(parseColor(s?.color ?: "#888888"), 10.dp)
                 Spacer(Modifier.width(10.dp))
-                Text(s?.name ?: "지운 과목", Modifier.weight(1f), fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(s?.name ?: "지운 과목", Modifier.weight(1f), fontSize = 16.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (on) Text("하는 중 ", fontSize = 13.sp, color = m.muted)
                 Text(formatHms(ms), fontSize = 16.sp, style = Tabular)
             }
             ModoBar(ms.toDouble() / max, parseColor(s?.color ?: "#888888"))
@@ -402,16 +417,18 @@ private fun StatsTab(
     }
     for (x in todays) {
         val s = byId[x.subjectId]
+        // 줄을 눌러도 ⋮ 메뉴가 열린다
+        var menu by remember(x.id) { mutableStateOf(false) }
         FlatRow(
             s?.name ?: "지운 과목",
             sub = "${clock(x.startedAt)} – ${clock(x.endedAt)}",
             value = formatHms(x.endedAt - x.startedAt),
             leading = { Dot(parseColor(s?.color ?: "#888888"), 10.dp) },
+            onClick = { menu = true },
             trailing = {
-                var menu by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "기록 더보기", tint = m.muted) }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    ModoDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("지우기") }, onClick = { menu = false; deleting = x })
                     }
                 }
@@ -421,7 +438,7 @@ private fun StatsTab(
     Spacer(Modifier.height(32.dp))
 
     deleting?.let { x ->
-        AlertDialog(
+        ModoAlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("기록 지우기") },
             text = { Text("${clock(x.startedAt)} – ${clock(x.endedAt)} (${formatHm(x.endedAt - x.startedAt)}) 기록을 지울까요?") },
@@ -515,10 +532,11 @@ private fun PlacesTab(today: LocalDate, now: Long, staySpans: List<FocusSpan>, r
             subColor = if (inside) m.ok else null,
             value = formatHms(ms),
             leading = { Icon(PinIcon, contentDescription = null, tint = if (inside) m.ok else m.muted, modifier = Modifier.size(20.dp)) },
+            onClick = { menu = true },
             trailing = {
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "${p.name} 더보기", tint = m.muted) }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    ModoDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("이름 바꾸기") }, onClick = { menu = false; renaming = p })
                         for (r in listOf(100, 150, 250)) {
                             if (r != p.radiusM) DropdownMenuItem(text = { Text("반경 ${r}m") }, onClick = { menu = false; StudyPlaces.setRadius(ctx, p.id, r); changed() })
@@ -557,7 +575,7 @@ private fun PlacesTab(today: LocalDate, now: Long, staySpans: List<FocusSpan>, r
         if (enabled && !bg && BuildConfig.GYM_AUTO) {
             Text(
                 "'항상 허용' 켜기",
-                Modifier.padding(horizontal = Gutter, vertical = 8.dp).clickable { disclosure = true },
+                Modifier.padding(horizontal = Gutter, vertical = 8.dp).tap { disclosure = true },
                 fontSize = 15.sp,
                 color = m.warn,
             )
@@ -592,7 +610,7 @@ private fun PlacesTab(today: LocalDate, now: Long, staySpans: List<FocusSpan>, r
         }
     }
     removing?.let { p ->
-        AlertDialog(
+        ModoAlertDialog(
             onDismissRequest = { removing = null },
             title = { Text("'${p.name}' 지우기") },
             text = { Text("이 장소의 지오펜스를 지워요. 지난 머문 기록은 남아요.") },
@@ -601,7 +619,7 @@ private fun PlacesTab(today: LocalDate, now: Long, staySpans: List<FocusSpan>, r
         )
     }
     if (disclosure) {
-        AlertDialog(
+        ModoAlertDialog(
             onDismissRequest = { disclosure = false },
             title = { Text("위치 정보 사용 안내") },
             text = {
@@ -632,7 +650,7 @@ private fun PlacesTab(today: LocalDate, now: Long, staySpans: List<FocusSpan>, r
 @Composable
 private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var name by remember { mutableStateOf(initial) }
-    AlertDialog(
+    ModoAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { LineField(name, { name = it.take(FocusSubjects.MAX_NAME) }, "이름 (예: 도서관)") },

@@ -74,6 +74,9 @@ val ChevronLeftIcon: ImageVector by lazy { line("ChevronLeft") { moveTo(15f, 6f)
 
 val PlusIcon: ImageVector by lazy { line("Plus") { moveTo(12f, 5f); lineTo(12f, 19f); moveTo(5f, 12f); lineTo(19f, 12f) } }
 
+/** 닫기·지우기(×) */
+val CloseIcon: ImageVector by lazy { line("Close") { moveTo(6.5f, 6.5f); lineTo(17.5f, 17.5f); moveTo(17.5f, 6.5f); lineTo(6.5f, 17.5f) } }
+
 val SearchIcon: ImageVector by lazy {
     line("Search") {
         moveTo(18f, 11f); arcTo(7f, 7f, 0f, true, true, 4f, 11f); arcTo(7f, 7f, 0f, true, true, 18f, 11f)

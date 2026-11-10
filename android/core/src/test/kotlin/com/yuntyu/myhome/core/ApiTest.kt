@@ -217,4 +217,33 @@ class ApiTest {
         server.enqueue(MockResponse().setBody("""{"settings":{"budget_start_day":25,"own_accounts":[]}}"""))
         assertEquals(25, (api().budgetStartDay() as ApiResult.Ok).value)
     }
+
+    // 거래 검색: 날짜 사이를 주면 month는 보내지 않고, 검색어는 q로 인코딩한다 (합성 데이터)
+    @Test fun searchSendsRangeAndQuery() {
+        server.enqueue(MockResponse().setBody("""{"transactions":[]}"""))
+        api().transactions(limit = 200, month = "2026-10", from = "2000-01-01", to = "2026-11-10", search = " 합성 분식 ")
+        assertEquals(
+            "/v1/transactions?limit=200&from=2000-01-01&to=2026-11-10&q=%ED%95%A9%EC%84%B1+%EB%B6%84%EC%8B%9D",
+            server.takeRequest().path,
+        )
+        // 빈 검색어는 보내지 않는다
+        server.enqueue(MockResponse().setBody("""{"transactions":[]}"""))
+        api().transactions(limit = 10, month = "2026-10", search = "  ")
+        assertEquals("/v1/transactions?limit=10&month=2026-10", server.takeRequest().path)
+    }
+
+    // 메모·이름·금액 고치기: 바꾸는 것만 보낸다(null은 빼서 서버가 그대로 둔다)
+    @Test fun editSendsOnlyChangedFields() {
+        server.enqueue(MockResponse().setBody("""{"transaction":{"id":5,"occurred_at":"2026-11-08T03:00:00Z","amount":4500,"flow":"out","memo":"합성 메모"},"also_updated":0}"""))
+        val r = api().editTransaction(5, com.yuntyu.myhome.core.api.TransactionEdit(memo = "합성 메모"))
+        assertEquals("합성 메모", (r as ApiResult.Ok).value.transaction.memo)
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("\"memo\":\"합성 메모\""))
+        assertTrue(!body.contains("merchant") && !body.contains("amount") && !body.contains("category_id") && !body.contains("status"))
+
+        server.enqueue(MockResponse().setBody("""{"transaction":{"id":5,"occurred_at":"2026-11-08T03:00:00Z","amount":7000,"flow":"out","merchant":"합성식당"},"also_updated":0}"""))
+        api().editTransaction(5, com.yuntyu.myhome.core.api.TransactionEdit(merchant = "합성식당", amount = 7000))
+        val b2 = server.takeRequest().body.readUtf8()
+        assertTrue(b2.contains("\"merchant\":\"합성식당\"") && b2.contains("\"amount\":7000") && !b2.contains("memo"))
+    }
 }

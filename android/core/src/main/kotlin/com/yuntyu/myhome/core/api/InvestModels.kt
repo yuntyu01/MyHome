@@ -150,4 +150,29 @@ data class BacktestRow(
 
     /** 표에 쓰는 짧은 이름 */
     val shortName: String get() = name.replace("+변동성", "+vol")
+
+    /**
+     * other(보통 ★)와 견준 차이 글자: 금액은 "+0.12억", 손실%·MDD는 "+3.1%p". 같으면 "같음".
+     * 음수는 진짜 빼기표(−).
+     */
+    fun diffText(key: String, other: BacktestRow): String {
+        val d = value(key) - other.value(key)
+        val pct = key == "loss_pct" || key.startsWith("mdd_")
+        val places = if (key == "loss_pct") 1 else if (pct) 0 else 2
+        val shown = String.format(java.util.Locale.ROOT, "%.${places}f", kotlin.math.abs(d))
+        if (shown.toDouble() == 0.0) return "같음"
+        return (if (d > 0) "+" else "−") + shown + if (pct) "%p" else "억"
+    }
+
+    /** 이 열에서 other보다 나은가(같으면 null). 손실%는 낮을수록, 나머지는 높을수록(MDD는 0에 가까울수록) 낫다 */
+    fun betterThan(col: BacktestColumn, other: BacktestRow): Boolean? {
+        val a = value(col.key)
+        val b = other.value(col.key)
+        if (a == b) return null
+        return if (col.higherIsBetter) a > b else a < b
+    }
 }
+
+/** 열 하나로 줄 세우기. bestFirst면 그 열의 1등부터(higherIsBetter에 맞춰), 아니면 꼴찌부터. 같은 값은 원래 순서 */
+fun List<BacktestRow>.sortedByColumn(col: BacktestColumn, bestFirst: Boolean = true): List<BacktestRow> =
+    if (col.higherIsBetter == bestFirst) sortedByDescending { it.value(col.key) } else sortedBy { it.value(col.key) }

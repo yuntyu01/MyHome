@@ -11,7 +11,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -214,7 +212,7 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
     }
 
     if (confirmRest) {
-        AlertDialog(
+        ModoAlertDialog(
             onDismissRequest = { confirmRest = false },
             title = { Text("오늘 헬스를 쉴까요?") },
             text = { Text("휴식권을 1장 써요. 휴식권은 월요일에 다시 채워져요.") },
@@ -324,7 +322,7 @@ private fun GymLocationSection(onChanged: () -> Unit) {
         }
         // 켤 때는 늘 안내를 먼저 보여 준다(Play 정책: 백그라운드 위치는 앱 안 안내 + 동의 뒤에 요청)
         val toggleAuto: (Boolean) -> Unit = { on -> if (on) disclosure = true else { GymGeofence.setEnabled(ctx, false); tick++ } }
-        if (BuildConfig.GYM_AUTO) Row(Modifier.fillMaxWidth().clickable { toggleAuto(!enabled) }, verticalAlignment = Alignment.CenterVertically) {
+        if (BuildConfig.GYM_AUTO) Row(Modifier.fillMaxWidth().tap { toggleAuto(!enabled) }, verticalAlignment = Alignment.CenterVertically) {
             Text("자동 출석", Modifier.weight(1f))
             Switch(checked = enabled, onCheckedChange = toggleAuto)
         }
@@ -341,7 +339,7 @@ private fun GymLocationSection(onChanged: () -> Unit) {
             Text("$pendingCheckIn 출석을 보내는 중이에요. 연결되면 보내요.", style = MaterialTheme.typography.bodySmall, color = m.muted)
         }
         if (disclosure) {
-            AlertDialog(
+            ModoAlertDialog(
                 onDismissRequest = { disclosure = false },
                 title = { Text("위치 정보 사용 안내") },
                 text = {

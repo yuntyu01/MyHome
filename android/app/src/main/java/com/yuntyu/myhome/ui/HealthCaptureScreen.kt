@@ -8,7 +8,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -451,7 +449,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
         }
     }
     if (confirmDelete && editing != null) {
-        AlertDialog(
+        ModoAlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("${HealthPlan.label(editing.index)} 기록을 지울까요?") },
             text = { Text("폰에 있는 이 끼니 사진도 같이 지워요.") },
@@ -477,7 +475,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
     }
 
     if (confirmOverwrite) {
-        AlertDialog(
+        ModoAlertDialog(
             onDismissRequest = { confirmOverwrite = false },
             title = { Text("이미 기록이 있어요. 바꿀까요?") },
             text = { Text("${index?.let(HealthPlan::label) ?: ""}에 저장된 기록을 이 기록으로 바꿔요.") },
@@ -518,7 +516,7 @@ private fun FoodDialog(orig: FoodItem?, perFood: Boolean, onDismiss: () -> Unit,
     var protein by remember { mutableStateOf(orig?.protein?.toString() ?: "") }
     var fat by remember { mutableStateOf(orig?.fat?.toString() ?: "") }
     var portion by remember { mutableStateOf(orig?.portion ?: 1.0) }
-    AlertDialog(
+    ModoAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (orig == null) "음식 추가" else "음식 고치기") },
         text = {
@@ -563,7 +561,7 @@ private fun TotalsDialog(ai: FoodResult, onDismiss: () -> Unit, onSave: (Int, In
     var carbs by remember { mutableStateOf(ai.carbs.toString()) }
     var protein by remember { mutableStateOf(ai.protein.toString()) }
     var fat by remember { mutableStateOf(ai.fat.toString()) }
-    AlertDialog(
+    ModoAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("한 끼 합계 (1인분 전체)") },
         text = {

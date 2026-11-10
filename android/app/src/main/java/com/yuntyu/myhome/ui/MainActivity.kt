@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Icon
@@ -157,6 +158,10 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
     // 거래 화면 탭(0 전체, 1 분류 고를 것, 2 들어온 돈)과 바로 열 거래(위젯에서 확인 필요 항목을 탭했을 때)
     var txTab by rememberSaveable { mutableIntStateOf(0) }
     var openTxId by remember { mutableStateOf<Long?>(null) }
+    // 홈에서 분류를 눌러 들어오면 그 분류(안 분류 포함) 거래만 본다. 하단바로 들어오면 푼다
+    var txCategory by rememberSaveable { mutableStateOf<Long?>(null) }
+    // 지금 칸을 하단바에서 한 번 더 누르면 그 화면을 처음 상태로(맨 위로 + 새로 받기)
+    var reselect by rememberSaveable { mutableIntStateOf(0) }
     fun go(to: Screen) {
         if (to == screen) return
         if (to.topLevel) backStack.clear() else backStack.add(screen)
@@ -170,8 +175,8 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
         val req = launchRequest.value ?: return@LaunchedEffect
         backStack.clear()
         when (req.first) {
-            "review" -> { txTab = 1; openTxId = req.second; screen = Screen.TRANSACTIONS }
-            "transactions" -> { txTab = 0; screen = Screen.TRANSACTIONS }
+            "review" -> { txTab = 1; txCategory = null; openTxId = req.second; screen = Screen.TRANSACTIONS }
+            "transactions" -> { txTab = 0; txCategory = null; screen = Screen.TRANSACTIONS }
             "settings" -> screen = Screen.SETTINGS
             "budgets" -> { screen = Screen.SETTINGS; go(Screen.BUDGETS) }
             "apps" -> { screen = Screen.SETTINGS; go(Screen.APPS) }
@@ -243,16 +248,30 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             },
             bottomBar = {
                 if (screen.topLevel) {
-                    FlatBottomBar(screen, summaryState.summary?.needsReview ?: 0L) { go(it) }
+                    FlatBottomBar(screen, summaryState.summary?.needsReview ?: 0L) {
+                        if (it == Screen.TRANSACTIONS) txCategory = null
+                        if (it == screen) reselect++ else go(it)
+                    }
                 }
             },
         ) { padding ->
             val mod = Modifier.padding(padding)
+            // 꾹 누르면 글자를 골라 복사할 수 있다(가게 이름·금액·계좌 같은 것). 누르는 칸은 Modifier.tap이라 그대로 눌린다.
+            // 화면마다 새 SelectionContainer(다른 화면으로 가면 고른 것이 풀린다). reselect가 바뀌면 화면을 처음 상태로
+            key(screen, reselect) {
+            SelectionContainer {
             when (screen) {
-                Screen.HOME -> HomeScreen(mod, resumeTick, onNavigate = { go(it) }, onTransactions = { txTab = it; go(Screen.TRANSACTIONS) })
+                Screen.HOME -> HomeScreen(
+                    mod, resumeTick,
+                    onNavigate = { go(it) },
+                    onTransactions = { txTab = it; txCategory = null; go(Screen.TRANSACTIONS) },
+                    onCategory = { id -> txTab = 0; txCategory = id; go(Screen.TRANSACTIONS) },
+                    onOpenTx = { t -> txTab = if (t.status == "needs_review") 1 else 0; txCategory = null; openTxId = t.id; go(Screen.TRANSACTIONS) },
+                )
                 Screen.STATUS -> StatusScreen(mod, resumeTick, onNavigate = { go(it) })
                 Screen.TRANSACTIONS -> TransactionsScreen(
                     mod, resumeTick, txTab, onTab = { txTab = it }, openTxId = openTxId, onOpened = { openTxId = null },
+                    categoryFilter = txCategory, onCategoryFilter = { txCategory = it },
                 )
                 Screen.PERMISSIONS -> PermissionScreen(mod, resumeTick)
                 Screen.APPS -> AppsScreen(mod, onDone = { back() })
@@ -270,6 +289,8 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                 Screen.HEALTH_RECORDS -> HealthRecordsScreen(mod, resumeTick, healthNav, onNavigate = { go(it) })
                 Screen.HEALTH_GYM -> HealthGymScreen(mod, resumeTick)
                 Screen.HEALTH_SETTINGS -> HealthSettingsScreen(mod, onDone = { back() })
+            }
+            }
             }
         }
     }

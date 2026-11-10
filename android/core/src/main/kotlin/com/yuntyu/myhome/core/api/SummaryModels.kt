@@ -104,6 +104,10 @@ data class TransactionEdit(
     @SerialName("settle_category_id") val settleCategoryId: Long? = null,
     val status: String? = null,
     @SerialName("remember_rule") val rememberRule: Boolean = false,
+    /** null이면 안 바꾼다(빈 글자면 지운다). 서버 pipeline.Edit과 같다 */
+    val memo: String? = null,
+    val merchant: String? = null,
+    val amount: Long? = null,
 )
 
 @Serializable

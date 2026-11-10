@@ -13,13 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -205,7 +202,7 @@ fun BudgetsScreen(modifier: Modifier) {
     if (dayDialog) {
         var text by remember { mutableStateOf(startDay?.toString() ?: "1") }
         val n = text.toIntOrNull()
-        AlertDialog(
+        ModoAlertDialog(
             onDismissRequest = { dayDialog = false },
             title = { Text("예산 시작일") },
             text = {
@@ -251,7 +248,7 @@ private fun CategorySheet(
     val won = amount.toLongOrNull() ?: 0L
     val special = c?.code != null
     val folder = c != null && tree.children(c.id).any { !it.archived }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = m.bg) {
+    ModoBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().verticalScroll(rememberScrollState())) {
             Text(if (c == null) "분류 추가" else c.name, Modifier.padding(horizontal = Gutter), fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Column(Modifier.padding(horizontal = Gutter, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

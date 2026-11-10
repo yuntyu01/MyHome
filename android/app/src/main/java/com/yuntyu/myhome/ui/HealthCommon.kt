@@ -1,7 +1,6 @@
 package com.yuntyu.myhome.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,10 +89,12 @@ fun remainText(minutes: Long): String = when {
  * (핏두잉 규칙: 많이 먹은 것을 탓하지 않는다).
  */
 @Composable
-fun NutritionTotals(total: Nutrition, targets: Nutrition, title: String, trailing: String?) {
+fun NutritionTotals(total: Nutrition, targets: Nutrition, title: String, trailing: String?, onClick: (() -> Unit)? = null) {
     val m = LocalModo.current
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card).padding(horizontal = 18.dp, vertical = 16.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card)
+            .then(if (onClick != null) Modifier.tap(onClick = onClick) else Modifier)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -146,7 +147,7 @@ fun NutritionTableRow(label: String, n: Nutrition?, faint: Boolean = false, bold
     val style = if (header) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
     val w = if (bold) FontWeight.SemiBold else FontWeight.Normal
     Row(
-        Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(vertical = 6.dp),
+        Modifier.fillMaxWidth().then(if (onClick != null) Modifier.tap(onClick = onClick) else Modifier).padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, Modifier.weight(1.4f), color = color, style = style, fontWeight = w, maxLines = 1)
@@ -162,7 +163,7 @@ fun NutritionTableRow(label: String, n: Nutrition?, faint: Boolean = false, bold
 fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val m = LocalModo.current
     Box(
-        modifier.clip(RoundedCornerShape(12.dp)).background(if (selected) m.accent else m.pill).clickable(onClick = onClick)
+        modifier.clip(RoundedCornerShape(12.dp)).background(if (selected) m.accent else m.pill).tap(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -179,7 +180,7 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick
 fun ItemRow(title: String, value: String = "", sub: String? = null, valueColor: Color? = null, onClick: (() -> Unit)? = null) {
     val m = LocalModo.current
     Row(
-        Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(vertical = 4.dp),
+        Modifier.fillMaxWidth().then(if (onClick != null) Modifier.tap(onClick = onClick) else Modifier).padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
