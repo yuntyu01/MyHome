@@ -14,7 +14,11 @@ import androidx.compose.ui.unit.dp
 import com.yuntyu.myhome.core.api.Backtest
 import com.yuntyu.myhome.core.api.MyHomeJson
 import com.yuntyu.myhome.core.api.TransactionDto
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.ui.test.onNodeWithContentDescription
 import org.junit.Assert.assertTrue
+import org.robolectric.Shadows.shadowOf
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -74,6 +78,25 @@ class SimpleScreensTest {
         rule.waitForIdle()
         rule.onNodeWithText("TQQQ 보유", substring = true).assertExists()
         rule.onNodeWithText("읽기 전에").assertExists()
+    }
+
+    // 무음 카메라: 권한이 있으면 앱 안 카메라 화면이 열리고(기본 카메라 앱 아님), 닫으면 사진 없이 닫힌다.
+    // 실제 카메라는 JVM에서 못 켜서 찍기는 폰에서 확인한다
+    @Test fun silentCameraOpensInAppAndCloses() {
+        val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+        shadowOf(app).grantPermissions(android.Manifest.permission.CAMERA)
+        var shots = 0
+        screen {
+            val shoot = rememberSilentCamera { shots++ }
+            Button(onClick = shoot) { Text("합성 찍기") }
+        }
+        rule.onNodeWithText("합성 찍기").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("닫기").assertExists()
+        rule.onNodeWithContentDescription("닫기").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("닫기").assertDoesNotExist()
+        assertTrue(shots == 0)
     }
 
     private companion object {

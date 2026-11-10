@@ -83,8 +83,6 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableIntStateOf(0) }
     var confirmRest by remember { mutableStateOf(false) }
-    // 카메라가 쓰고 있는 파일 경로(카메라가 열린 사이 Activity가 다시 만들어져도 남게)
-    var pending by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(resumeTick, reload) {
         withContext(Dispatchers.IO) {
@@ -119,14 +117,10 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
         }
     }
 
-    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val f = pending?.let(::File)
-        pending = null
-        if (ok && f != null && f.length() > 0) {
-            // 사진은 인증 표시로만 쓰고 서버에 보내지 않는다. 폰에도 남기지 않는다
-            f.delete()
-            checkIn("photo")
-        } else f?.delete()
+    // 소리 없이 찍는다(ui/SilentCamera.kt). 사진은 인증 표시로만 쓰고 서버에 보내지 않는다. 폰에도 남기지 않는다
+    val shoot = rememberSilentCamera { f ->
+        f.delete()
+        checkIn("photo")
     }
 
     val g = settings?.gym
@@ -198,11 +192,7 @@ fun HealthGymScreen(modifier: Modifier, resumeTick: Int) {
             SectionCard("오늘") { ItemRow("도착까지 남은 시간", remainText(HealthPlan.minutesUntil(LocalDateTime.now(), g.arriveBy))) }
         }
         if (verified == null) {
-            Button(onClick = {
-                val (f, uri) = MealPhotos.newCapture(ctx)
-                pending = f.path
-                camera.launch(uri)
-            }, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("사진으로 인증") }
+            Button(onClick = shoot, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("사진으로 인증") }
             val rest = todayView?.coupons?.rest
             TextButton(onClick = { confirmRest = true }, enabled = (rest?.left ?: 0) > 0, modifier = Modifier.fillMaxWidth()) {
                 Text("오늘 쉬기 · 휴식권 ${rest?.left ?: 0}/${rest?.total ?: 0}", color = m.muted)

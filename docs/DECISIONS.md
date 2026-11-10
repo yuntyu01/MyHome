@@ -423,3 +423,10 @@
 - **거래 목록: 날짜("오늘"·"어제")와 그날 나간 돈은 크게, 결제 금액도 굵게, 그 밑에 "그 뒤 이번 달 남은 돈"을 작게** - 남은 돈은 서버 요약과 같은 셈(예산 − 확정 지출 + 정산)을 기간 거래에 시간순으로 누적한다(`core/RunningBudget`). 확인 필요·뺀 거래는 셈에 안 들어가서 값이 없다. 이번 기간 목록을 다 받았을 때만 보인다(지난달·500건 넘게 잘린 목록은 셈이 안 맞아서 숨김). 넘으면 "○원 넘음"(빨강).
 - **폴더 관리는 설정 > "분류·폴더·예산"** - 전에는 "분류와 예산"이라 폴더가 어디 있는지 몰랐다. 화면에 "폴더 만들기" 줄을 따로 두고, 홈 "분류별 남은 돈"의 링크도 "분류·예산"으로.
 - **백테스트 화면이 열자마자 죽던 것 고침** - 읽는 법 문장의 "손실%는"을 `String.format`에 넣어 `UnknownFormatConversionException`이 났다(3e534e7부터). `%%`로 고치고, 합성 표로 화면을 그려 보는 테스트를 더했다.
+
+## 무음 촬영 (사용자 요청 "사진찍을 때 무음으로", 2026-11-10)
+
+- **기본 카메라 앱 대신 앱 안 카메라, 셔터는 미리보기 한 장 뜨기** - 한국 폰의 기본 카메라 앱은 셔터 소리를 끌 수 없다. CameraX 미리보기(`PreviewView`, TextureView)를 화면 가득 띄우고 셔터를 누르면 `PreviewView.bitmap`을 JPEG 92로 저장한다. 카메라에 촬영 요청(ImageCapture)을 보내지 않으니 어느 폰에서도 소리가 나지 않는다. 해상도는 미리보기 크기(4:3, 보통 긴 변 1440~1920px)인데 서버로는 어차피 긴 변 1024px로 줄여 보낸다. 끼니 사진과 헬스 사진 인증 둘 다 - `ui/SilentCamera.kt` `rememberSilentCamera`.
+- **카메라 권한(CAMERA)을 새로 묻는다** - 처음 찍을 때 한 번. 거절하면 예전처럼 기본 카메라 앱으로 찍고 "소리가 날 수 있어요"라고 알린다. 카메라 없는 기기도 설치되게 `uses-feature required=false`.
+- 새 의존성: `androidx.camera:camera-camera2/lifecycle/view` 1.4.1(앱 안 카메라 미리보기).
+- 되돌리려면 `rememberSilentCamera` 대신 `ActivityResultContracts.TakePicture()`(git 기록의 HealthCaptureScreen·HealthGymScreen).

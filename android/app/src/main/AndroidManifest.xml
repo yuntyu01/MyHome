@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 끼니·헬스 인증 사진을 앱 안에서 소리 없이 찍는다(ui/SilentCamera.kt). 카메라가 없는 기기도 설치는 된다 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 앱 자체 알림(테스트 알림, 예산 알림). Android 13+ 런타임 권한 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

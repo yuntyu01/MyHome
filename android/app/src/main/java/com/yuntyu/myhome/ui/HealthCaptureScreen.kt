@@ -129,8 +129,6 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
     var editTotals by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    // 카메라가 쓰고 있는 파일 경로(Activity가 다시 만들어져도 남게)
-    var pendingCapture by rememberSaveable { mutableStateOf<String?>(null) }
     // 바코드로 찾은 제품이면 그 번호를 끼니와 같이 저장한다. basis는 영양값의 기준 양(예: "100g(ml)당")
     var barcode by remember { mutableStateOf(editing?.barcode) }
     var barcodeBasis by remember { mutableStateOf<String?>(null) }
@@ -167,11 +165,8 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
         }
     }
 
-    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val f = pendingCapture?.let(::File)
-        if (ok && f != null && f.length() > 0) files += f else f?.delete()
-        pendingCapture = null
-    }
+    // 소리 없이 찍는다(앱 안 카메라, ui/SilentCamera.kt)
+    val shoot = rememberSilentCamera { f -> if (files.size < 3) files += f else f.delete() }
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(3)) { uris: List<Uri> ->
         for (u in uris) if (files.size < 3) MealPhotos.copyIn(ctx, u)?.let { files += it }
     }
@@ -297,11 +292,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
             Phase.PICK -> {
                 SectionCard("끼니 사진", help = "한 끼를 사진 3장까지 찍을 수 있어요. 영양성분표를 찍어도 돼요.") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            val (f, uri) = MealPhotos.newCapture(ctx)
-                            pendingCapture = f.path
-                            camera.launch(uri)
-                        }, enabled = files.size < 3) { Text("사진 찍기") }
+                        Button(onClick = shoot, enabled = files.size < 3) { Text("사진 찍기") }
                         FilledTonalButton(onClick = {
                             gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         }, enabled = files.size < 3) { Text("앨범에서") }
