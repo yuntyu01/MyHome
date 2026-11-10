@@ -83,6 +83,8 @@ enum class Screen(val title: String) {
     HEALTH_RECORDS("기록"),
     HEALTH_GYM("헬스"),
     HEALTH_SETTINGS("건강 설정"),
+    /** 처음 설정(온보딩). 머리·하단바 없이 화면을 다 쓴다 */
+    ONBOARDING(""),
     ;
 
     /** 하단바에 있는 첫 화면들. 투자는 자동이라 볼 일이 적어 홈 오른쪽 위 버튼으로 연다(2026-11-09, 칸은 집중 타이머에) */
@@ -96,7 +98,7 @@ enum class Screen(val title: String) {
     /** 뒤로 가기 대상(지나온 화면 기록이 없을 때) */
     val parent: Screen?
         get() = when (this) {
-            HOME -> null
+            HOME, ONBOARDING -> null
             PERMISSIONS, LOGS -> STATUS
             STATUS, APPS, BUDGETS, HEALTH_SETTINGS -> SETTINGS
             INVEST_VALUE, INVEST_BACKTEST -> INVEST
@@ -151,7 +153,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
-    var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
+    // 처음 설정을 아직 안 끝냈으면 그것부터(끝내거나 건너뛰면 다시 안 뜬다. 설정에서 다시 볼 수 있다)
+    var screen by rememberSaveable { mutableStateOf(if (MyHomeApp.instance.settings.onboarded) Screen.HOME else Screen.ONBOARDING) }
+    val onboard = rememberSaveable(saver = OnboardNav.Saver) { OnboardNav() }
     // 지나온 화면(하단바 칸으로 가면 비운다). 뒤로 가기는 여기서 꺼내고, 없으면 parent로 간다
     val backStack = remember { mutableStateListOf<Screen>() }
     val healthNav = rememberSaveable(saver = HealthNav.Saver) { HealthNav() }
@@ -173,6 +177,8 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
     // 위젯·알림 탭: 확인 필요 항목이면 거래 화면의 분류 고르기로, 건강 알림이면 촬영·헬스로, 그 외는 해당 화면으로
     LaunchedEffect(launchRequest.value) {
         val req = launchRequest.value ?: return@LaunchedEffect
+        // 처음 설정 중에 로그인하고 돌아오면(myhome://auth) 그 쪽 그대로 이어 간다
+        if (req.first == "home" && screen == Screen.ONBOARDING) { launchRequest.value = null; return@LaunchedEffect }
         backStack.clear()
         when (req.first) {
             "review" -> { txTab = 1; txCategory = null; openTxId = req.second; screen = Screen.TRANSACTIONS }
@@ -213,6 +219,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             contentColor = MaterialTheme.colorScheme.onBackground,
             topBar = {
                 when {
+                    screen == Screen.ONBOARDING -> Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
                     !screen.topLevel -> SubTopBar(screen.title, showBack = screen.parent != null || backStack.isNotEmpty()) { back() }
                     // 홈: 오른쪽 위에 투자 버튼(하단바 칸은 집중 타이머가 쓴다)
                     screen == Screen.HOME -> Row(
@@ -275,7 +282,16 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                 )
                 Screen.PERMISSIONS -> PermissionScreen(mod, resumeTick)
                 Screen.APPS -> AppsScreen(mod, onDone = { back() })
-                Screen.SETTINGS -> SettingsScreen(mod, resumeTick, onNavigate = { go(it) })
+                Screen.SETTINGS -> SettingsScreen(mod, resumeTick, onNavigate = { if (it == Screen.ONBOARDING) onboard.start(all = true); go(it) })
+                Screen.ONBOARDING -> OnboardingScreen(
+                    mod, resumeTick, onboard,
+                    onNavigate = { go(it) },
+                    onFinish = {
+                        MyHomeApp.instance.settings.onboarded = true
+                        // 설정에서 다시 본 거면 설정으로, 처음이면 홈으로
+                        if (backStack.isNotEmpty()) back() else screen = Screen.HOME
+                    },
+                )
                 Screen.LOGS -> LogScreen(mod)
                 Screen.BUDGETS -> BudgetsScreen(mod)
                 Screen.FOCUS -> FocusScreen(mod, resumeTick)

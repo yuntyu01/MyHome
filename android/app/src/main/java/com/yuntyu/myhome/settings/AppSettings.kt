@@ -79,6 +79,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_NOTIF_ASKED, false)
         set(v) = prefs.edit { putBoolean(KEY_NOTIF_ASKED, v) }
 
+    /** 처음 설정(온보딩)을 끝냈거나 건너뛰었는지. false면 앱을 켤 때 처음 설정부터 연다 */
+    var onboarded: Boolean
+        get() = prefs.getBoolean(KEY_ONBOARDED, false)
+        set(v) = prefs.edit { putBoolean(KEY_ONBOARDED, v) }
+
     /** 마지막 인증 실패 메시지(토큰 폐기 등). 홈 화면 경고용. */
     var authProblem: String?
         get() = prefs.getString(KEY_AUTH_PROBLEM, null)
@@ -93,5 +98,6 @@ class AppSettings(context: Context) {
         const val KEY_LAST_CAPTURED = "last_captured_at"
         const val KEY_LISTENER_CONNECTED = "listener_connected_at"
         const val KEY_NOTIF_ASKED = "notif_asked"
+        const val KEY_ONBOARDED = "onboarded"
     }
 }

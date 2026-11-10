@@ -19,6 +19,16 @@ object PermissionStatus {
 
     fun canPostNotifications(ctx: Context): Boolean = Notifications.canPost(ctx)
 
+    /** 앱 알림이 실제로 뜨는지: 권한(13+)과 앱 알림 끄기까지 본다 */
+    fun notificationsOn(ctx: Context): Boolean = canPostNotifications(ctx) && NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+
+    /** 이 앱의 알림 설정 화면(거절했거나 꺼 둔 알림을 켜는 곳) */
+    fun openNotificationSettings(ctx: Context) {
+        val app = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { ctx.startActivity(app) }.onFailure { openAppDetails(ctx) }
+    }
+
     fun openListenerSettings(ctx: Context) {
         ctx.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }

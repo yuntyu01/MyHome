@@ -61,8 +61,9 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-private val GOALS = listOf("lose" to "감량", "keep" to "유지", "gain" to "린매스업", "bulk" to "벌크업")
-private val ACTIVITIES = listOf(
+/** 건강 목표 고르기(처음 설정과 건강 설정이 같이 쓴다) */
+internal val GOALS = listOf("lose" to "감량", "keep" to "유지", "gain" to "린매스업", "bulk" to "벌크업")
+internal val ACTIVITIES = listOf(
     "sedentary" to "비활동적 · 운동 없이 대부분 앉아서",
     "low" to "저활동적 · 가벼운 걷기·운동 조금",
     "active" to "활동적 · 걷기·운동이 꽤 많음",

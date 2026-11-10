@@ -101,6 +101,8 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
             },
         )
 
+        FlatRow("처음 설정 다시 보기", sub = "로그인·결제 알림·앱 알림·건강 목표를 순서대로", onClick = { onNavigate(Screen.ONBOARDING) })
+
         Hairline(Modifier.padding(top = 16.dp))
         FlatRow("문제가 생겼을 때", sub = "결제가 안 적히면 여기서 하나씩 확인해요", titleColor = m.muted, onClick = { onNavigate(Screen.STATUS) })
         // Play 정책: 스토어와 앱 안에 개인정보처리방침 링크를 둔다
