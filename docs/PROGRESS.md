@@ -195,7 +195,7 @@
 
 - 서버: main push → 테스트 → VM(`server.yml`, `ci-deploy.sh`). VM에서 `ci-deploy.sh`로 묶음을 받아 설치하는 경로는 손으로 시험함(healthz 200)
 - 앱: main push(android/**) → `:core:test` → Play alpha
-- 남은 것(사람): `HOME_DEPLOY_KEY` Secret·`HOME_KNOWN_HOSTS` 변수 등록(VM 쪽 `setup-ci-deploy.sh`는 2026-11-10에 돌림). 그 전까지 server.yml은 테스트만 돈다
+- 끝: `HOME_DEPLOY_KEY` Secret·`HOME_KNOWN_HOSTS` 변수를 사용자가 등록(2026-11-10). CI #9(workflow_dispatch)가 VM 배포·바깥 healthz 200까지 성공. 이제 main push만으로 서버가 VM에 배포된다. 만든 곳의 개인키 사본은 지움
 
 ### 꾹 눌러 복사 · 누르면 동작 · 편의 기능 (2026-11-10, 사용자 요청)
 
@@ -210,7 +210,7 @@
 - 완료: 처음 켤 때 한 쪽씩 넘기는 처음 설정 - 로그인, 결제 알림 읽기(알림 읽기·카드·은행 앱·절전 예외·예산), 앱 알림·알람 및 리마인더, 건강 목표(몸 정보·활동 → 추천 → 저장), 끼니·헬스·취침 시간, 끝(남은 것 "아직"). 이미 한 쪽은 건너뛰고, 설정 > "처음 설정 다시 보기"로 전부 다시 볼 수 있다. 자세한 것은 `DECISIONS.md` 「처음 설정(온보딩)」
 - 검증: 앱 테스트 11개(새로 5개: 쪽 고르기, 앞뒤·끼워 넣기, 처음부터 끝까지 눌러 가기·저장 내용, 로그인 전 건강 쪽, 건너뛰기), core 76개, release lint 통과. 건강 쪽 빼기 조건을 지우면 테스트 2개가 깨지는 것 확인. 쪽마다 화면을 그려 보고 배치 확인
 - 미검증: 실제 폰(권한 창·시스템 설정 화면 오가기, 브라우저 로그인 뒤 돌아오기)
-- CI 서버 자동 배포: VM에 `myhome-deploy` 키를 깔았다(`setup-ci-deploy.sh` 성공). GitHub Secret `HOME_DEPLOY_KEY`·변수 `HOME_KNOWN_HOSTS` 등록은 권한 검사가 막아서 사람이 해야 한다
+- ~~CI 서버 자동 배포 키 등록~~ → 2026-11-10 사용자가 등록, CI 배포 확인함
 
 ### 가계부에 안 적힌 결제 (2026-11-10, 사용자 질문)
 
