@@ -1,6 +1,7 @@
 package com.yuntyu.myhome.core
 
 import com.yuntyu.myhome.core.api.ApiResult
+import com.yuntyu.myhome.core.api.Category
 import com.yuntyu.myhome.core.api.EventPayload
 import com.yuntyu.myhome.core.api.InvestAlerts
 import com.yuntyu.myhome.core.api.InvestStatus
@@ -152,6 +153,20 @@ class ApiTest {
         assertEquals(121_000L, v.gainKrw)
         assertEquals("$12.50", v.cashUsd)
         assertEquals("자동매수", v.ledger!!.single().source)
+    }
+
+    // 끌어서 옮기기: 맨 위는 parent_id 0, 기준이 없으면 before·after를 빼고 보낸다
+    @Test fun moveCategory() {
+        server.enqueue(MockResponse().setBody("""{"id":4,"name":"교통","kind":"expense","sort":10,"parent_id":1}"""))
+        server.enqueue(MockResponse().setBody("""{"id":4,"name":"교통","kind":"expense","sort":30}"""))
+        val c = (api().moveCategory(4, DropPlace(1L, before = 2L)) as ApiResult.Ok<Category>).value
+        assertEquals(1L, c.parentId)
+        var req = server.takeRequest()
+        assertEquals("POST /v1/categories/4/move", "${req.method} ${req.path}")
+        assertEquals("""{"parent_id":1,"before":2}""", req.body.readUtf8())
+        api().moveCategory(4, DropPlace(null))
+        req = server.takeRequest()
+        assertEquals("""{"parent_id":0}""", req.body.readUtf8())
     }
 
     // 매매 실패 알림: 마지막으로 본 id를 after로 보낸다 (합성 데이터)

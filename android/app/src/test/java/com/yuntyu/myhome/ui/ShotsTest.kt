@@ -11,6 +11,7 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ActivityScenario
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.yuntyu.myhome.MyHomeApp
@@ -97,6 +98,18 @@ class ShotsTest {
         return false
     }
 
+    /** 꾹 눌러 rows 줄만큼 끄는 중을 찍는다. 떼지 않고 취소해서 실제로는 옮기지 않는다 */
+    private fun dragShot(label: String, rows: Float, name: String) {
+        val n = find(label, false) ?: run { missing += "끌기:$label"; return }
+        val h = n.fetchSemanticsNode().boundsInRoot.height
+        n.performTouchInput { down(center) }
+        rule.mainClock.advanceTimeBy(1_000)
+        n.performTouchInput { repeat(10) { moveBy(androidx.compose.ui.geometry.Offset(0f, rows * h / 10)) } }
+        shot(name)
+        n.performTouchInput { cancel() }
+        settle()
+    }
+
     private fun back() {
         scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         settle()
@@ -132,7 +145,12 @@ class ShotsTest {
         tap("집중"); shot("10-집중")
 
         tap("설정"); shot("11-설정")
-        if (tap("분류·폴더·예산", "분류와 예산")) { shot("12-분류·예산"); back() }
+        if (tap("분류·폴더·예산", "분류와 예산")) {
+            shot("12-분류·예산")
+            dragShot("쇼핑", 1f, "12b-분류-끌기-폴더-안으로")
+            dragShot("쇼핑", 2.6f, "12c-분류-끌기-자리")
+            back()
+        }
         if (tap("알림 읽을 앱")) { shot("13-알림-읽을-앱"); back() }
         if (tap("문제가 생겼을 때")) {
             shot("14-문제-해결")

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -349,9 +350,11 @@ func CatalogWith(choices []ai.CategoryChoice, memo string) string {
 }
 
 // Catalog는 분류 목록의 지문이다. 저장된 추천의 지문이 지금과 다르면 그 가맹점을 다시 묻는다.
+// 순서만 바꾼 것(앱에서 끌어서 옮기기)으로는 다시 묻지 않게 이름순으로 본다. 폴더를 옮기면 경로 이름이 바뀌어 다시 묻는다.
 func Catalog(choices []ai.CategoryChoice) string {
+	sorted := slices.SortedFunc(slices.Values(choices), func(a, b ai.CategoryChoice) int { return strings.Compare(a.Name, b.Name) })
 	h := sha256.New()
-	for _, c := range choices {
+	for _, c := range sorted {
 		h.Write([]byte(c.Name + "\x00" + c.Memo + "\x00"))
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]

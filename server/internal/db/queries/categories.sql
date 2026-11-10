@@ -34,3 +34,10 @@ UPDATE categories
 SET archived = @archived
 WHERE id = ANY (@ids::bigint[])
   AND code IS NULL;
+
+-- name: PlaceCategory :exec
+-- 끌어서 옮길 때: 들어갈 폴더와 그 안의 순서를 한 번에 바꾼다(api.MoveCategory가 형제 순서를 다시 매긴다).
+UPDATE categories
+SET parent_id = sqlc.narg(parent_id),
+    sort      = @sort
+WHERE id = @id;

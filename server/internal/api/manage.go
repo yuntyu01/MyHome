@@ -229,6 +229,101 @@ func (a *API) UpdateCategory(r *http.Request, id int64, in CategoryChange) (dbq.
 	return out, err
 }
 
+// CategoryMove는 분류를 폴더(ParentID, 0 = 맨 위) 안의 정한 자리로 옮기는 입력이다.
+// Before가 있으면 그 분류 바로 앞, After가 있으면 바로 뒤, 둘 다 없으면 맨 끝이다(앱에서 꾹 눌러 끌기).
+type CategoryMove struct {
+	ParentID int64 `json:"parent_id"`
+	Before   int64 `json:"before"`
+	After    int64 `json:"after"`
+}
+
+func (a *API) moveCategory(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		httpx.Error(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var in CategoryMove
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	c, err := a.MoveCategory(r.Context(), id, in)
+	if err != nil {
+		if errors.Is(err, ErrDuplicateName) {
+			httpx.Error(w, http.StatusConflict, err.Error())
+			return
+		}
+		a.fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, c)
+}
+
+// MoveCategory는 분류(폴더면 안까지 통째로)를 옮기고, 들어간 폴더의 형제 순서를 10, 20, 30…으로 다시 매긴다.
+// 특수 분류는 옮기지 않고 순서 매기기에서도 뺀다(계산 규칙에 묶여 있다). 폴더 규칙은 CheckPlace와 같다.
+func (a *API) MoveCategory(ctx context.Context, id int64, mv CategoryMove) (dbq.Category, error) {
+	var out dbq.Category
+	if mv.Before != 0 && mv.After != 0 {
+		return out, placeErr(errors.New("before와 after 중 하나만 주세요"))
+	}
+	err := db.InTx(ctx, a.Pool, func(tx pgx.Tx) error {
+		q := dbq.New(tx)
+		cats, err := q.ListCategories(ctx)
+		if err != nil {
+			return err
+		}
+		t := cattree.New(cats)
+		c, ok := t.ByID[id]
+		if !ok {
+			return pgx.ErrNoRows
+		}
+		if c.Code != nil {
+			return placeErr(cattree.ErrSpecial)
+		}
+		if mv.ParentID != t.Parent(id) {
+			if err := t.CheckPlace(id, c.Kind, mv.ParentID); err != nil {
+				return placeErr(err)
+			}
+		}
+		var sibs []int64
+		for _, s := range t.Children(mv.ParentID) {
+			if s != id && t.ByID[s].Code == nil {
+				sibs = append(sibs, s)
+			}
+		}
+		at := len(sibs)
+		if anchor := max(mv.Before, mv.After); anchor != 0 {
+			at = -1
+			for i, s := range sibs {
+				if s == anchor {
+					at = i
+				}
+			}
+			if at < 0 {
+				return placeErr(errors.New("옮길 자리를 찾지 못했어요"))
+			}
+			if mv.After != 0 {
+				at++
+			}
+		}
+		order := append(append(append([]int64(nil), sibs[:at]...), id), sibs[at:]...)
+		var parent *int64
+		if mv.ParentID != 0 {
+			p := mv.ParentID
+			parent = &p
+		}
+		for i, cid := range order {
+			if err := q.PlaceCategory(ctx, dbq.PlaceCategoryParams{ID: cid, ParentID: parent, Sort: int32((i + 1) * 10)}); err != nil {
+				return dupErr(err)
+			}
+		}
+		out, err = q.GetCategory(ctx, id)
+		return err
+	})
+	return out, err
+}
+
 // archiveCategory: 데이터를 지우지 않기 위해 DELETE는 보관(archived)으로 처리한다.
 func (a *API) archiveCategory(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)

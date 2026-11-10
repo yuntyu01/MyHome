@@ -12,6 +12,11 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.key
+import com.yuntyu.myhome.core.CategoryDrag
+import com.yuntyu.myhome.core.DropPlace
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,11 +58,11 @@ private class EditTarget(val category: Category?, val amount: Long, val parent: 
 private class CategoryForm(val name: String, val amount: Long, val memo: String, val parent: Long?, val hide: Boolean)
 
 /** 폴더 한 단계 들여쓰기 */
-private val Indent = 22.dp
+internal val FolderIndent = 22.dp
 
 /** 줄 앞 들여쓰기(맨 위면 없음). FlatRow 칸 사이 14dp를 빼서 한 단계가 Indent만큼 들어가게 한다 */
 fun indentLead(depth: Int): (@Composable () -> Unit)? =
-    if (depth > 0) { { Spacer(Modifier.width(Indent * depth - 14.dp)) } } else null
+    if (depth > 0) { { Spacer(Modifier.width(FolderIndent * depth - 14.dp)) } } else null
 
 /**
  * 분류와 예산: 분류를 폴더처럼 묶고(최대 3단계), 분류마다 한 달 예산과 설명을 정한다. 설명은 AI 분류 추천이 참고한다.
@@ -102,7 +107,27 @@ fun BudgetsScreen(modifier: Modifier) {
     val own = budgets?.items.orEmpty().associate { it.categoryId to it.amount }
     val list = cats
     val tree = remember(list) { CategoryTree(list.orEmpty()) }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
+
+    // 꾹 눌러 끌어서 옮기기: 화면에 먼저 옮겨 보이고 서버에 보낸다(안 되면 되돌린다)
+    val scroll = rememberScrollState()
+    val dragger = rememberCategoryDragger(scroll)
+    val drop = dragger.target(tree)
+    fun moveTo(id: Long, place: DropPlace) {
+        val before = cats ?: return
+        cats = CategoryDrag.moved(before, tree, id, place)
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { app.api.moveCategory(id, place) }
+            if (r is ApiResult.Ok) {
+                tick++
+                WidgetRefresher.refresh(ctx)
+            } else {
+                cats = before
+                Toast.makeText(ctx, r.plain(), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    Column(modifier.fillMaxSize().dragViewport(dragger).verticalScroll(scroll).dropMarks(dragger, drop, m.cta).padding(bottom = 32.dp)) {
         if (list == null || budgets == null) {
             EmptyNote(if (error != null) "불러오지 못했어요" else "불러오는 중이에요", error)
             return@Column
@@ -117,9 +142,10 @@ fun BudgetsScreen(modifier: Modifier) {
             }
         }
 
+        // 누르면 고치기, 꾹 눌러 끌면 순서·폴더 옮기기(폴더는 안까지 통째로)
         @Composable
         fun TreeRows(kind: String) {
-            for ((c, depth) in tree.preorder { !it.archived }.filter { it.first.kind == kind }) {
+            for ((c, depth) in tree.preorder { !it.archived }.filter { it.first.kind == kind }) key(c.id) {
                 val folder = tree.children(c.id).any { !it.archived }
                 val a = own[c.id] ?: 0L
                 val eff = if (kind == "expense") tree.effectiveBudget(own, c.id) else 0L
@@ -129,15 +155,17 @@ fun BudgetsScreen(modifier: Modifier) {
                     eff > 0 -> "안 합계 ${Money.won(eff)}"
                     else -> "예산 없음"
                 }
-                FlatRow(
-                    c.name,
-                    sub = c.memo.ifBlank { null },
-                    value = value,
-                    bold = folder,
-                    valueColor = if (a > 0) MaterialTheme.colorScheme.onBackground else m.faint,
-                    leading = indentLead(depth),
-                    onClick = { editing = EditTarget(c, a) },
-                )
+                DragRow(dragger, tree, c, onTap = { editing = EditTarget(c, a) }, onDrop = ::moveTo) {
+                    FlatRow(
+                        c.name,
+                        sub = c.memo.ifBlank { null },
+                        value = value,
+                        bold = folder,
+                        valueColor = if (a > 0) MaterialTheme.colorScheme.onBackground else m.faint,
+                        leading = indentLead(depth),
+                        trailing = { Icon(ChevronRightIcon, contentDescription = null, tint = m.faint, modifier = Modifier.size(18.dp)) },
+                    )
+                }
             }
         }
 
@@ -151,7 +179,7 @@ fun BudgetsScreen(modifier: Modifier) {
         Hairline(Modifier.padding(horizontal = Gutter))
         SectionLabel(
             "쓰는 돈",
-            help = "분류 안에 분류를 넣으면 폴더가 돼요(3단계까지). 폴더를 만든 뒤 분류를 눌러 '들어갈 폴더'에서 고르거나, 폴더를 눌러 '이 안에 분류 추가'를 누르세요. 폴더 예산을 안 정하면 안에 있는 분류 예산을 더해요.",
+            help = "꾹 눌러 끌면 순서를 바꿔요. 다른 분류 가운데에 놓으면 그 안으로 들어가요(폴더, 3단계까지). 폴더는 안에 든 분류까지 같이 옮겨요.\n\n폴더 예산을 안 정하면 안에 있는 분류 예산을 더해요.",
         )
         TreeRows("expense")
         AddRow("분류 추가") { editing = EditTarget(null, 0) }

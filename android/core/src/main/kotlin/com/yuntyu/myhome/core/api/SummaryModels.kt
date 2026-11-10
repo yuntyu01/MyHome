@@ -142,6 +142,14 @@ data class CategoryInput(
     val memo: String? = null,
 )
 
+/** POST /v1/categories/{id}/move 본문. parentId 0 = 맨 위, before·after 둘 다 없으면 맨 끝 */
+@Serializable
+data class CategoryMove(
+    @SerialName("parent_id") val parentId: Long,
+    val before: Long? = null,
+    val after: Long? = null,
+)
+
 @Serializable
 data class BudgetItem(
     @SerialName("category_id") val categoryId: Long,

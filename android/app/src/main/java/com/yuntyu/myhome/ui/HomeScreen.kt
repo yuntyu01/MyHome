@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuntyu.myhome.MyHomeApp
@@ -308,20 +309,37 @@ internal fun InUseHome(
 
             val cats = WidgetModel.homeCategories(s, topCount = 3)
             if (cats.top.isNotEmpty() || cats.rest.isNotEmpty()) {
-                // 펼친 분류가 없으면(기간 시작 직후) 처음부터 펼쳐 둔다
+                // 펼친 분류가 없으면(기간 시작 직후) 처음부터 다 보인다
                 var showRest by rememberSaveable { mutableStateOf(false) }
                 val open = showRest || cats.top.isEmpty()
                 val more = cats.rest.isNotEmpty() && cats.top.isNotEmpty()
-                HomeSection(
-                    "분류별 남은 돈",
-                    action = if (more) (if (open) "접기" else "전체 보기") else "예산",
-                    onAction = { if (more) showRest = !open else onNavigate(Screen.BUDGETS) },
-                )
-                // 폴더는 누르면 안 분류가 펼쳐진다
-                var openFolders by remember { mutableStateOf(emptySet<Long>()) }
-                val toggle: (Long) -> Unit = { id -> openFolders = if (id in openFolders) openFolders - id else openFolders + id }
-                for (c in cats.top) CategoryTreeLine(s, c, 0, openFolders, toggle, onCategory)
-                if (open) for (c in cats.rest) CategoryTreeLine(s, c, 0, openFolders, toggle, onCategory)
+                HomeSection("분류별 남은 돈", action = "예산 변경", chevron = false, onAction = { onNavigate(Screen.BUDGETS) })
+                // 폴더: 처음 보이는 것은 펼치고 접어 둔 것은 접는다. 누르면 반대로(기억해 둔다)
+                var flipped by rememberSaveable { mutableStateOf(listOf<Long>()) }
+                val topIds = cats.top.map { it.id }.toSet()
+                val shown = cats.top + if (open) cats.rest else emptyList()
+                shown.forEachIndexed { i, c ->
+                    val kids = WidgetModel.childrenOf(s, c.id)
+                    val isOpen = kids.isNotEmpty() && ((c.id in topIds) != (c.id in flipped))
+                    if (i > 0 && shown[i - 1].let { p -> WidgetModel.childrenOf(s, p.id).isNotEmpty() && ((p.id in topIds) != (p.id in flipped)) }) {
+                        Hairline(Modifier.padding(horizontal = Gutter))
+                    }
+                    CategoryBlock(
+                        c, kids, isOpen,
+                        onToggle = { flipped = if (c.id in flipped) flipped - c.id else flipped + c.id },
+                        onCategory = onCategory,
+                    )
+                }
+                if (more) {
+                    Hairline(Modifier.padding(horizontal = Gutter))
+                    Row(
+                        Modifier.fillMaxWidth().tap(role = Role.Button) { showRest = !open }.padding(horizontal = Gutter, vertical = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(if (open) "접기" else "분류 ${cats.rest.size}개 더 보기", Modifier.weight(1f), fontSize = 16.sp, color = m.muted)
+                        Icon(ChevronDownIcon, contentDescription = null, tint = m.muted, modifier = Modifier.size(20.dp).rotate(if (open) 180f else 0f))
+                    }
+                }
             }
 
             if (!pastMonth) {
@@ -439,7 +457,7 @@ private fun SpendCard(s: Summary, monthWord: String, spent: Long, onClick: (() -
 
 /** 묶음 머리: 굵은 제목, 오른쪽 "전체 보기 ›" */
 @Composable
-private fun HomeSection(title: String, action: String?, onAction: () -> Unit) {
+private fun HomeSection(title: String, action: String?, chevron: Boolean = true, onAction: () -> Unit) {
     val m = LocalModo.current
     Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter - 6.dp, top = 32.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -449,57 +467,90 @@ private fun HomeSection(title: String, action: String?, onAction: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(action, fontSize = 15.sp, color = m.muted)
-                Icon(ChevronRightIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 2.dp).size(16.dp))
+                if (chevron) Icon(ChevronRightIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 2.dp).size(16.dp))
             }
         }
     }
 }
 
-/** 분류와, 펼친 폴더면 그 안의 분류들(들여 써서). 폴더는 누르면 펼치고, 펼친 폴더 맨 아래 "폴더 전체 거래"로 거래를 본다. 분류는 누르면 그 거래만 */
+/** 남은 돈 글자와 색: 예산이 없으면 쓴 돈, 넘으면 "넘음", 80% 넘게 쓰면 주의색 */
 @Composable
-private fun CategoryTreeLine(s: Summary, c: CategoryBudget, depth: Int, open: Set<Long>, toggle: (Long) -> Unit, onCategory: (Long) -> Unit) {
-    val kids = WidgetModel.childrenOf(s, c.id)
-    val isOpen = c.id in open
-    CategoryLine(c, depth, folder = if (kids.isEmpty()) null else isOpen, onClick = if (kids.isEmpty()) ({ onCategory(c.id) }) else ({ toggle(c.id) }))
-    if (isOpen) {
-        for (k in kids) CategoryTreeLine(s, k, depth + 1, open, toggle, onCategory)
-        val m = LocalModo.current
-        Text(
-            "${c.name} 거래 모두 보기",
-            Modifier.fillMaxWidth().tap(onClickLabel = "${c.name} 거래 보기") { onCategory(c.id) }
-                .padding(start = Gutter + 20.dp * (depth + 1), end = Gutter, top = 10.dp, bottom = 10.dp),
-            fontSize = 14.sp, color = m.muted,
-        )
+private fun leftText(c: CategoryBudget): Pair<String, androidx.compose.ui.graphics.Color> {
+    val m = LocalModo.current
+    return when {
+        c.budget <= 0 -> "${Money.won(c.spent)} 씀" to m.muted
+        c.remaining < 0 -> "${Money.won(-c.remaining)} 넘음" to m.over
+        c.ratio >= 0.8 -> Money.won(c.remaining) to m.warn
+        else -> Money.won(c.remaining) to MaterialTheme.colorScheme.onBackground
     }
 }
 
-/** 분류 한 줄: 이름과 남은 돈, 아래 얇은 막대. 예산이 없으면 쓴 돈만. folder가 null이 아니면 폴더(펼침 여부) */
+/**
+ * 맨 위 분류 한 덩어리(2026-11-10 시안): 굵은 이름과 남은 돈, 아래 막대.
+ * 폴더면 이름 옆 ⌄/⌃로 접고 펴고, 펼치면 안의 분류를 두 칸 격자로, 맨 아래 "○○ 거래 모두 보기 ›". 그냥 분류는 누르면 그 거래만.
+ */
 @Composable
-private fun CategoryLine(c: CategoryBudget, depth: Int = 0, folder: Boolean? = null, onClick: (() -> Unit)? = null) {
+private fun CategoryBlock(c: CategoryBudget, kids: List<CategoryBudget>, open: Boolean, onToggle: () -> Unit, onCategory: (Long) -> Unit) {
     val m = LocalModo.current
+    val folder = kids.isNotEmpty()
     Column(
         Modifier.fillMaxWidth()
-            .then(if (onClick != null) Modifier.tap(onClick = onClick) else Modifier)
-            .padding(start = Gutter + 20.dp * depth, end = Gutter, top = 10.dp, bottom = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .tap(onClickLabel = if (!folder) "${c.name} 거래 보기" else if (open) "접기" else "펼치기") { if (folder) onToggle() else onCategory(c.id) }
+            .padding(start = Gutter, end = Gutter, top = 16.dp, bottom = if (folder && open) 6.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(c.name, Modifier.weight(1f), fontSize = if (depth > 0) 16.sp else 17.sp, color = if (depth > 0) m.muted else MaterialTheme.colorScheme.onBackground, maxLines = 1)
-            val (text, color) = when {
-                c.budget <= 0 -> "${Money.won(c.spent)} 씀" to m.muted
-                c.remaining < 0 -> "${Money.won(-c.remaining)} 넘음" to m.over
-                c.ratio >= 0.8 -> Money.won(c.remaining) to m.warn
-                else -> Money.won(c.remaining) to MaterialTheme.colorScheme.onBackground
+            // 이름(+⌄)이 남는 칸을 다 차지하고 돈은 오른쪽 끝. 이름이 길면 이름만 줄어든다
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(c.name, Modifier.weight(1f, fill = false), fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (folder) {
+                    Icon(
+                        ChevronDownIcon, contentDescription = if (open) "접기" else "펼치기",
+                        modifier = Modifier.padding(start = 6.dp).size(20.dp).rotate(if (open) 180f else 0f),
+                    )
+                }
             }
-            Text(text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
-            if (onClick != null) {
-                Icon(
-                    ChevronRightIcon, contentDescription = if (folder == null) null else if (folder) "접기" else "펼치기", tint = m.faint,
-                    modifier = Modifier.padding(start = 8.dp).size(18.dp).rotate(if (folder == true) 90f else 0f),
-                )
-            }
+            Spacer(Modifier.width(12.dp))
+            val (text, color) = leftText(c)
+            Text(text, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
         }
         if (c.budget > 0) ModoBar(c.ratio, budgetColor(c.ratio))
+    }
+    if (folder && open) {
+        Column(
+            Modifier.fillMaxWidth().padding(start = Gutter + 10.dp, end = Gutter, top = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (pair in kids.chunked(2)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    for (k in pair) KidCell(k, Modifier.weight(1f)) { onCategory(k.id) }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+        Row(
+            Modifier.padding(start = Gutter + 4.dp, top = 6.dp, bottom = 10.dp).clip(RoundedCornerShape(10.dp))
+                .tap(onClickLabel = "${c.name} 거래 보기") { onCategory(c.id) }.padding(horizontal = 6.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("${c.name} 거래 모두 보기", fontSize = 15.sp, color = m.muted)
+            Icon(ChevronRightIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 2.dp).size(16.dp))
+        }
+    }
+}
+
+/** 폴더 안 한 칸: 회색 이름, 남은 돈, 얇은 막대(예산이 없으면 막대 자리만) */
+@Composable
+private fun KidCell(k: CategoryBudget, modifier: Modifier, onClick: () -> Unit) {
+    val m = LocalModo.current
+    Column(
+        modifier.clip(RoundedCornerShape(10.dp)).tap(onClickLabel = "${k.name} 거래 보기", onClick = onClick).padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(k.name, fontSize = 15.sp, color = m.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val (text, color) = leftText(k)
+        Text(text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+        if (k.budget > 0) ModoBar(k.ratio, budgetColor(k.ratio), Modifier.padding(top = 4.dp)) else Spacer(Modifier.height(9.dp))
     }
 }
 

@@ -128,6 +128,25 @@ func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
 	return items, nil
 }
 
+const placeCategory = `-- name: PlaceCategory :exec
+UPDATE categories
+SET parent_id = $1,
+    sort      = $2
+WHERE id = $3
+`
+
+type PlaceCategoryParams struct {
+	ParentID *int64 `json:"parent_id"`
+	Sort     int32  `json:"sort"`
+	ID       int64  `json:"id"`
+}
+
+// 끌어서 옮길 때: 들어갈 폴더와 그 안의 순서를 한 번에 바꾼다(api.MoveCategory가 형제 순서를 다시 매긴다).
+func (q *Queries) PlaceCategory(ctx context.Context, arg PlaceCategoryParams) error {
+	_, err := q.db.Exec(ctx, placeCategory, arg.ParentID, arg.Sort, arg.ID)
+	return err
+}
+
 const setCategoriesArchived = `-- name: SetCategoriesArchived :exec
 UPDATE categories
 SET archived = $1

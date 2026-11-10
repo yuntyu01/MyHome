@@ -1,5 +1,6 @@
 package com.yuntyu.myhome.core.api
 
+import com.yuntyu.myhome.core.DropPlace
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
 import kotlinx.serialization.json.JsonElement
@@ -96,6 +97,14 @@ class MyHomeApi(
         call(
             "PATCH", "/v1/categories/$id",
             MyHomeJson.encodeToString(CategoryInput.serializer(), CategoryInput(name = name, archived = archived, parentId = parentId, memo = memo)),
+            Category.serializer(),
+        )
+
+    /** 꾹 눌러 끌어서 옮기기: place.parent(null = 맨 위) 안의 정한 자리로. 폴더면 안까지 통째로 */
+    fun moveCategory(id: Long, place: DropPlace): ApiResult<Category> =
+        call(
+            "POST", "/v1/categories/$id/move",
+            MyHomeJson.encodeToString(CategoryMove.serializer(), CategoryMove(place.parent ?: 0L, place.before, place.after)),
             Category.serializer(),
         )
 
