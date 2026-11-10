@@ -5,6 +5,7 @@ import com.yuntyu.myhome.core.HealthPlan.TileState
 import com.yuntyu.myhome.core.api.FoodItem
 import com.yuntyu.myhome.core.api.FoodResult
 import com.yuntyu.myhome.core.api.MealSlot
+import com.yuntyu.myhome.core.api.Nutrition
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -142,5 +143,21 @@ class HealthPlanTest {
         assertEquals(java.time.LocalDateTime.of(2026, 11, 8, 0, 40), HealthPlan.eatenAt(day, "00:40", today))
         assertEquals(java.time.LocalDateTime.of(2026, 11, 7, 21, 10), HealthPlan.eatenAt(day, "21:10", today))
         assertEquals(java.time.LocalDateTime.of(2026, 11, 8, 3, 0), HealthPlan.eatenAt(today, "03:00", today))
+    }
+
+    // 사진을 찍으면 1끼·2끼처럼 쌓인다: 마감이 지났어도 빈 앞 번호부터, 다 차면 기타
+    @Test fun nextMealStacksFromTheFirstEmptySlot() {
+        val slots = listOf(1, 2, 3)
+        assertEquals(1, HealthPlan.nextMealIndex(slots, emptySet()))
+        assertEquals(2, HealthPlan.nextMealIndex(slots, setOf(1)))
+        assertEquals(2, HealthPlan.nextMealIndex(slots, setOf(1, 3)))
+        assertEquals(HealthPlan.EXTRA_BASE, HealthPlan.nextMealIndex(slots, setOf(1, 2, 3)))
+        assertEquals(HealthPlan.EXTRA_BASE + 1, HealthPlan.nextMealIndex(slots, setOf(1, 2, 3, HealthPlan.EXTRA_BASE)))
+        assertNull(HealthPlan.nextMealIndex(slots, setOf(1, 2, 3) + (HealthPlan.EXTRA_BASE until HealthPlan.EXTRA_BASE + HealthPlan.MAX_EXTRA)))
+    }
+
+    @Test fun remainingIsTargetMinusEatenAndCanGoNegative() {
+        val r = HealthPlan.remaining(Nutrition(2000, 250, 130, 60), Nutrition(2100, 100, 50, 20))
+        assertEquals(Nutrition(-100, 150, 80, 40), r)
     }
 }

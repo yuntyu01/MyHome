@@ -89,12 +89,7 @@ class SummaryWidget : GlanceAppWidget() {
             val day = FocusDay.dayOf(System.currentTimeMillis())
             val subjects by remember { focus.subjects() }.collectAsState(initial = null)
             val sessions by remember(day) { focus.sessionsBetween(FocusDay.startOf(day), FocusDay.endOf(day)) }.collectAsState(initial = emptyList())
-            GlanceTheme {
-                WidgetFrame(context, page) {
-                    if (page == PAGE_FOCUS) FocusPage(context, subjects, sessions, running)
-                    else BudgetPage(context, st.summary)
-                }
-            }
+            SummaryWidgetContent(context, page, st.summary, subjects, sessions, running)
         }
     }
 
@@ -105,6 +100,24 @@ class SummaryWidget : GlanceAppWidget() {
         val PAGE = intPreferencesKey("page")
         const val PAGE_BUDGET = 0
         const val PAGE_FOCUS = 1
+    }
+}
+
+/** 위젯 한 장(가계부 · 집중 페이지). 화면 찍기 테스트도 이것을 그린다(ShotsTest) */
+@Composable
+internal fun SummaryWidgetContent(
+    context: Context,
+    page: Int,
+    summary: Summary?,
+    subjects: List<com.yuntyu.myhome.data.FocusSubject>?,
+    sessions: List<com.yuntyu.myhome.data.FocusSession>,
+    running: com.yuntyu.myhome.focus.FocusTimer.Running?,
+) {
+    GlanceTheme {
+        WidgetFrame(context, page) {
+            if (page == SummaryWidget.PAGE_FOCUS) FocusPage(context, subjects, sessions, running)
+            else BudgetPage(context, summary)
+        }
     }
 }
 
@@ -198,16 +211,18 @@ private fun BudgetPage(context: Context, summary: Summary?) {
     Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = GlanceModifier.defaultWeight()) {
             Text("${WidgetModel.monthName(summary.period.label)} 남은 돈", style = TextStyle(color = sub, fontSize = 11.sp))
+            // 작은 위젯(120dp)은 "1,933,050원"이 두 줄로 깨져서 "193만원"처럼 줄여 쓴다
             Text(
-                Money.won(summary.totals.remaining),
+                if (layout == WidgetLayout.SMALL) Money.compact(summary.totals.remaining) + "원" else Money.won(summary.totals.remaining),
                 style = TextStyle(
                     color = if (summary.totals.remaining < 0) OverColor else text,
                     fontSize = if (layout == WidgetLayout.SMALL) 18.sp else 22.sp,
                     fontWeight = FontWeight.Bold,
                 ),
+                maxLines = 1,
             )
         }
-        if (summary.needsReview > 0) {
+        if (summary.needsReview > 0 && layout != WidgetLayout.SMALL) {
             Text(
                 "확인 ${summary.needsReview}",
                 style = TextStyle(color = WarnColor, fontSize = 12.sp, fontWeight = FontWeight.Bold),
@@ -264,7 +279,7 @@ private fun BudgetPage(context: Context, summary: Summary?) {
 /** 크기별 과목 줄 수: 작게는 합계만(누르면 앱), 중간 3줄, 크게 6줄 */
 private fun focusRows(layout: WidgetLayout) = when (layout) {
     WidgetLayout.SMALL -> 0
-    WidgetLayout.MEDIUM -> 3
+    WidgetLayout.MEDIUM -> 2 // 180dp 높이에 셋째 줄이 반쯤 잘렸다
     WidgetLayout.LARGE -> 6
 }
 

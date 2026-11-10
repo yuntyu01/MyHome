@@ -35,6 +35,8 @@ androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+# 화면 찍기 테스트(ShotsTest)가 앱 전체를 JVM에서 띄울 때 WorkManager를 테스트용으로 켠다
+androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "work" }
 androidx-glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "glance" }
 androidx-glance-material3 = { module = "androidx.glance:glance-material3", version.ref = "glance" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }

@@ -164,11 +164,10 @@ fun HealthScreen(modifier: Modifier, resumeTick: Int, nav: HealthNav, onNavigate
     }
 }
 
-/** 지금 찍을 끼니: 마감 전 미기록 중 가장 이른 것, 없으면 다음 기타 번호 */
+/** 지금 찍을 끼니: 찍은 순서대로 쌓인다(마감과 상관없이 빈 앞 번호, 다 찼으면 기타) */
 private fun currentIndex(d: HealthHome): Int? {
     val logged = d.card?.meals.orEmpty().map { it.index }.toSet() + d.outbox.keys
-    val st = HealthPlan.statuses(HealthPlan.deadlinesFor(d.day, d.settings.meals), logged, LocalDateTime.now())
-    return st.firstOrNull { it.second == HealthPlan.TileState.CURRENT }?.first?.index ?: HealthPlan.nextExtraIndex(logged)
+    return HealthPlan.nextMealIndex(d.settings.meals.map { it.index }, logged)
 }
 
 @Composable
@@ -204,35 +203,31 @@ fun localHhmm(iso: String): String? = runCatching {
 }.getOrNull()
 
 /**
- * 끼니마다 박스 하나: 먹은 끼니는 사진·음식·먹은 시각·탄단지, 보내는 중인 끼니는 그 상태,
- * 아직 안 먹은 끼니는 점선 박스로 목표량을 보여준다(먹은 끼니 박스 아래).
+ * 끼니 박스(사용자 요청, 2026-11-10): 찍은 끼니가 찍은 순서대로 1끼·2끼처럼 쌓이고, 그 아래 다음 끼니 하나만 점선 박스로.
+ * 점선 박스에는 오늘 남은 탄·단·지·칼로리만 보인다. 누르면 바로 촬영 화면.
  */
 @Composable
 private fun MealCards(d: HealthHome, nav: HealthNav, onNavigate: (Screen) -> Unit) {
     val day = d.day.toString()
     val meals = d.card?.meals.orEmpty().associateBy { it.index }
-    val rows = d.today.rows.orEmpty().associateBy { it.index }
-    val statuses = HealthPlan.statuses(HealthPlan.deadlinesFor(d.day, d.settings.meals), meals.keys + d.outbox.keys, LocalDateTime.now())
     fun open(i: Int) { nav.openCapture(day, i, meals[i]); onNavigate(Screen.HEALTH_CAPTURE) }
-    // 먹은 끼니(설정한 끼니 + 기타), 먹은 시각 순
+    // 먹은 끼니, 먹은 시각 순
     val eaten = meals.values.sortedWith(compareBy({ it.loggedAt }, { it.index }))
     for (meal in eaten) EatenMealCard(day, meal) { open(meal.index) }
     // 못 보낸 끼니
     for ((i, e) in d.outbox.filterKeys { it !in meals }.toSortedMap()) {
         PlanCard(HealthPlan.label(i), if (e.error != null) "못 보냄 · 눌러서 다시" else "보내는 중", null, dashed = false) { open(i) }
     }
-    // 아직 안 먹은 끼니: 점선 박스
-    for ((dl, state) in statuses) {
-        if (dl.index in meals || dl.index in d.outbox) continue
-        val label = HealthPlan.label(dl.index)
-        val until = HealthPlan.hhmm(dl.at.hour * 60 + dl.at.minute)
-        when (state) {
-            HealthPlan.TileState.MISSED -> PlanCard("$label 놓침", "${until}까지", null, dashed = true, faint = true) { open(dl.index) }
-            HealthPlan.TileState.CURRENT, HealthPlan.TileState.UPCOMING ->
-                PlanCard("$label 예정", "${until}까지", rows[dl.index]?.target, dashed = true) { open(dl.index) }
-            HealthPlan.TileState.LOGGED -> Unit
-        }
+    // 다음 끼니 하나: 남은 양만
+    currentIndex(d)?.let { next ->
+        PlanCard("${HealthPlan.label(next)} 예정", leftLine(HealthPlan.remaining(d.today.targets, d.today.total)), null, dashed = true) { open(next) }
     }
+}
+
+/** "남은 탄 120g · 단 80g · 지 30g · 900kcal", 넘은 것은 "넘음" */
+private fun leftLine(r: Nutrition): String {
+    fun part(name: String, v: Int, unit: String) = if (v >= 0) "$name ${num(v)}$unit" else "$name ${num(-v)}$unit 넘음"
+    return "남은 " + listOf(part("탄", r.carbs, "g"), part("단", r.protein, "g"), part("지", r.fat, "g"), part("", r.kcal, "kcal").trim()).joinToString(" · ")
 }
 
 @Composable

@@ -13,8 +13,8 @@ import com.yuntyu.myhome.settings.AppSettings
 import com.yuntyu.myhome.widget.WidgetRefresher
 import com.yuntyu.myhome.work.WorkScheduler
 
-/** 앱 전체에서 공유하는 객체. DI 프레임워크 없이 수동으로 조립한다. */
-class MyHomeApp : Application() {
+/** 앱 전체에서 공유하는 객체. DI 프레임워크 없이 수동으로 조립한다. 화면 찍기 테스트(ShotsTest)가 배경 일만 바꿔 끼우려고 open */
+open class MyHomeApp : Application() {
     lateinit var db: AppDatabase
         private set
     lateinit var settings: AppSettings
@@ -42,6 +42,11 @@ class MyHomeApp : Application() {
         summaryRepo = SummaryRepository(this)
         healthLocal = HealthLocal(this)
         Notifications.createChannels(this)
+        startBackground()
+    }
+
+    /** 주기 작업·알림·지오펜스·타이머 같은 배경 일. JVM 화면 테스트는 이것만 바꾼다 */
+    protected open fun startBackground() {
         // 앱이 켜질 때마다 남은 대기열을 비우고 주기 작업을 보장한다.
         WorkScheduler.ensurePeriodic(this)
         WorkScheduler.flushNow(this)

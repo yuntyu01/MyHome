@@ -71,6 +71,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDateTime
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.style.TextAlign
 
 private enum class Phase { PICK, ANALYZING, REVIEW }
 
@@ -92,7 +104,7 @@ fun portionLabel(p: Double): String = when (p) {
  * 찍는 중인 사진 경로는 rememberSaveable로 둔다: 카메라가 열린 사이 Activity가 다시 만들어져도 사진을 잃지 않게.
  */
 @Composable
-fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) {
+fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit, onBack: () -> Unit = onDone) {
     val ctx = LocalContext.current
     val app = MyHomeApp.instance
     val scope = rememberCoroutineScope()
@@ -165,8 +177,6 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
         }
     }
 
-    // 소리 없이 찍는다(앱 안 카메라, ui/SilentCamera.kt)
-    val shoot = rememberSilentCamera { f -> if (files.size < 3) files += f else f.delete() }
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(3)) { uris: List<Uri> ->
         for (u in uris) if (files.size < 3) MealPhotos.copyIn(ctx, u)?.let { files += it }
     }
@@ -200,6 +210,37 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                 }
             }
             phase = Phase.REVIEW
+        }
+    }
+
+    fun startBarcode() {
+        scanBarcode(ctx) { code ->
+            if (code == null) return@scanBarcode
+            busy = true
+            scope.launch {
+                val r = withContext(Dispatchers.IO) { app.api.barcode(code) }
+                busy = false
+                barcode = code
+                barcodeBasis = null
+                when {
+                    r is ApiResult.Ok && r.value.result != null -> {
+                        ai = r.value.result!!; manualTotals = false; message = null
+                        // Open Food Facts는 100g(ml)당 값일 때가 많다. 기준을 보여 주고 먹은 양으로 고치게 한다
+                        barcodeBasis = ai.items.firstOrNull()?.amount?.ifBlank { null } ?: r.value.product.amount.ifBlank { null }
+                    }
+                    r is ApiResult.Ok -> {
+                        ai = FoodResult(listOf(FoodItem(name = r.value.product.name.ifBlank { "바코드 $code" })))
+                        manualTotals = true
+                        message = "${r.value.product.name}: 영양성분이 없어요. 합계를 직접 넣어 주세요"
+                    }
+                    else -> {
+                        ai = FoodResult(listOf(FoodItem(name = "바코드 $code")))
+                        manualTotals = true
+                        message = "제품을 찾지 못했어요(${r.describe()}). 영양성분표를 찍거나 직접 넣어 주세요"
+                    }
+                }
+                phase = Phase.REVIEW
+            }
         }
     }
 
@@ -257,23 +298,32 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
     val factor = HealthPlan.eatenFactor(savePortion, shared)
     fun eaten(v: Int) = HealthPlan.jsRound(v * factor)
 
+    // 위: "‹ 2끼 기록 ⌄"(끼니 바꾸기는 여기서, 고칠 때는 고정)
+    val st = settings
+    val choices = if (editing == null && st != null) st.meals.map { it.index } + listOf(HealthPlan.extraChipIndex(index, used)) else emptyList()
+    Column(modifier.fillMaxSize()) {
+    CaptureHeader(
+        title = (index ?: editing?.index)?.let { "${HealthPlan.label(it)} 기록" } ?: "끼니 기록",
+        sub = if (editing != null) date else null,
+        choices = choices.distinct(),
+        onPick = { index = it },
+        onBack = onBack,
+    )
+    if (phase == Phase.PICK && editing == null) {
+        CameraPick(
+            files = files,
+            onAlbum = { gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onAnalyze = { analyze() },
+            onBarcode = { startBarcode() },
+            onManual = { phase = Phase.REVIEW; manualTotals = true },
+            enabled = index != null && !busy,
+            modifier = Modifier.weight(1f),
+        )
+    } else
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // 끼니 고르기 (고칠 때는 고정)
-        val st = settings
-        if (editing == null && st != null) {
-            SectionCard("어느 끼니인가요?") {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (slot in st.meals) Chip(HealthPlan.label(slot.index), index == slot.index) { index = slot.index }
-                    // 그날 비어 있는 다음 기타 번호(이미 기타를 골랐으면 그대로)
-                    Chip("기타", index != null && HealthPlan.isExtra(index!!)) { index = HealthPlan.extraChipIndex(index, used) }
-                }
-            }
-        } else if (editing != null) {
-            Text("${date ?: ""} · ${HealthPlan.label(editing.index)}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 6.dp))
-        }
 
         // 사진 (폰에 없으면 서버에서 받아 온다)
         var savedTick by remember { mutableStateOf(0) }
@@ -289,51 +339,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
         }
 
         when (phase) {
-            Phase.PICK -> {
-                SectionCard("끼니 사진", help = "한 끼를 사진 3장까지 찍을 수 있어요. 영양성분표를 찍어도 돼요.") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = shoot, enabled = files.size < 3) { Text("사진 찍기") }
-                        FilledTonalButton(onClick = {
-                            gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        }, enabled = files.size < 3) { Text("앨범에서") }
-                    }
-                    if (files.isNotEmpty()) TextButton(onClick = { files.forEach { it.delete() }; files.clear() }) { Text("사진 지우기", color = m.muted) }
-                }
-                SectionCard("포장 식품", help = "바코드를 찍으면 제품 이름과 영양성분을 찾아 채워요.") {
-                    FilledTonalButton(onClick = {
-                        scanBarcode(ctx) { code ->
-                            if (code == null) return@scanBarcode
-                            busy = true
-                            scope.launch {
-                                val r = withContext(Dispatchers.IO) { app.api.barcode(code) }
-                                busy = false
-                                barcode = code
-                                barcodeBasis = null
-                                when {
-                                    r is ApiResult.Ok && r.value.result != null -> {
-                                        ai = r.value.result!!; manualTotals = false; message = null
-                                        // Open Food Facts는 100g(ml)당 값일 때가 많다. 기준을 보여 주고 먹은 양으로 고치게 한다
-                                        barcodeBasis = ai.items.firstOrNull()?.amount?.ifBlank { null } ?: r.value.product.amount.ifBlank { null }
-                                    }
-                                    r is ApiResult.Ok -> {
-                                        ai = FoodResult(listOf(FoodItem(name = r.value.product.name.ifBlank { "바코드 $code" })))
-                                        manualTotals = true
-                                        message = "${r.value.product.name}: 영양성분이 없어요. 합계를 직접 넣어 주세요"
-                                    }
-                                    else -> {
-                                        ai = FoodResult(listOf(FoodItem(name = "바코드 $code")))
-                                        manualTotals = true
-                                        message = "제품을 찾지 못했어요(${r.describe()}). 영양성분표를 찍거나 직접 넣어 주세요"
-                                    }
-                                }
-                                phase = Phase.REVIEW
-                            }
-                        }
-                    }, enabled = !busy && index != null) { Text("바코드 찍기") }
-                }
-                Button(onClick = { analyze() }, enabled = files.isNotEmpty() && index != null, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("음식 알아보기") }
-                TextButton(onClick = { phase = Phase.REVIEW; manualTotals = true }, enabled = index != null) { Text("사진 없이 직접 입력", color = m.muted) }
-            }
+            Phase.PICK -> Unit // 카메라 화면(CameraPick)이 맡는다
             Phase.ANALYZING -> Text("음식을 알아보는 중이에요…", color = m.muted, modifier = Modifier.padding(6.dp))
             Phase.REVIEW -> {
                 message?.let { Text(it, color = m.warn, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 6.dp)) }
@@ -401,6 +407,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
                 }
             }
         }
+    }
     }
 
     // 음식 고치기·추가
@@ -471,6 +478,133 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit) 
             confirmButton = { TextButton(onClick = { confirmOverwrite = false; save() }) { Text("바꾸기") } },
             dismissButton = { TextButton(onClick = { confirmOverwrite = false }) { Text("취소") } },
         )
+    }
+}
+
+/** 촬영 화면 머리: ‹ 뒤로, "2끼 기록 ⌄"(누르면 끼니 바꾸기), 고칠 때는 아래 날짜 */
+@Composable
+private fun CaptureHeader(title: String, sub: String?, choices: List<Int>, onPick: (Int) -> Unit, onBack: () -> Unit) {
+    val m = LocalModo.current
+    var menu by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().statusBarsPadding().height(64.dp).padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack) { Icon(ChevronLeftIcon, contentDescription = "뒤로", modifier = Modifier.size(26.dp)) }
+        Box {
+            Row(
+                Modifier.clip(RoundedCornerShape(10.dp)).tap(enabled = choices.isNotEmpty(), onClickLabel = "끼니 바꾸기", role = Role.Button) { menu = true }
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                if (choices.isNotEmpty()) Icon(ChevronDownIcon, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(22.dp))
+            }
+            ModoDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                for (i in choices) DropdownMenuItem(text = { Text(HealthPlan.label(i)) }, onClick = { menu = false; onPick(i) })
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        if (sub != null) Text(sub, color = m.muted, fontSize = 14.sp)
+    }
+}
+
+/**
+ * 끼니 촬영 화면(사용자 요청, 2026-11-10): 열자마자 카메라. 앨범 · 셔터 · 찍은 장 수,
+ * 아래 바코드 스캔 | 직접 입력. 한 장 이상 찍으면 "음식 알아보기". 셔터는 소리 없이 미리보기 한 장을 뜬다(SilentCamera.kt).
+ */
+@Composable
+private fun CameraPick(
+    files: MutableList<File>,
+    onAlbum: () -> Unit,
+    onAnalyze: () -> Unit,
+    onBarcode: () -> Unit,
+    onManual: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val m = LocalModo.current
+    val shooter = remember { CameraShooter() }
+    var torch by remember { mutableStateOf(false) }
+    var flash by remember { mutableStateOf(false) }
+    LaunchedEffect(flash) { if (flash) { kotlinx.coroutines.delay(120); flash = false } }
+    val full = files.size >= 3
+    Column(modifier.fillMaxWidth()) {
+        Text("음식을 화면에 담아주세요", Modifier.padding(horizontal = Gutter), fontSize = 16.sp, color = m.muted)
+        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Gutter, vertical = 14.dp).clip(RoundedCornerShape(20.dp))) {
+            SilentCameraView(shooter, Modifier.fillMaxSize())
+            CornerMarks(Modifier.fillMaxSize().padding(28.dp))
+            if (flash) Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.5f)))
+            if (shooter.hasTorch) {
+                IconButton(onClick = { torch = !torch; shooter.torch(torch) }, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)) {
+                    Icon(if (torch) FlashIcon else FlashOffIcon, contentDescription = if (torch) "손전등 끄기" else "손전등 켜기", tint = androidx.compose.ui.graphics.Color.White)
+                }
+            }
+            // 찍은 사진: 왼쪽 아래 작게(누르면 뺀다)
+            if (files.isNotEmpty()) {
+                Row(Modifier.align(Alignment.BottomStart).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (f in files.toList()) {
+                        Box(Modifier.clip(RoundedCornerShape(8.dp)).tap(onClickLabel = "이 사진 빼기") { files.remove(f); f.delete() }) { Thumb(f, 52) }
+                    }
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = Gutter), verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).tap(enabled = !full, onClickLabel = "앨범에서 고르기", role = Role.Button, onClick = onAlbum).padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(GalleryIcon, contentDescription = null, modifier = Modifier.size(28.dp))
+                Text("앨범", fontSize = 14.sp)
+            }
+            ShutterButton(enabled = shooter.ready && !full && enabled, ring = MaterialTheme.colorScheme.onBackground) {
+                val bmp = shooter.shot() ?: return@ShutterButton
+                flash = true
+                scope.launch {
+                    val f = saveShot(ctx, bmp)
+                    if (f != null && files.size < 3) files += f else f?.delete()
+                }
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text("${files.size} / 3", fontSize = 18.sp, color = m.muted)
+            }
+        }
+        if (files.isEmpty()) {
+            Text("최대 3장 · 영양성분표도 가능", Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp), fontSize = 14.sp, color = m.muted, textAlign = TextAlign.Center)
+        } else {
+            PrimaryButton("음식 알아보기", Modifier.padding(horizontal = Gutter, vertical = 10.dp), enabled = enabled, onClick = onAnalyze)
+        }
+        Hairline(Modifier.padding(horizontal = Gutter))
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            BottomAction(BarcodeIcon, "바코드 스캔", enabled, Modifier.weight(1f), onBarcode)
+            Box(Modifier.width(1.dp).height(28.dp).background(m.line))
+            BottomAction(PencilIcon, "직접 입력", enabled, Modifier.weight(1f), onManual)
+        }
+        Spacer(Modifier.navigationBarsPadding())
+    }
+}
+
+@Composable
+private fun BottomAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Row(
+        modifier.tap(enabled = enabled, role = Role.Button, onClick = onClick).padding(vertical = 16.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp))
+        Text(label, Modifier.padding(start = 10.dp), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** 미리보기 네 귀퉁이의 흰 꺾쇠 */
+@Composable
+private fun CornerMarks(modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val l = 22.dp.toPx(); val w = 2.5.dp.toPx(); val c = androidx.compose.ui.graphics.Color.White
+        fun corner(x: Float, y: Float, dx: Float, dy: Float) {
+            drawLine(c, androidx.compose.ui.geometry.Offset(x, y), androidx.compose.ui.geometry.Offset(x + dx * l, y), w, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(c, androidx.compose.ui.geometry.Offset(x, y), androidx.compose.ui.geometry.Offset(x, y + dy * l), w, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        }
+        corner(0f, 0f, 1f, 1f); corner(size.width, 0f, -1f, 1f); corner(0f, size.height, 1f, -1f); corner(size.width, size.height, -1f, -1f)
     }
 }
 

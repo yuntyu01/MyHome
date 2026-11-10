@@ -169,31 +169,24 @@ fun TransactionsScreen(
     Column(modifier.fillMaxSize()) {
         PageTitle("거래") {
             IconButton(onClick = { query = if (query == null) "" else null }) {
-                Icon(if (query == null) SearchIcon else CloseIcon, contentDescription = if (query == null) "거래 찾기" else "찾기 닫기", tint = m.muted)
+                Icon(if (query == null) SearchIcon else CloseIcon, contentDescription = if (query == null) "거래 찾기" else "찾기 닫기", tint = MaterialTheme.colorScheme.onBackground)
             }
-            // 분류 고를 것·찾기는 달과 상관없이 보여주므로 달 넘기기를 숨긴다
-            if (tab != 1 && !searching) {
-                IconButton(onClick = { month = YearMonth.parse(shown).minusMonths(1).toString() }) {
-                    Icon(ChevronLeftIcon, contentDescription = "지난달", tint = m.muted)
-                }
-                val atCurrent = shown >= current
-                // 달 이름을 누르면 이번 달로 돌아온다
-                Text(
-                    WidgetModel.monthName(shown),
-                    Modifier.tap(enabled = !atCurrent, onClickLabel = "이번 달로") { month = null }.padding(vertical = 6.dp),
-                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                )
-                IconButton(
-                    onClick = { val next = YearMonth.parse(shown).plusMonths(1).toString(); month = if (next >= current) null else next },
-                    enabled = !atCurrent,
-                ) {
-                    Icon(ChevronRightIcon, contentDescription = "다음 달", tint = if (atCurrent) m.line else m.muted)
-                }
-            }
+        }
+        // 미분류·찾기는 달과 상관없이 보여주므로 달 넘기기를 숨긴다
+        if (tab != 1 && !searching) {
+            val atCurrent = shown >= current
+            val shownItems = items?.let { l -> if (catIds != null) l.filter { it.categoryId in catIds } else l }
+            val total = shownItems?.filter { it.status != "excluded" && it.flow == (if (tab == 2) "in" else "out") }?.sumOf { it.amount }
+            TxMonthRow(
+                WidgetModel.monthName(shown), total?.let { (if (tab == 2) "+" else "") + Money.won(it) }, atCurrent,
+                onPrev = { month = YearMonth.parse(shown).minusMonths(1).toString() },
+                onNext = { val next = YearMonth.parse(shown).plusMonths(1).toString(); month = if (next >= current) null else next },
+                onCurrent = { month = null },
+            )
         }
         if (query != null) SearchField(query.orEmpty()) { query = it }
         val reviewCount = review?.size ?: 0
-        TextTabs(listOf("전체", if (reviewCount > 0) "분류 고를 것 $reviewCount" else "분류 고를 것", "들어온 돈"), tab, onSelect = onTab)
+        TextTabs(listOf("전체", if (reviewCount > 0) "미분류 $reviewCount" else "미분류", "수입"), tab, onSelect = onTab)
         if (catName != null) FilterChipRow("$catName 거래만 보는 중") { onCategoryFilter(null) }
         PullToRefreshBox(
             isRefreshing = refreshing,
@@ -225,29 +218,23 @@ fun TransactionsScreen(
                         when {
                             searching -> EmptyNote("'$needle'이(가) 든 거래가 없어요", "가게 이름과 메모에서 찾아요")
                             catName != null -> EmptyNote("${monthName}에 $catName 거래가 없어요")
-                            tab == 1 -> EmptyNote("분류 고를 결제가 없어요", "모든 결제가 분류돼 있어요")
+                            tab == 1 -> EmptyNote("미분류 결제가 없어요")
                             tab == 2 -> EmptyNote("${monthName}에 들어온 돈이 없어요")
-                            else -> EmptyNote("${monthName} 거래가 아직 없어요", "결제 알림이 오면 여기에 바로 적혀요")
+                            else -> EmptyNote("${monthName} 거래가 아직 없어요")
                         }
                     }
                     else -> {
                         // 찾기·분류로 거른 때는 합계를 맨 위에(몇 건, 얼마)
                         if (searching || catName != null) item(key = "sum") { TotalsLine(list, if (searching) "전체 기간" else monthName, searching && list.size >= SEARCH_LIMIT) }
-                        val groups = list.groupBy { kstDate(it.occurredAt) }
-                        for ((day, txs) in groups) {
-                            item(key = "d$day") { DayHeader(day, txs) }
-                            items(txs, key = { it.id }) { t ->
-                                // 전체 목록에는 AI 추천이 없어서 확인 목록의 같은 거래로 연다
-                                TxRow(t, withDay = false, remaining = left[t.id]) { selected = review?.firstOrNull { r -> r.id == t.id } ?: t }
-                            }
-                        }
-                        item { Spacer(Modifier.height(12.dp)) }
+                        // 전체 목록에는 AI 추천이 없어서 확인 목록의 같은 거래로 연다
+                        txDays(list, left) { t -> selected = review?.firstOrNull { r -> r.id == t.id } ?: t }
                     }
                 }
+                // 현금 지출은 목록 끝에(떠 있는 버튼 대신)
+                if (!searching && tab != 1) item(key = "cash") { CashRow { cashOpen = true } }
+                item { Spacer(Modifier.height(12.dp)) }
             }
         }
-        Hairline()
-        AddRow("현금으로 쓴 돈 직접 적기") { cashOpen = true }
     }
 
     selected?.let { t ->
@@ -289,6 +276,53 @@ private fun SearchField(value: String, onChange: (String) -> Unit) {
     LaunchedEffect(Unit) { if (startEmpty) runCatching { focus.requestFocus() } }
     Column(Modifier.padding(horizontal = Gutter)) {
         LineField(value, { onChange(it.take(40)) }, "가게 이름이나 메모로 찾기 (전체 기간)", Modifier.focusRequester(focus))
+    }
+}
+
+/** "‹ 11월 ›"와 오른쪽 "총 ○원". 달 이름을 누르면 이번 달로 */
+@Composable
+internal fun TxMonthRow(label: String, total: String?, atCurrent: Boolean, onPrev: () -> Unit, onNext: () -> Unit, onCurrent: () -> Unit) {
+    val m = LocalModo.current
+    val fg = MaterialTheme.colorScheme.onBackground
+    Row(Modifier.fillMaxWidth().padding(start = Gutter - 12.dp, end = Gutter, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onPrev) { Icon(ChevronLeftIcon, contentDescription = "지난달", tint = fg) }
+        Text(
+            label,
+            Modifier.tap(enabled = !atCurrent, onClickLabel = "이번 달로", onClick = onCurrent).padding(vertical = 6.dp),
+            fontSize = 22.sp, fontWeight = FontWeight.Bold,
+        )
+        IconButton(onClick = onNext, enabled = !atCurrent) { Icon(ChevronRightIcon, contentDescription = "다음 달", tint = if (atCurrent) m.line else fg) }
+        Spacer(Modifier.weight(1f))
+        if (total != null) Text("총 $total", fontSize = 16.sp, color = m.muted, maxLines = 1)
+    }
+}
+
+/** 날짜별 묶음: 날짜 머리(날짜 사이에 선) + 그날 결제들 */
+internal fun androidx.compose.foundation.lazy.LazyListScope.txDays(list: List<TransactionDto>, left: Map<Long, Long>, onOpen: (TransactionDto) -> Unit) {
+    val groups = list.groupBy { kstDate(it.occurredAt) }
+    groups.entries.forEachIndexed { i, (day, txs) ->
+        item(key = "d$day") {
+            if (i > 0) Hairline(Modifier.padding(start = Gutter, end = Gutter, top = 10.dp))
+            DayHeader(day, txs)
+        }
+        items(txs, key = { it.id }) { t -> TxRow(t, withDay = false, remaining = left[t.id]) { onOpen(t) } }
+    }
+}
+
+/** 목록 끝 "+ 현금 지출 기록"(가운데) */
+@Composable
+internal fun CashRow(onClick: () -> Unit) {
+    val m = LocalModo.current
+    Column {
+        Hairline(Modifier.padding(start = Gutter, end = Gutter, top = 10.dp))
+        Row(
+            Modifier.fillMaxWidth().tap(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick).padding(vertical = 22.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(PlusIcon, contentDescription = null, tint = m.muted, modifier = Modifier.size(20.dp))
+            Text("현금 지출 기록", Modifier.padding(start = 6.dp), fontSize = 16.sp, color = m.muted)
+        }
     }
 }
 
@@ -360,7 +394,7 @@ internal fun DayHeader(day: LocalDate, txs: List<TransactionDto>) {
     val spent = txs.filter { it.flow == "out" && it.status != "excluded" }.sumOf { it.amount }
     val (big, small) = dayParts(day)
     // 날짜와 그날 나간 돈은 크게(사용자 요청, 2026-11-10)
-    Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 28.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
+    Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 22.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
         Text(big, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Text(small, Modifier.weight(1f).padding(start = 8.dp, bottom = 2.dp), fontSize = 14.sp, color = m.muted, maxLines = 1)
         if (spent > 0) Text(Money.won(spent), fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -385,7 +419,7 @@ fun TxRow(t: TransactionDto, withDay: Boolean, remaining: Long? = null, onClick:
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(t.merchant.ifBlank { "이름 없는 결제" }, fontSize = 16.sp, maxLines = 2, color = if (excluded) m.faint else MaterialTheme.colorScheme.onBackground)
+            Text(t.merchant.ifBlank { "이름 없는 결제" }, fontSize = 17.sp, maxLines = 2, color = if (excluded) m.faint else MaterialTheme.colorScheme.onBackground)
             Text(sub, fontSize = 14.sp, color = subColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         // 나간 돈은 크게, 그 뒤 이번 달 남은 돈은 밑에 작게(사용자 요청, 2026-11-10)

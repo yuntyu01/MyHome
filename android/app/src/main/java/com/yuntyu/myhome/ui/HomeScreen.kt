@@ -50,6 +50,18 @@ import com.yuntyu.myhome.core.api.TransactionDto
 import com.yuntyu.myhome.data.SummaryRepository
 import com.yuntyu.myhome.widget.WidgetRefresher
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import com.yuntyu.myhome.core.api.ApiResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.time.YearMonth
 
 /**
  * 앱 홈. 처음 설정(로그인 → 알림 읽기 허용 → 앱 고르기)이 덜 끝났으면 할 일을 번호 순서로 보여주고 지금 할 일 하나만 버튼으로 둔다.
@@ -120,10 +132,24 @@ fun HomeScreen(
         if (authProblem != null) add(Problem("로그인이 풀렸어요", "눌러서 다시 로그인", login))
         if (!batteryOk) add(Problem("절전 예외가 꺼져 있어요", "결제 알림을 놓칠 수 있어요") { PermissionStatus.requestBatteryExemption(ctx) })
     }
-    InUseHome(modifier, state, problems, onNavigate, onTransactions, onCategory, onOpenTx, settings.serverUrl)
+    // 위 "11월 ⌄"로 지난 기간을 볼 수 있다(null = 이번 기간, 위젯·알림은 늘 이번 기간)
+    var month by rememberSaveable { mutableStateOf<String?>(null) }
+    var past by remember { mutableStateOf<SummaryRepository.State?>(null) }
+    LaunchedEffect(month) {
+        val mo = month
+        if (mo == null) { past = null; return@LaunchedEffect }
+        past = SummaryRepository.State(null, 0, null)
+        val r = withContext(Dispatchers.IO) { app.api.summary(recent = 1, month = mo) }
+        past = if (r is ApiResult.Ok) SummaryRepository.State(r.value, System.currentTimeMillis(), null) else SummaryRepository.State(null, 0, r.plain())
+    }
+    val current = state.summary?.period?.label
+    InUseHome(
+        modifier, if (month == null) state else past ?: SummaryRepository.State(null, 0, null), problems, onNavigate, onTransactions, onCategory, onOpenTx, settings.serverUrl,
+        currentMonth = current, pastMonth = month != null, onMonth = { mo -> month = if (mo == current) null else mo },
+    )
 }
 
-private class Problem(val title: String, val sub: String, val action: () -> Unit)
+internal class Problem(val title: String, val sub: String, val action: () -> Unit)
 
 private class Step(val title: String, val sub: String, val done: Boolean, val button: String, val optional: Boolean = false, val action: () -> Unit)
 
@@ -200,9 +226,13 @@ private fun StepRow(n: Int, st: Step, current: Boolean) {
     }
 }
 
+/**
+ * 쓰는 중인 홈(2026-11-10 다듬음): 위 "11월 ⌄"(지난 기간 보기)·"투자 ↗", 카드(쓸 수 있는 돈, 막대, 예산 | 사용),
+ * 해야 할 일, "분류별 남은 돈"·"최근 거래" 묶음(굵은 머리 + 전체 보기).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InUseHome(
+internal fun InUseHome(
     modifier: Modifier,
     state: SummaryRepository.State,
     problems: List<Problem>,
@@ -211,6 +241,11 @@ private fun InUseHome(
     onCategory: (Long) -> Unit,
     onOpenTx: (TransactionDto) -> Unit,
     serverUrl: String?,
+    /** 이번 기간("2026-11"). 달 고르기 목록의 맨 위 */
+    currentMonth: String? = state.summary?.period?.label,
+    /** 지난 기간을 보는 중이면 할 일·최근 거래를 숨긴다 */
+    pastMonth: Boolean = false,
+    onMonth: (String) -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -225,37 +260,26 @@ private fun InUseHome(
     ) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             val s = state.summary
+            HomeHeader(
+                label = s?.period?.label ?: currentMonth,
+                months = currentMonth?.let { cur -> runCatching { (0 until 12).map { YearMonth.parse(cur).minusMonths(it.toLong()).toString() } }.getOrNull() }.orEmpty(),
+                onMonth = onMonth,
+                onInvest = { onNavigate(Screen.INVEST) },
+            )
             if (s == null) {
                 EmptyNote(if (state.error != null) "가계부를 불러오지 못했어요" else "불러오는 중이에요", if (state.error != null) "아래로 당겨서 다시 받아 보세요" else null)
                 return@Column
             }
             val month = WidgetModel.monthName(s.period.label)
             val spent = s.totals.spent - s.totals.settled
-            // 큰 숫자를 누르면 이번 달 거래 전체로
-            Column(
-                Modifier.fillMaxWidth().tap(onClickLabel = "이번 달 거래 보기") { onTransactions(0) }
-                    .padding(start = Gutter, end = Gutter, top = 4.dp, bottom = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (s.totals.budget > 0) {
-                    val over = s.totals.remaining < 0
-                    Text(if (over) "${month} 예산을 넘었어요" else "${month}에 쓸 수 있는 돈", fontSize = 16.sp, color = m.muted)
-                    Text(
-                        if (over) "${Money.won(-s.totals.remaining)} 넘음" else Money.won(s.totals.remaining),
-                        fontSize = 36.sp, fontWeight = FontWeight.Bold, color = if (over) m.over else MaterialTheme.colorScheme.onBackground,
-                    )
-                    Text("예산 ${Money.won(s.totals.budget)} 중 ${Money.won(spent)} 썼어요", fontSize = 15.sp, color = m.muted)
-                    val r = spent.toDouble() / s.totals.budget
-                    ModoBar(r, budgetColor(r), Modifier.padding(top = 10.dp))
-                } else {
-                    Text("${month}에 쓴 돈", fontSize = 16.sp, color = m.muted)
-                    Text(Money.won(spent), fontSize = 36.sp, fontWeight = FontWeight.Bold)
-                    if (s.totals.income > 0) Text("들어온 돈 ${Money.won(s.totals.income)}", fontSize = 15.sp, color = m.muted)
-                }
-            }
+            SpendCard(
+                s, if (pastMonth) month else "이번 달", spent,
+                onClick = if (pastMonth) null else ({ onTransactions(0) }),
+            )
 
-            // 해야 할 일: 박스 대신 위아래 선으로 나눈 줄
+            // 해야 할 일: 박스 대신 위아래 선으로 나눈 줄(이번 기간만)
             val todo = buildList<@Composable () -> Unit> {
+                if (pastMonth) return@buildList
                 if (s.needsReview > 0) add {
                     FlatRow("분류를 골라야 할 결제 ${s.needsReview}건", bold = true, leading = { Dot(m.over) }, onClick = { onTransactions(1) })
                 }
@@ -274,49 +298,159 @@ private fun InUseHome(
                     FlatRow("한 달 예산 정하기", onClick = { onNavigate(Screen.BUDGETS) })
                 }
             }
-            Spacer(Modifier.height(24.dp))
             if (todo.isNotEmpty()) {
-                Hairline()
+                Spacer(Modifier.height(16.dp))
                 todo.forEachIndexed { i, row ->
                     row()
-                    if (i < todo.lastIndex) Hairline(Modifier.padding(start = Gutter))
+                    if (i < todo.lastIndex) Hairline(Modifier.padding(horizontal = Gutter))
                 }
-                Hairline()
             }
 
             val cats = WidgetModel.homeCategories(s, topCount = 3)
             if (cats.top.isNotEmpty() || cats.rest.isNotEmpty()) {
-                SectionLabel("분류별 남은 돈", action = "분류·예산", onAction = { onNavigate(Screen.BUDGETS) })
                 // 펼친 분류가 없으면(기간 시작 직후) 처음부터 펼쳐 둔다
                 var showRest by rememberSaveable { mutableStateOf(false) }
                 val open = showRest || cats.top.isEmpty()
+                val more = cats.rest.isNotEmpty() && cats.top.isNotEmpty()
+                HomeSection(
+                    "분류별 남은 돈",
+                    action = if (more) (if (open) "접기" else "전체 보기") else "예산",
+                    onAction = { if (more) showRest = !open else onNavigate(Screen.BUDGETS) },
+                )
                 // 폴더는 누르면 안 분류가 펼쳐진다
                 var openFolders by remember { mutableStateOf(emptySet<Long>()) }
                 val toggle: (Long) -> Unit = { id -> openFolders = if (id in openFolders) openFolders - id else openFolders + id }
                 for (c in cats.top) CategoryTreeLine(s, c, 0, openFolders, toggle, onCategory)
                 if (open) for (c in cats.rest) CategoryTreeLine(s, c, 0, openFolders, toggle, onCategory)
-                if (cats.rest.isNotEmpty() && cats.top.isNotEmpty()) {
-                    Text(
-                        if (open) "접기" else "분류 ${cats.rest.size}개 더 보기",
-                        Modifier.fillMaxWidth().tap { showRest = !open }.padding(horizontal = Gutter, vertical = 12.dp),
-                        fontSize = 15.sp, color = m.muted,
-                    )
+            }
+
+            if (!pastMonth) {
+                val recent = WidgetModel.recentPayments(s, 3)
+                HomeSection("최근 거래", action = "전체 보기", onAction = { onTransactions(0) })
+                if (recent.isEmpty()) {
+                    Text("아직 결제가 없어요", Modifier.padding(horizontal = Gutter, vertical = 12.dp), fontSize = 14.sp, color = m.muted)
+                }
+                for (t in recent) {
+                    TxRow(t, withDay = true) { onOpenTx(t) }
+                    Hairline(Modifier.padding(horizontal = Gutter))
                 }
             }
 
-            val recent = WidgetModel.recentPayments(s, 3)
-            SectionLabel("최근 결제", action = "전체", onAction = { onTransactions(0) })
-            if (recent.isEmpty()) {
-                Text("아직 결제가 없어요", Modifier.padding(horizontal = Gutter, vertical = 12.dp), fontSize = 14.sp, color = m.muted)
+            // 새로 받지 못했을 때만 한 줄(눌러도 새로 받는다)
+            if (state.error != null) {
+                Text(
+                    "새로 받지 못했어요 · 다시 받기",
+                    Modifier.fillMaxWidth().tap(onClickLabel = "새로 받기", onClick = refresh).padding(horizontal = Gutter, vertical = 20.dp),
+                    fontSize = 13.sp, color = m.faint,
+                )
             }
-            for (t in recent) TxRow(t, withDay = true) { onOpenTx(t) }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
 
-            // 눌러도 새로 받는다(당기기와 같다)
-            Text(
-                if (state.error != null) "새로 받지 못했어요 · 다시 받기" else "${agoText(state.updatedAt)} 받음",
-                Modifier.fillMaxWidth().tap(onClickLabel = "새로 받기", onClick = refresh).padding(horizontal = Gutter, vertical = 24.dp),
-                fontSize = 13.sp, color = m.faint,
-            )
+/** 홈 맨 위: 왼쪽 "11월 ⌄"(누르면 지난 기간 고르기), 오른쪽 "투자 ↗" */
+@Composable
+private fun HomeHeader(label: String?, months: List<String>, onMonth: (String) -> Unit, onInvest: () -> Unit) {
+    val m = LocalModo.current
+    var menu by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = Gutter - 4.dp, end = Gutter - 6.dp, top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box {
+            Row(
+                Modifier.clip(RoundedCornerShape(10.dp)).tap(enabled = months.isNotEmpty(), onClickLabel = "달 고르기", role = Role.Button) { menu = true }
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(label?.let(WidgetModel::monthName) ?: "", fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                if (months.isNotEmpty()) Icon(ChevronDownIcon, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(22.dp))
+            }
+            ModoDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                val year = months.firstOrNull()?.take(4)
+                for (mo in months) {
+                    val name = WidgetModel.monthName(mo)
+                    DropdownMenuItem(
+                        text = { Text(if (mo.take(4) != year) "${mo.take(4)}년 $name" else name, fontWeight = if (mo == label) FontWeight.Bold else FontWeight.Normal) },
+                        onClick = { menu = false; onMonth(mo) },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Row(
+            Modifier.clip(RoundedCornerShape(10.dp)).tap(onClickLabel = "투자 열기", role = Role.Button, onClick = onInvest).padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("투자", fontSize = 17.sp, color = m.muted)
+            Icon(ArrowUpRightIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 4.dp).size(18.dp))
+        }
+    }
+}
+
+/** 카드: "이번 달 쓸 수 있는 돈" 큰 숫자, 막대, 아래 예산 | 사용(예산이 없으면 쓴 돈 | 들어온 돈) */
+@Composable
+private fun SpendCard(s: Summary, monthWord: String, spent: Long, onClick: (() -> Unit)?) {
+    val m = LocalModo.current
+    val hasBudget = s.totals.budget > 0
+    val over = hasBudget && s.totals.remaining < 0
+    Column(
+        Modifier.padding(horizontal = Gutter).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(m.card)
+            .then(if (onClick != null) Modifier.tap(onClickLabel = "거래 보기", onClick = onClick) else Modifier)
+            .padding(horizontal = 22.dp, vertical = 22.dp),
+    ) {
+        Text(
+            when {
+                !hasBudget -> "$monthWord 쓴 돈"
+                over -> "$monthWord 예산을 넘었어요"
+                else -> "$monthWord 쓸 수 있는 돈"
+            },
+            fontSize = 15.sp, color = m.muted,
+        )
+        Text(
+            when {
+                !hasBudget -> Money.won(spent)
+                over -> "${Money.won(-s.totals.remaining)} 넘음"
+                else -> Money.won(s.totals.remaining)
+            },
+            Modifier.padding(top = 6.dp),
+            fontSize = 36.sp, fontWeight = FontWeight.Bold, color = if (over) m.over else MaterialTheme.colorScheme.onBackground, maxLines = 1,
+        )
+        if (hasBudget) {
+            val r = spent.toDouble() / s.totals.budget
+            ModoBar(r, budgetColor(r), Modifier.padding(top = 18.dp))
+        }
+        Row(Modifier.padding(top = 18.dp).height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+            val (l1, v1, l2, v2) = if (hasBudget) listOf("예산", Money.won(s.totals.budget), "사용", Money.won(spent))
+            else listOf("사용", Money.won(spent), "들어온 돈", Money.won(s.totals.income))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(l1, fontSize = 14.sp, color = m.muted)
+                Text(v1, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
+            Box(Modifier.width(1.dp).fillMaxHeight().background(m.line))
+            Column(Modifier.weight(1f).padding(start = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(l2, fontSize = 14.sp, color = m.muted)
+                Text(v2, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** 묶음 머리: 굵은 제목, 오른쪽 "전체 보기 ›" */
+@Composable
+private fun HomeSection(title: String, action: String?, onAction: () -> Unit) {
+    val m = LocalModo.current
+    Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter - 6.dp, top = 32.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        if (action != null) {
+            Row(
+                Modifier.clip(RoundedCornerShape(10.dp)).tap(role = Role.Button, onClick = onAction).padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(action, fontSize = 15.sp, color = m.muted)
+                Icon(ChevronRightIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 2.dp).size(16.dp))
+            }
         }
     }
 }
@@ -350,21 +484,20 @@ private fun CategoryLine(c: CategoryBudget, depth: Int = 0, folder: Boolean? = n
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(c.name, fontSize = if (depth > 0) 15.sp else 16.sp, color = if (depth > 0) m.muted else MaterialTheme.colorScheme.onBackground)
-            if (folder != null) {
-                Icon(
-                    ChevronRightIcon, contentDescription = if (folder) "접기" else "펼치기", tint = m.faint,
-                    modifier = Modifier.padding(start = 4.dp).size(16.dp).rotate(if (folder) 90f else 0f),
-                )
-            }
-            Spacer(Modifier.weight(1f))
+            Text(c.name, Modifier.weight(1f), fontSize = if (depth > 0) 16.sp else 17.sp, color = if (depth > 0) m.muted else MaterialTheme.colorScheme.onBackground, maxLines = 1)
             val (text, color) = when {
                 c.budget <= 0 -> "${Money.won(c.spent)} 씀" to m.muted
                 c.remaining < 0 -> "${Money.won(-c.remaining)} 넘음" to m.over
                 c.ratio >= 0.8 -> Money.won(c.remaining) to m.warn
                 else -> Money.won(c.remaining) to MaterialTheme.colorScheme.onBackground
             }
-            Text(text, fontSize = 16.sp, color = color)
+            Text(text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
+            if (onClick != null) {
+                Icon(
+                    ChevronRightIcon, contentDescription = if (folder == null) null else if (folder) "접기" else "펼치기", tint = m.faint,
+                    modifier = Modifier.padding(start = 8.dp).size(18.dp).rotate(if (folder == true) 90f else 0f),
+                )
+            }
         }
         if (c.budget > 0) ModoBar(c.ratio, budgetColor(c.ratio))
     }

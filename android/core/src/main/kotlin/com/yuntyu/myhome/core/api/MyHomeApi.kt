@@ -28,7 +28,9 @@ class MyHomeApi(
         call("POST", "/v1/events", MyHomeJson.encodeToString(EventPayload.serializer(), payload), EventResponse.serializer())
 
     /** 이번 기간 요약(위젯·홈). recent는 최근 거래 개수. */
-    fun summary(recent: Int = 4): ApiResult<Summary> = call("GET", "/v1/summary?recent=$recent", null, Summary.serializer())
+    /** month("2026-10")를 주면 그 기간, 없으면 이번 기간 */
+    fun summary(recent: Int = 4, month: String? = null): ApiResult<Summary> =
+        call("GET", "/v1/summary?recent=$recent" + (month?.let { "&month=$it" } ?: ""), null, Summary.serializer())
 
     /** 투자 탭 첫 화면(자동매매 상태, 읽기 전용) */
     fun invest(): ApiResult<InvestStatus> = call("GET", "/v1/invest", null, InvestStatus.serializer())

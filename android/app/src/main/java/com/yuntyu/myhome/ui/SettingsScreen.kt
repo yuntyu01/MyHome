@@ -81,17 +81,17 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
         FlatRow("분류·폴더·예산", value = if (budget > 0) "한 달 ${Money.won(budget)}" else "예산 없음", onClick = { onNavigate(Screen.BUDGETS) })
 
         SectionLabel("알림")
-        SwitchRow("예산 80% 넘으면 알려 주기", settings.budgetAlerts, sub = "넘었을 때도 알려요. 소리 없이 와요") { app.settings.setBudgetAlerts(it) }
-        SwitchRow("적은 뒤 원래 결제 알림 지우기", settings.autoDelete, sub = "가계부에 적으면 카드·은행 앱 알림을 치워요") { app.settings.setAutoDelete(it) }
+        SwitchRow("예산 80% 알림", settings.budgetAlerts, help = "예산의 80%를 넘을 때와 다 썼을 때 소리 없이 알려요.") { app.settings.setBudgetAlerts(it) }
+        SwitchRow("적은 결제 알림 지우기", settings.autoDelete, help = "가계부에 적으면 카드·은행 앱의 원래 알림을 치워요.") { app.settings.setAutoDelete(it) }
 
         SectionLabel("건강")
-        FlatRow("끼니 시간과 목표", sub = "끼니 수·마감, 영양 목표, 알림", onClick = { onNavigate(Screen.HEALTH_SETTINGS) })
-        FlatRow("헬스장 가면 자동 기록", sub = "헬스장 위치와 출석", onClick = { onNavigate(Screen.HEALTH_GYM) })
+        FlatRow("끼니 시간과 목표", onClick = { onNavigate(Screen.HEALTH_SETTINGS) })
+        FlatRow("헬스장 자동 출석", onClick = { onNavigate(Screen.HEALTH_GYM) })
 
         SectionLabel("계정")
         FlatRow(
             if (hasToken && authProblem == null) "로그인돼 있어요" else "로그인하기",
-            sub = linkMessage ?: if (hasToken && authProblem == null) "이 폰으로 연결돼 있어요" else "브라우저에서 이메일로 받은 코드를 넣으면 끝나요",
+            sub = linkMessage,
             value = if (hasToken && authProblem == null) "다시 연결" else null,
             onClick = {
                 if (!AppLink.start(ctx)) {
@@ -101,10 +101,10 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
             },
         )
 
-        FlatRow("처음 설정 다시 보기", sub = "로그인·결제 알림·앱 알림·건강 목표를 순서대로", onClick = { onNavigate(Screen.ONBOARDING) })
+        FlatRow("처음 설정 다시 보기", onClick = { onNavigate(Screen.ONBOARDING) })
 
         Hairline(Modifier.padding(top = 16.dp))
-        FlatRow("문제가 생겼을 때", sub = "결제가 안 적히면 여기서 하나씩 확인해요", titleColor = m.muted, onClick = { onNavigate(Screen.STATUS) })
+        FlatRow("문제가 생겼을 때", titleColor = m.muted, onClick = { onNavigate(Screen.STATUS) })
         // Play 정책: 스토어와 앱 안에 개인정보처리방침 링크를 둔다
         val uri = LocalUriHandler.current
         FlatRow("개인정보처리방침", value = "버전 ${BuildConfig.VERSION_NAME}", titleColor = m.muted, onClick = { uri.openUri(PRIVACY_POLICY_URL) })

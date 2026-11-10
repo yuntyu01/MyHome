@@ -220,24 +220,11 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             topBar = {
                 when {
                     screen == Screen.ONBOARDING -> Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
+                    // 끼니 촬영은 머리("‹ 2끼 기록 ⌄")를 화면 안에 그린다
+                    screen == Screen.HEALTH_CAPTURE -> Unit
                     !screen.topLevel -> SubTopBar(screen.title, showBack = screen.parent != null || backStack.isNotEmpty()) { back() }
-                    // 홈: 오른쪽 위에 투자 버튼(하단바 칸은 집중 타이머가 쓴다)
-                    screen == Screen.HOME -> Row(
-                        Modifier.fillMaxWidth().statusBarsPadding().height(48.dp).padding(end = 16.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Row(
-                            Modifier.clip(RoundedCornerShape(12.dp)).background(m.pill)
-                                .clickable(onClickLabel = "투자 열기") { go(Screen.INVEST) }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            Icon(InvestIcon, contentDescription = null, tint = m.muted, modifier = Modifier.size(16.dp))
-                            Text("투자", fontSize = 13.sp, color = m.muted)
-                        }
-                    }
+                    // 홈은 머리("11월 ⌄"·"투자 ↗")를 화면 안에 그린다(HomeScreen.HomeHeader)
+                    screen == Screen.HOME -> Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
                     screen.ownHeader -> Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
                     else -> Column(Modifier.statusBarsPadding()) {
                         PageTitle(screen.title) {
@@ -300,7 +287,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                 Screen.INVEST_BACKTEST -> InvestBacktestScreen(mod)
                 Screen.HEALTH -> HealthScreen(mod, resumeTick, healthNav, onNavigate = { go(it) })
                 Screen.HEALTH_CAPTURE -> key(healthNav.captureDate, healthNav.captureIndex, healthNav.editing) {
-                    HealthCaptureScreen(mod, healthNav, onDone = { back() })
+                    HealthCaptureScreen(mod, healthNav, onDone = { back() }, onBack = { back() })
                 }
                 Screen.HEALTH_RECORDS -> HealthRecordsScreen(mod, resumeTick, healthNav, onNavigate = { go(it) })
                 Screen.HEALTH_GYM -> HealthGymScreen(mod, resumeTick)
@@ -330,7 +317,7 @@ private fun SubTopBar(title: String, showBack: Boolean, onBack: () -> Unit) {
 
 /** 화면 아래에 붙은 평평한 하단바: 위쪽 1dp 선, 고른 칸은 진한 글자. 확인할 거래가 있으면 거래 칸에 살구색 점 */
 @Composable
-private fun FlatBottomBar(current: Screen, reviewCount: Long, onSelect: (Screen) -> Unit) {
+internal fun FlatBottomBar(current: Screen, reviewCount: Long, onSelect: (Screen) -> Unit) {
     val m = LocalModo.current
     val items = listOf(
         Triple(Screen.HOME, HomeLineIcon, "홈"),

@@ -99,11 +99,7 @@ fun rememberSilentCamera(onPhoto: (File) -> Unit): () -> Unit {
             onShot = { bmp ->
                 open = false
                 scope.launch {
-                    val f = withContext(Dispatchers.IO) {
-                        val (file, _) = MealPhotos.newCapture(ctx)
-                        val ok = runCatching { file.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) } }.getOrDefault(false)
-                        if (ok && file.length() > 0) file else { file.delete(); null }
-                    }
+                    val f = saveShot(ctx, bmp)
                     if (f != null) deliver(f) else Toast.makeText(ctx, "사진을 저장하지 못했어요", Toast.LENGTH_SHORT).show()
                 }
             },
@@ -112,65 +108,138 @@ fun rememberSilentCamera(onPhoto: (File) -> Unit): () -> Unit {
     return remember { { if (cameraGranted(ctx)) open = true else ask.launch(Manifest.permission.CAMERA) } }
 }
 
-/** 화면 가득 카메라 미리보기 + 닫기 + 셔터. 셔터를 누르면 지금 미리보기 한 장을 넘긴다 */
+/** 화면 안 무음 카메라 손잡이: 지금 미리보기 한 장 뜨기(shot), 손전등(torch) */
+class CameraShooter {
+    internal var view: PreviewView? = null
+    internal var camera: androidx.camera.core.Camera? = null
+    /** 미리보기가 떴는지(셔터를 눌러도 되는지) */
+    var ready by mutableStateOf(false)
+        internal set
+    var hasTorch by mutableStateOf(false)
+        internal set
+    var error by mutableStateOf<String?>(null)
+        internal set
+
+    fun shot(): Bitmap? = view?.bitmap
+
+    fun torch(on: Boolean) {
+        runCatching { camera?.cameraControl?.enableTorch(on) }
+    }
+}
+
+/** 미리보기 한 장을 끼니 사진 임시 jpg로 저장한다(실패하면 null) */
+suspend fun saveShot(ctx: Context, bmp: Bitmap): File? = withContext(Dispatchers.IO) {
+    val (file, _) = MealPhotos.newCapture(ctx)
+    val ok = runCatching { file.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) } }.getOrDefault(false)
+    if (ok && file.length() > 0) file else { file.delete(); null }
+}
+
+/**
+ * 화면 안에 박는 무음 카메라(끼니 촬영 화면). 권한이 없으면 그 자리에서 묻고, 거절하면 안내와 다시 묻기 버튼.
+ * fill이면 칸을 가득 채우게 잘라서 보여 준다(찍히는 것도 보이는 그대로).
+ */
+@Composable
+fun SilentCameraView(shooter: CameraShooter, modifier: Modifier = Modifier, fill: Boolean = true) {
+    val ctx = LocalContext.current
+    var granted by remember { mutableStateOf(cameraGranted(ctx)) }
+    var asked by rememberSaveable { mutableStateOf(false) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it; asked = true }
+    LaunchedEffect(Unit) { if (!granted && !asked) ask.launch(Manifest.permission.CAMERA) }
+    Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
+        if (granted) {
+            CameraPreview(shooter, Modifier.fillMaxSize(), fill)
+            shooter.error?.let { Text(it, color = Color.White) }
+        } else if (asked) {
+            androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("카메라를 허용하면 바로 찍어요", color = Color.White)
+                androidx.compose.material3.TextButton(onClick = { ask.launch(Manifest.permission.CAMERA) }) { Text("허용하기", color = Color.White) }
+            }
+        }
+    }
+}
+
+/** CameraX 미리보기(촬영 요청은 보내지 않는다). 붙으면 shooter.ready */
+@Composable
+private fun CameraPreview(shooter: CameraShooter, modifier: Modifier, fill: Boolean) {
+    val ctx = LocalContext.current
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val view = remember {
+        PreviewView(ctx).apply {
+            // TextureView: 대화상자 창 안에서도 그려지고, bitmap으로 화면 그대로 뜰 수 있다
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            scaleType = if (fill) PreviewView.ScaleType.FILL_CENTER else PreviewView.ScaleType.FIT_CENTER
+        }
+    }
+    DisposableEffect(owner) {
+        val future = ProcessCameraProvider.getInstance(ctx)
+        var provider: ProcessCameraProvider? = null
+        future.addListener({
+            runCatching {
+                val p = future.get()
+                provider = p
+                val preview = Preview.Builder()
+                    .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY).build())
+                    .build()
+                preview.setSurfaceProvider(view.surfaceProvider)
+                p.unbindAll()
+                val cam = p.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview)
+                shooter.view = view
+                shooter.camera = cam
+                shooter.hasTorch = cam.cameraInfo.hasFlashUnit()
+                shooter.error = null
+                shooter.ready = true
+            }.onFailure { shooter.error = "카메라를 열지 못했어요" }
+        }, ContextCompat.getMainExecutor(ctx))
+        onDispose {
+            shooter.ready = false
+            shooter.view = null
+            shooter.camera = null
+            runCatching { provider?.unbindAll() }
+        }
+    }
+    AndroidView({ view }, modifier)
+}
+
+/** 화면 가득 카메라 미리보기 + 닫기 + 셔터(헬스 사진 인증). 셔터를 누르면 지금 미리보기 한 장을 넘긴다 */
 @Composable
 private fun SilentCameraDialog(onDismiss: () -> Unit, onShot: (Bitmap) -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val ctx = LocalContext.current
-        val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-        val view = remember {
-            PreviewView(ctx).apply {
-                // TextureView: 대화상자 창 안에서도 그려지고, bitmap으로 화면 그대로 뜰 수 있다
-                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                scaleType = PreviewView.ScaleType.FIT_CENTER
-            }
-        }
-        var ready by remember { mutableStateOf(false) }
-        var error by remember { mutableStateOf<String?>(null) }
+        val shooter = remember { CameraShooter() }
         var flash by remember { mutableStateOf(false) }
-        DisposableEffect(owner) {
-            val future = ProcessCameraProvider.getInstance(ctx)
-            var provider: ProcessCameraProvider? = null
-            future.addListener({
-                runCatching {
-                    val p = future.get()
-                    provider = p
-                    val preview = Preview.Builder()
-                        .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY).build())
-                        .build()
-                    preview.setSurfaceProvider(view.surfaceProvider)
-                    p.unbindAll()
-                    p.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview)
-                    ready = true
-                }.onFailure { error = "카메라를 열지 못했어요" }
-            }, ContextCompat.getMainExecutor(ctx))
-            onDispose { runCatching { provider?.unbindAll() } }
-        }
         LaunchedEffect(flash) { if (flash) { delay(120); flash = false } }
         // 대화상자는 다른 창이라 바깥 글자 고르기와 엮이지 않게 끈다(Selection.kt)
         DisableSelection {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                AndroidView({ view }, Modifier.fillMaxSize())
+                CameraPreview(shooter, Modifier.fillMaxSize(), fill = false)
                 if (flash) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.5f)))
                 IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp)) {
                     Icon(CloseIcon, contentDescription = "닫기", tint = Color.White)
                 }
-                error?.let { Text(it, Modifier.align(Alignment.Center), color = Color.White) }
-                Box(
-                    Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 36.dp)
-                        .size(76.dp).clip(CircleShape).border(4.dp, Color.White, CircleShape).padding(8.dp).clip(CircleShape)
-                        .background(if (ready) Color.White else Color.White.copy(alpha = 0.4f))
-                        .tap(enabled = ready, onClickLabel = "찍기", role = Role.Button) {
-                            val bmp = view.bitmap
-                            if (bmp == null) {
-                                Toast.makeText(ctx, "아직 화면이 안 떴어요. 다시 눌러 주세요", Toast.LENGTH_SHORT).show()
-                            } else {
-                                flash = true
-                                onShot(bmp)
-                            }
-                        },
-                )
+                shooter.error?.let { Text(it, Modifier.align(Alignment.Center), color = Color.White) }
+                ShutterButton(
+                    enabled = shooter.ready,
+                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 36.dp),
+                ) {
+                    val bmp = shooter.shot()
+                    if (bmp == null) {
+                        Toast.makeText(ctx, "아직 화면이 안 떴어요. 다시 눌러 주세요", Toast.LENGTH_SHORT).show()
+                    } else {
+                        flash = true
+                        onShot(bmp)
+                    }
+                }
             }
         }
     }
+}
+
+/** 셔터: 흰 테두리 원 안에 흰 원 */
+@Composable
+fun ShutterButton(enabled: Boolean, modifier: Modifier = Modifier, ring: Color = Color.White, onClick: () -> Unit) {
+    Box(
+        modifier.size(76.dp).clip(CircleShape).border(4.dp, ring, CircleShape).padding(8.dp).clip(CircleShape)
+            .background(if (enabled) ring else ring.copy(alpha = 0.4f))
+            .tap(enabled = enabled, onClickLabel = "찍기", role = Role.Button, onClick = onClick),
+    )
 }

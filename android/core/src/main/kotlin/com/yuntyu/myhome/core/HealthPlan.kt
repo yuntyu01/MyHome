@@ -101,6 +101,20 @@ object HealthPlan {
     }
 
     /** 그날 아직 안 쓴 기타 번호(7→8→9), 다 썼으면 null */
+    /**
+     * 사진을 찍으면 쌓이는 다음 끼니(사용자 요청, 2026-11-10): 마감 시각과 상관없이 아직 안 찍은 정한 끼니 중 가장 앞 번호,
+     * 다 찍었으면 다음 기타 번호. 기타도 다 찼으면 null.
+     */
+    fun nextMealIndex(slots: Collection<Int>, used: Collection<Int>): Int? =
+        slots.sorted().firstOrNull { it !in used } ?: nextExtraIndex(used)
+
+    /** 하루 목표에서 남은 양(목표 − 먹은 것). 음수면 넘은 것 */
+    fun remaining(targets: com.yuntyu.myhome.core.api.Nutrition, eaten: com.yuntyu.myhome.core.api.Nutrition) =
+        com.yuntyu.myhome.core.api.Nutrition(
+            kcal = targets.kcal - eaten.kcal, carbs = targets.carbs - eaten.carbs,
+            protein = targets.protein - eaten.protein, fat = targets.fat - eaten.fat,
+        )
+
     fun nextExtraIndex(used: Collection<Int>): Int? = (EXTRA_BASE until EXTRA_BASE + MAX_EXTRA).firstOrNull { it !in used }
 
     /**
