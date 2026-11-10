@@ -21,6 +21,71 @@ func (q *Queries) DeleteMerchantSuggestion(ctx context.Context, merchantKey stri
 	return err
 }
 
+const fileWithAICategory = `-- name: FileWithAICategory :execrows
+UPDATE transactions
+SET category_id   = $1,
+    status        = 'confirmed',
+    review_reason = NULL,
+    updated_at    = now()
+WHERE id = $2
+  AND status = 'needs_review'
+  AND review_reason = 'no_rule'
+`
+
+type FileWithAICategoryParams struct {
+	CategoryID *int64 `json:"category_id"`
+	ID         int64  `json:"id"`
+}
+
+// AI 분류로 확정한다. 그 사이에 사용자가 분류했거나 다른 사유로 바뀌었으면(확인 필요·no_rule이 아니면) 건드리지 않는다.
+// 학습 규칙은 만들지 않는다: 같은 가맹점은 저장된 AI 답(merchant_suggestions)으로 다시 넣고, 사용자가 고치면 그때 규칙이 생긴다.
+func (q *Queries) FileWithAICategory(ctx context.Context, arg FileWithAICategoryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, fileWithAICategory, arg.CategoryID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const listAutoFileTargets = `-- name: ListAutoFileTargets :many
+SELECT id, merchant
+FROM transactions
+WHERE status = 'needs_review'
+  AND review_reason = 'no_rule'
+  AND direction = 'expense'
+  AND flow = 'out'
+  AND cancels_id IS NULL
+  AND btrim(merchant) <> ''
+ORDER BY id
+LIMIT $1
+`
+
+type ListAutoFileTargetsRow struct {
+	ID       int64  `json:"id"`
+	Merchant string `json:"merchant"`
+}
+
+// AI가 확신하는 분류로 바로 넣을 후보 거래(ListSuggestionMerchants와 같은 조건, 거래마다).
+func (q *Queries) ListAutoFileTargets(ctx context.Context, lim int32) ([]ListAutoFileTargetsRow, error) {
+	rows, err := q.db.Query(ctx, listAutoFileTargets, lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAutoFileTargetsRow{}
+	for rows.Next() {
+		var i ListAutoFileTargetsRow
+		if err := rows.Scan(&i.ID, &i.Merchant); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMerchantSuggestions = `-- name: ListMerchantSuggestions :many
 SELECT s.merchant_key,
        s.category_id,

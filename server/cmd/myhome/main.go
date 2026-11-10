@@ -204,7 +204,7 @@ func startSuggestWorker(ctx context.Context, cfg config.Config, pool *pgxpool.Po
 		close(done)
 		return done
 	}
-	w := &suggest.Worker{Pool: pool, Classifier: cl, Logger: logger}
+	w := &suggest.Worker{Pool: pool, Classifier: cl, Logger: logger, Auto: true}
 	proc.OnNoRule = w.Notify
 	logger.Info("AI 분류 추천 켜짐", "provider", cfg.AIProvider, "model", cl.Model())
 	go func() {

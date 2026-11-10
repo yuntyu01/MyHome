@@ -44,6 +44,8 @@ type Worker struct {
 	CallTimeout time.Duration
 	MinBackoff  time.Duration
 	MaxBackoff  time.Duration
+	// Auto면 확신이 AutoConfidence 이상인 답으로 확인 필요 거래를 바로 확정한다(serve는 켜고, 테스트는 필요한 곳만 켠다).
+	Auto bool
 
 	once sync.Once
 	wake chan struct{}
@@ -57,6 +59,7 @@ type Stats struct {
 	Low       int // 저장했지만 확신이 낮아 숨기는 추천
 	Unknown   int // 모름
 	Left      int // 호출 상한 때문에 다음 점검으로 넘긴 가맹점 수
+	Filed     int // AI 분류로 바로 확정한 거래 수(Auto)
 }
 
 func (w *Worker) init() { w.once.Do(func() { w.wake = make(chan struct{}, 1) }) }
@@ -114,8 +117,8 @@ func (w *Worker) Run(ctx context.Context) {
 				w.log().Warn("AI 분류 추천 실패, 나중에 다시 함", "err", err, "retry_in", backoff.String(), "asked", st.Asked, "calls", st.Calls)
 			default:
 				backoff, notBefore = 0, time.Time{}
-				if st.Calls > 0 {
-					w.log().Info("AI 분류 추천", "calls", st.Calls, "asked", st.Asked, "suggested", st.Suggested, "low", st.Low, "unknown", st.Unknown, "left", st.Left)
+				if st.Calls > 0 || st.Filed > 0 {
+					w.log().Info("AI 분류 추천", "calls", st.Calls, "asked", st.Asked, "suggested", st.Suggested, "low", st.Low, "unknown", st.Unknown, "left", st.Left, "filed", st.Filed)
 				}
 			}
 		}
@@ -217,7 +220,61 @@ func (w *Worker) RunOnce(ctx context.Context) (Stats, error) {
 			return st, err
 		}
 	}
+	if w.Auto {
+		n, err := w.file(ctx, q, cfg.ReviewMerchantPatterns)
+		st.Filed = n
+		if err != nil {
+			return st, err
+		}
+	}
 	return st, nil
+}
+
+// file은 저장된 답 중 확신이 AutoConfidence 이상인 것으로 확인 필요(no_rule) 거래를 확정한다. 확정한 거래 수를 돌려준다.
+// 이번에 물은 가맹점뿐 아니라 전에 답을 받아 둔 가맹점의 새 거래도 여기서 넣는다(AI를 다시 부르지 않는다).
+func (w *Worker) file(ctx context.Context, q *dbq.Queries, gateways []string) (int, error) {
+	rows, err := q.ListAutoFileTargets(ctx, candidateLimit)
+	if err != nil || len(rows) == 0 {
+		return 0, err
+	}
+	keyOf := make(map[int64]string, len(rows))
+	var uniq []string
+	seen := map[string]bool{}
+	for _, r := range rows {
+		if _, k, ok := Target(r.Merchant, gateways); ok {
+			keyOf[r.ID] = k
+			if !seen[k] {
+				seen[k] = true
+				uniq = append(uniq, k)
+			}
+		}
+	}
+	if len(uniq) == 0 {
+		return 0, nil
+	}
+	saved, err := q.ListMerchantSuggestions(ctx, uniq)
+	if err != nil {
+		return 0, err
+	}
+	sure := map[string]int64{}
+	for _, r := range saved {
+		if s := visible(r); s != nil && s.Confidence >= AutoConfidence {
+			sure[r.MerchantKey] = s.CategoryID
+		}
+	}
+	n := 0
+	for _, r := range rows {
+		cid, ok := sure[keyOf[r.ID]]
+		if !ok {
+			continue
+		}
+		got, err := q.FileWithAICategory(ctx, dbq.FileWithAICategoryParams{ID: r.ID, CategoryID: &cid})
+		if err != nil {
+			return n, err
+		}
+		n += int(got)
+	}
+	return n, nil
 }
 
 // ask는 가맹점 한 묶음을 묻고 답을 저장한다.

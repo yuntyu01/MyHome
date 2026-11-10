@@ -645,3 +645,78 @@ func TestFolderPathMemoAndReask(t *testing.T) {
 		t.Fatalf("숨긴 분류 규칙은 건너뜀: %s %v %v", tx.Status, tx.ReviewReason, tx.CategoryID)
 	}
 }
+
+// Auto: 확신이 AutoConfidence 이상이면 바로 그 분류로 넣고, 그보다 낮으면 추천만, 모름은 그대로 확인 필요.
+// 같은 가맹점의 다음 거래는 AI를 다시 부르지 않고 저장된 답으로 넣는다. 사용자가 먼저 고친 거래는 건드리지 않는다.
+func TestAutoFilesConfidentAnswers(t *testing.T) {
+	h := newHarness(t)
+	sure := h.kb("동네분식")
+	maybe := h.kb("애매한상호")
+	unk := h.kb("홍길동")
+	mine := h.kb("내가고른상호")
+	f := &fake{answer: func(name string) ai.MerchantGuess {
+		switch name {
+		case "동네분식":
+			return ai.MerchantGuess{Category: "식비", Confidence: suggest.AutoConfidence}
+		case "애매한상호":
+			return ai.MerchantGuess{Category: "쇼핑", Confidence: suggest.AutoConfidence - 0.01}
+		case "내가고른상호":
+			return ai.MerchantGuess{Category: "쇼핑", Confidence: 0.99}
+		}
+		return ai.MerchantGuess{}
+	}}
+	// AI가 답하기 전에 사용자가 직접 분류해 둔 거래
+	life := h.catID("생활")
+	if _, err := (&pipeline.Editor{Pool: h.pool}).EditTransaction(context.Background(), mine.ID, pipeline.Edit{CategoryID: &life}); err != nil {
+		t.Fatal(err)
+	}
+	w := h.worker(f)
+	w.Auto = true
+	if st := h.runOnce(w); st.Filed != 1 || st.Calls != 1 {
+		t.Fatalf("집계 %+v", st)
+	}
+	get := func(tx dbq.Transaction) dbq.Transaction {
+		got, err := h.q.GetTransaction(context.Background(), tx.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := get(sure); got.Status != "confirmed" || got.CategoryID == nil || *got.CategoryID != h.catID("식비") || got.ReviewReason != nil || got.ManuallyEdited {
+		t.Errorf("확실한 답은 바로 넣음: %+v", got)
+	}
+	if got := get(maybe); got.Status != "needs_review" {
+		t.Errorf("애매한 답은 확인 필요에 남음: %+v", got)
+	} else if s := h.lookup(maybe); s == nil || s.Category != "쇼핑" {
+		t.Errorf("애매한 답은 추천으로 보임: %+v", s)
+	}
+	if got := get(unk); got.Status != "needs_review" || got.CategoryID != nil {
+		t.Errorf("모름은 그대로: %+v", got)
+	}
+	if got := get(mine); got.CategoryID == nil || *got.CategoryID != life {
+		t.Errorf("사용자가 고른 분류를 덮음: %+v", got)
+	}
+	// 학습 규칙은 만들지 않는다
+	rules, _ := h.q.ListRules(context.Background())
+	for _, r := range rules {
+		if r.Pattern == "동네분식" {
+			t.Errorf("AI 분류로 규칙이 생김: %+v", r)
+		}
+	}
+	// 같은 가게의 다음 결제: 다시 묻지 않고 넣는다
+	again := h.kb("동네분식")
+	if st := h.runOnce(w); st.Calls != 0 || st.Filed != 1 {
+		t.Fatalf("저장된 답으로 넣기 %+v", st)
+	}
+	if got := get(again); got.Status != "confirmed" || *got.CategoryID != h.catID("식비") {
+		t.Errorf("다음 결제도 바로 들어감: %+v", got)
+	}
+	// Auto가 꺼진 작업은 추천만 한다
+	off := h.kb("동네분식")
+	if st := h.runOnce(h.worker(f)); st.Filed != 0 {
+		t.Fatalf("Auto 꺼짐인데 넣음 %+v", st)
+	}
+	if got := get(off); got.Status != "needs_review" {
+		t.Errorf("Auto 꺼짐: %+v", got)
+	}
+}
