@@ -15,7 +15,7 @@ var (
 	accountRe  = regexp.MustCompile(`[0-9]{2,6}-[0-9]{2,6}-[0-9]{2,8}(?:-[0-9]{1,6})?`)
 	maskedCard = regexp.MustCompile(`[0-9]{0,4}\*+[0-9*]*[0-9]+[0-9*]*|[0-9]+\*{2,}[0-9*]*`)
 	longDigits = regexp.MustCompile(`[0-9]{8,}`)
-	balanceRe  = regexp.MustCompile(`(잔액|잔고|누적|이용가능|가용)(\s*[:：]?\s*)[0-9,]+(\s*원)?`)
+	balanceRe  = regexp.MustCompile(`(잔액|잔고|누적|이용가능|가용)(\s*[:：]?\s*(?:[₩￦]\s?)?)[0-9,]+(\s*원)?`)
 	maskedName = regexp.MustCompile(`[가-힣]\*[가-힣*]{0,2}`)
 	nameSirRe  = regexp.MustCompile(`([가-힣]{2,4})(님)`)
 )

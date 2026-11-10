@@ -24,6 +24,17 @@ func TestTextMasksPersonalInfo(t *testing.T) {
 	}
 }
 
+// 합성 데이터: 잔액이 ₩로 시작해도 가린다
+func TestTextMasksWonSignBalance(t *testing.T) {
+	got := Text("출금 ₩30,000 | 잔액 ₩1,234,000")
+	if strings.Contains(got, "1,234,000") {
+		t.Errorf("잔액이 남아 있음: %s", got)
+	}
+	if !strings.Contains(got, "₩30,000") {
+		t.Errorf("거래 금액은 남아야 함: %s", got)
+	}
+}
+
 func TestExportMasksCounterparty(t *testing.T) {
 	reg, _ := parser.NewRegistry("toss=t")
 	ev := parser.Event{Package: "t", Title: "토스", Text: "박지성에게 25,000원을 보냈어요", PostedAt: time.Now()}

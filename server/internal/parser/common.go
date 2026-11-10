@@ -19,7 +19,10 @@ func mustLoc(name string) *time.Location {
 
 // ---- 금액 ----
 
-var amountRe = regexp.MustCompile(`([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)\s*원`)
+// 금액은 "12,345원" 또는 "₩12,345"(삼성페이는 제목이 "₩3,000 결제 완료"다). ₩ 뒤에 원이 또 붙어도 한 번만 센다.
+const amountNum = `[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+`
+
+var amountRe = regexp.MustCompile(`(?:[₩￦]|KRW)\s?(` + amountNum + `)(?:\s*원)?|(` + amountNum + `)\s*원`)
 
 type amountHit struct {
 	value      int64
@@ -33,7 +36,11 @@ var amountLabels = []string{"잔액", "잔고", "누적", "한도", "포인트",
 func findAmounts(s string) []amountHit {
 	var hits []amountHit
 	for _, m := range amountRe.FindAllStringSubmatchIndex(s, -1) {
-		num := strings.ReplaceAll(s[m[2]:m[3]], ",", "")
+		lo, hi := m[2], m[3]
+		if lo < 0 { // "12,345원" 쪽이 맞았다
+			lo, hi = m[4], m[5]
+		}
+		num := strings.ReplaceAll(s[lo:hi], ",", "")
 		v, err := strconv.ParseInt(num, 10, 64)
 		if err != nil || v <= 0 {
 			continue
@@ -182,7 +189,7 @@ var (
 	cardNumRe     = regexp.MustCompile(`[0-9]{2,4}[*]+[0-9*]*|\([0-9*]{2,6}\)`)
 	dateTimeRe    = regexp.MustCompile(`(20[0-9]{2}[./-])?[0-9]{1,2}[/.-][0-9]{1,2}\.?|[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?`)
 	installTokRe  = regexp.MustCompile(`일시불|할부\s*\(?\s*[0-9]{0,2}\s*개월\)?|[0-9]{1,2}\s*개월`)
-	labelAmountRe = regexp.MustCompile(`(잔액|잔고|누적|한도|포인트|적립|남은|이용가능|합계)\s*[:：]?\s*[0-9,]+\s*원?`)
+	labelAmountRe = regexp.MustCompile(`(잔액|잔고|누적|한도|포인트|적립|남은|이용가능|합계)\s*[:：]?\s*(?:[₩￦]\s?)?[0-9,]+\s*원?`)
 	spacesRe      = regexp.MustCompile(`\s+`)
 )
 

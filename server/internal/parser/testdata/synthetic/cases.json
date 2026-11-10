@@ -267,6 +267,48 @@
       "text": "USD 12.34 입금",
       "posted_at": "2026-11-08T14:23:30+09:00",
       "want": {"error": true}
+    },
+    {
+      "name": "₩ 금액: 제목에 금액, 본문에 가게 (삼성페이식)",
+      "package": "test.spay", "title": "₩4,500 결제 완료",
+      "text": "합성커피 시험점", "big_text": "합성커피 시험점",
+      "posted_at": "2026-11-09T19:16:04+09:00",
+      "want": {"source": "generic", "kind": "approval", "amount": 4500, "merchant": "합성커피 시험점", "occurred_at": "2026-11-09T19:16:04+09:00"}
+    },
+    {
+      "name": "₩ 금액 1,000 미만",
+      "package": "test.spay", "title": "₩900 결제 완료",
+      "text": "합성편의점 시험점",
+      "posted_at": "2026-11-09T22:12:50+09:00",
+      "want": {"source": "generic", "kind": "approval", "amount": 900, "merchant": "합성편의점 시험점"}
+    },
+    {
+      "name": "₩ 뒤에 원이 또 붙은 금액과 ₩ 잔액",
+      "package": "test.toss", "title": "토스뱅크",
+      "text": "출금 ₩30,000원 | 합성상점 | 잔액 ₩120,000",
+      "posted_at": "2026-11-09T10:00:00+09:00",
+      "want": {"source": "toss", "kind": "withdrawal", "amount": 30000, "balance": 120000}
+    },
+    {
+      "name": "₩ 결제 취소",
+      "package": "test.spay", "title": "₩4,500 결제 취소",
+      "text": "합성커피 시험점",
+      "posted_at": "2026-11-09T19:30:00+09:00",
+      "want": {"source": "generic", "kind": "cancel", "amount": 4500, "merchant": "합성커피 시험점"}
+    },
+    {
+      "name": "쇼핑 앱 배송 안내 → 무시",
+      "package": "test.shop", "title": "배송중",
+      "text": "주문하신 상품 합성상품 .. 이 배송중입니다. 송장 번호로 배송 상태를 확인할 수 있습니다.",
+      "posted_at": "2026-11-09T15:16:05+09:00",
+      "want": {"ignored": "notice"}
+    },
+    {
+      "name": "결제 완료 문구가 있으면 배송 말이 있어도 결제",
+      "package": "test.shop", "title": "결제 완료",
+      "text": "₩19,800 결제가 완료되었어요. 배송 시작되면 알려드릴게요",
+      "posted_at": "2026-11-09T15:00:00+09:00",
+      "want": {"kind": "approval", "amount": 19800, "source": "generic"}
     }
   ]
 }
