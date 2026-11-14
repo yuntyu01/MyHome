@@ -1,6 +1,7 @@
 package health
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"slices"
@@ -103,6 +104,37 @@ type MealRequest struct {
 	Portion    *float64   `json:"portion"` // 0.25 · 0.5 · 1 · 1.5 · 2. 없으면 1
 	SharedMeal bool       `json:"sharedMeal"`
 	LoggedAt   *time.Time `json:"loggedAt"` // 없으면 서버 시각
+}
+
+// UnmarshalJSON은 loggedAt을 초가 없는 시각("2026-11-11T11:52+09:00")으로도 받는다. 앱(2026-11-15 이전)은
+// java OffsetDateTime.toString()으로 보내는데, 초가 0이면 초를 빼고 써서 RFC 3339만 읽으면 끼니 저장이 400이 됐다.
+func (r *MealRequest) UnmarshalJSON(b []byte) error {
+	type plain MealRequest
+	var v struct {
+		plain
+		LoggedAt *string `json:"loggedAt"` // plain.LoggedAt보다 얕아서 이쪽이 읽힌다
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*r = MealRequest(v.plain)
+	r.LoggedAt = nil
+	if v.LoggedAt != nil {
+		t, err := parseClientTime(*v.LoggedAt)
+		if err != nil {
+			return err
+		}
+		r.LoggedAt = &t
+	}
+	return nil
+}
+
+// parseClientTime은 RFC 3339 시각을 읽고, 초가 빠진 것("…T11:52+09:00", "…T11:52Z")도 받는다.
+func parseClientTime(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, nil
+	}
+	return time.Parse("2006-01-02T15:04Z07:00", s)
 }
 
 // Validate는 형식을 확인한다(설정과 맞는지는 저장할 때 본다).

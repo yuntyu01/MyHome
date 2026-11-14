@@ -145,6 +145,14 @@ class HealthPlanTest {
         assertEquals(java.time.LocalDateTime.of(2026, 11, 8, 3, 0), HealthPlan.eatenAt(today, "03:00", today))
     }
 
+    // 서버로 보내는 시각은 초가 0이어도 초까지 쓴다(toString()은 "…T11:52+09:00"이라 서버가 400을 냈다)
+    @Test fun isoSecondsAlwaysWritesSeconds() {
+        val kst = java.time.ZoneOffset.ofHours(9)
+        assertEquals("2026-11-11T11:52:00+09:00", HealthPlan.isoSeconds(java.time.OffsetDateTime.of(2026, 11, 11, 11, 52, 0, 0, kst)))
+        assertEquals("2026-11-11T11:52:07+09:00", HealthPlan.isoSeconds(java.time.OffsetDateTime.of(2026, 11, 11, 11, 52, 7, 500, kst)))
+        assertEquals("2026-11-11T02:52:00Z", HealthPlan.isoSeconds(java.time.OffsetDateTime.of(2026, 11, 11, 2, 52, 0, 0, java.time.ZoneOffset.UTC)))
+    }
+
     // 사진을 찍으면 1끼·2끼처럼 쌓인다: 마감이 지났어도 빈 앞 번호부터, 다 차면 기타
     @Test fun nextMealStacksFromTheFirstEmptySlot() {
         val slots = listOf(1, 2, 3)

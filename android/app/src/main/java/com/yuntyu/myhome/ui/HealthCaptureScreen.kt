@@ -251,7 +251,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit, 
         val (aiSave, portionSave) = HealthPlan.mealToSave(ai, portion, manualTotals)
         val eatenAt = runCatching {
             HealthPlan.eatenAt(java.time.LocalDate.parse(d), eatenHhmm, java.time.LocalDate.now())
-                .atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
+                .atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().let(HealthPlan::isoSeconds)
         }.getOrNull()
         val req = MealRequest(d, i, aiSave, portionSave, shared, barcode, loggedAt = eatenAt)
         val bytes = photoBytes

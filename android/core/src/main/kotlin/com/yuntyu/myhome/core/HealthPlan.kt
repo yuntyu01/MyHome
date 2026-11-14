@@ -270,4 +270,11 @@ object HealthPlan {
         val dayAfterMidnight = mealDay.isBefore(today) && t.isBefore(java.time.LocalTime.of(5, 0))
         return LocalDateTime.of(if (dayAfterMidnight) mealDay.plusDays(1) else mealDay, t)
     }
+
+    /**
+     * 서버로 보내는 시각(초까지 쓰는 ISO-8601, 예 "2026-11-11T11:52:00+09:00").
+     * OffsetDateTime.toString()은 초가 0이면 초를 빼고 써서("…T11:52+09:00") 서버가 끼니 저장을 400으로 거절했다(2026-11-11).
+     */
+    fun isoSeconds(t: java.time.OffsetDateTime): String =
+        t.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"))
 }

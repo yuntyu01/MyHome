@@ -314,16 +314,7 @@ internal fun InUseHome(
                     FlatRow("분류를 골라야 할 결제 ${s.needsReview}건", bold = true, leading = { Dot(m.over) }, onClick = { onTransactions(1) })
                 }
                 for (p in problems) add { FlatRow(p.title, sub = p.sub, leading = { Dot(m.over) }, onClick = p.action) }
-                if (s.failedEvents > 0) add {
-                    // 눌러서 웹 관리 화면의 '읽지 못한 알림' 탭을 연다(서버 주소가 있을 때)
-                    val admin = serverUrl?.trimEnd('/')?.let { "$it/admin?tab=failed" }
-                    FlatRow(
-                        "읽지 못한 결제 알림 ${s.failedEvents}건",
-                        help = "금액을 못 찾아서 가계부에 안 적힌 알림이에요. ${if (admin != null) "눌러서 " else ""}웹 관리 화면에서 볼 수 있어요. 원문은 남아 있어서 읽는 방법을 고치면 다시 적을 수 있어요.",
-                        leading = { Dot(m.warn) },
-                        onClick = admin?.let { a -> { runCatching { uri.openUri(a) } } },
-                    )
-                }
+                // 읽지 못한 결제 알림은 홈 맨 밑으로(사용자 요청, 2026-11-15)
                 if (s.totals.budget <= 0) add {
                     FlatRow("한 달 예산 정하기", onClick = { onNavigate(Screen.BUDGETS) })
                 }
@@ -386,6 +377,20 @@ internal fun InUseHome(
                     Modifier.fillMaxWidth().tap(onClickLabel = "새로 받기", onClick = refresh).padding(horizontal = Gutter, vertical = 20.dp),
                     fontSize = 13.sp, color = m.faint,
                 )
+            }
+
+            // 읽지 못한 결제 알림: 홈 맨 밑(사용자 요청, 2026-11-15). 누르면 웹 관리 화면의 '읽지 못한 알림' 탭(서버 주소가 있을 때)
+            if (!pastMonth && s.failedEvents > 0) {
+                val admin = serverUrl?.trimEnd('/')?.let { "$it/admin?tab=failed" }
+                Spacer(Modifier.height(CardGap))
+                HomeCard {
+                    FlatRow(
+                        "읽지 못한 결제 알림 ${s.failedEvents}건",
+                        help = "금액을 못 찾아서 가계부에 안 적힌 알림이에요. ${if (admin != null) "눌러서 " else ""}웹 관리 화면에서 볼 수 있어요. 원문은 남아 있어서 읽는 방법을 고치면 다시 적을 수 있어요.",
+                        leading = { Dot(m.warn) },
+                        onClick = admin?.let { a -> { runCatching { uri.openUri(a) } } },
+                    )
+                }
             }
             Spacer(Modifier.height(24.dp))
         }

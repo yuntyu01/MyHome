@@ -384,6 +384,10 @@ func TestHealthMealItemsRoundTrip(t *testing.T) {
 	c.get("/v1/health/meals?date=2026-09-26").is(200).size("0.items", 1).eq("0.items.0.portion", 0.5).eq("0.deadline", "14:00")
 	// 음식별 먹은 비율은 여섯 단계만
 	c.post("/v1/health/meals", strings.Replace(edited, `"portion":0.5`, `"portion":0.3`, 1)).code(400, "INVALID")
+	// 앱(java OffsetDateTime.toString())은 초가 0이면 초를 빼고 보낸다: 그래도 저장된다(2026-11-11 운영 400)
+	noSec := strings.Replace(edited, `"portion":1,`, `"portion":1,"loggedAt":"2026-09-26T12:30+09:00",`, 1)
+	c.post("/v1/health/meals", noSec).is(200).eq("meal.loggedAt", "2026-09-26T03:30:00Z")
+	c.post("/v1/health/meals", strings.Replace(noSec, "12:30+09:00", "아무때나", 1)).code(400, "INVALID")
 }
 
 // 핏두잉 TestExtraMealsCountInTotalsNotInPlan.
