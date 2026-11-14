@@ -54,13 +54,13 @@ import com.yuntyu.myhome.data.SummaryRepository
 import com.yuntyu.myhome.widget.WidgetRefresher
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.semantics.Role
 import com.yuntyu.myhome.core.api.ApiResult
 import kotlinx.coroutines.Dispatchers
@@ -339,12 +339,12 @@ internal fun InUseHome(
                 }
             }
 
-            // 분류별 남은 돈(사용자 요청, 2026-11-10): 맨 위 분류마다 박스 하나. 누르면 그 박스가 펼쳐져
-            // 안의 분류(두 칸)와 그 분류의 최근 결제 3개가 박스 안에 보인다. "더 보기·접기" 줄은 두지 않는다
+            // 분류별 예산(사용자 요청 2026-11-10, 시안 2026-11-12): 맨 위 분류마다 박스 하나. 누르면 그 박스가 펼쳐져
+            // 안의 분류·폴더 트리와 그 분류의 최근 결제 3개가 박스 안에 보인다. "더 보기·접기" 줄은 두지 않는다
             val cats = WidgetModel.homeCategories(s, topCount = 3)
             val shown = cats.top + cats.rest
             if (shown.isNotEmpty()) {
-                HomeSection("분류별 남은 돈", action = "예산 변경", chevron = false, top = 28.dp, onAction = { onNavigate(Screen.BUDGETS) })
+                HomeSection("분류별 예산", action = "예산 변경", chevron = false, top = 28.dp, onAction = { onNavigate(Screen.BUDGETS) })
                 var opened by rememberSaveable { mutableStateOf(listOf<Long>()) }
                 // 펼친 박스의 최근 결제: 처음엔 요약에 온 최근 결제로, 이번 기간 결제를 받으면 그것으로
                 var monthTx by remember(s.period.label, state.updatedAt) { mutableStateOf<List<TransactionDto>?>(null) }
@@ -553,22 +553,45 @@ private fun budgetTag(c: CategoryBudget): String? = when {
     else -> null
 }
 
-/** 남은 돈 글자와 색: 예산이 없으면 쓴 돈, 넘으면 "넘음", 80% 넘게 쓰면 주의색 */
+/**
+ * 쓴 돈 / 남은 돈 글자(2026-11-12 사용자 요청): "11,900 / 588,100원". 쓴 돈은 진하게, " / 남은 돈원"은 회색
+ * (80% 넘게 쓰면 주의색). 넘으면 " / 12,000원 넘음"을 초과색으로. 예산이 없으면(자유·예산 없음) 쓴 돈만 "11,900원"
+ */
 @Composable
-private fun leftText(c: CategoryBudget): Pair<String, androidx.compose.ui.graphics.Color> {
+private fun spentAndLeft(c: CategoryBudget, strong: FontWeight): androidx.compose.ui.text.AnnotatedString {
     val m = LocalModo.current
-    return when {
-        c.budget <= 0 -> "${Money.won(c.spent)} 씀" to m.muted
-        c.remaining < 0 -> "${Money.won(-c.remaining)} 넘음" to m.over
-        c.ratio >= 0.8 -> Money.won(c.remaining) to m.warn
-        else -> Money.won(c.remaining) to MaterialTheme.colorScheme.onBackground
+    val (tail, tailColor) = when {
+        c.budget <= 0 -> "원" to m.muted
+        c.remaining < 0 -> " / ${Money.won(-c.remaining)} 넘음" to m.over
+        c.ratio >= 0.8 -> " / ${Money.won(c.remaining)}" to m.warn
+        else -> " / ${Money.won(c.remaining)}" to m.muted
+    }
+    return androidx.compose.ui.text.buildAnnotatedString {
+        pushStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.onBackground, fontWeight = strong))
+        append(Money.grouped(c.spent))
+        pop()
+        pushStyle(androidx.compose.ui.text.SpanStyle(color = tailColor, fontWeight = FontWeight.Normal))
+        append(tail)
+        pop()
     }
 }
 
+// 분류 박스 안쪽 여백과 트리 치수(시안을 잰 값). 세로선은 박스 이름보다 4dp 왼쪽, 가지 18dp, 가지 끝에서 8dp 띄워 이름
+private val BoxPad = 16.dp
+private val RailX = 12.dp
+private val RailStep = 22.dp
+private val BranchLen = 18.dp
+private val NameOffset = 26.dp
+private val TreeNameLine = 22.dp
+private val TreeRowPadTop = 4.dp
+/** 고른 줄을 칠할 때 글자 둘레 여백(글자 자리는 그대로 두고 칠만 넓힌다) */
+private val HlPad = 6.dp
+
 /**
- * 맨 위 분류 박스 하나(2026-11-10 사용자 요청): 굵은 이름과 남은 돈, 막대. 누르면 박스 안에서 펼쳐진다:
- * 안의 분류는 두 칸 격자, 안의 폴더는 작은 박스(그 안 분류는 칸) → 최근 결제 3개 → "○○ 거래 모두 보기".
- * 안의 분류·폴더를 누르면 고른 것이 되고(다시 누르면 풀림) 최근 결제와 "거래 모두 보기"가 그것으로 바뀐다.
+ * 맨 위 분류 박스 하나: 굵은 이름, 오른쪽 "쓴 돈 / 남은 돈", 막대. 누르면 박스 안에서 펼쳐진다(2026-11-12 사용자 시안):
+ * 안의 분류·폴더를 세로선과 가지로 이은 트리(줄마다 이름·쓴 돈 / 남은 돈·막대, 폴더 안은 한 단계 더 들여서)
+ * → 최근 결제 3개 → "○○ 거래 모두 보기". 트리의 줄을 누르면 고른 것이 되고(다시 누르면 풀림)
+ * 최근 결제와 "거래 모두 보기"가 그것으로 바뀐다.
  */
 @Composable
 private fun CategoryBox(
@@ -586,54 +609,32 @@ private fun CategoryBox(
     HomeCard {
         Column(
             Modifier.fillMaxWidth().tap(onClickLabel = if (open) "접기" else "펼치기", onClick = onToggle)
-                .padding(start = Gutter, end = Gutter, top = 20.dp, bottom = if (open) 8.dp else 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(start = BoxPad, end = BoxPad, top = 20.dp, bottom = if (open) 4.dp else 20.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 이름이 남는 칸을 다 차지하고 돈은 오른쪽 끝. 이름 옆 화살표는 두지 않는다(사용자 요청)
                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    Text(c.name, Modifier.weight(1f, fill = false), fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(c.name, Modifier.weight(1f, fill = false), fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     budgetTag(c)?.let { tag -> Tag(tag) }
                 }
                 Spacer(Modifier.width(12.dp))
-                val (text, color) = leftText(c)
-                Text(text, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
+                Text(spentAndLeft(c, FontWeight.Bold), fontSize = 17.sp, maxLines = 1)
             }
             if (c.budget > 0) ModoBar(c.ratio, budgetColor(c.ratio))
         }
         if (open) {
-            val kids = kidsOf(c.id)
-            if (kids.isNotEmpty()) {
-                Column(
-                    Modifier.fillMaxWidth().padding(start = Gutter - 8.dp, end = Gutter - 8.dp, top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // 이어지는 분류는 두 칸씩, 폴더는 한 줄 전체 작은 박스. 줄을 먼저 만들고 그린다
-                    val rows = mutableListOf<Pair<CategoryBudget?, List<CategoryBudget>>>()
-                    val pending = mutableListOf<CategoryBudget>()
-                    fun flushLeaves() { pending.chunked(2).forEach { rows += null to it }; pending.clear() }
-                    for (k in kids) {
-                        val grand = kidsOf(k.id)
-                        if (grand.isEmpty()) pending += k else { flushLeaves(); rows += k to grand }
-                    }
-                    flushLeaves()
-                    for ((folder, list) in rows) {
-                        if (folder != null) {
-                            InnerFolderBox(folder, list, selected, select)
-                        } else {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                for (k in list) KidCell(k, selected == k.id, Modifier.weight(1f)) { select(k.id) }
-                                if (list.size == 1) Spacer(Modifier.weight(1f))
-                            }
-                        }
-                    }
+            val rows = treeRows(c.id, kidsOf)
+            if (rows.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth().padding(top = 5.dp, end = BoxPad - HlPad)) {
+                    for (r in rows) TreeRow(r, selected == r.c.id) { select(r.c.id) }
                 }
             }
             val focus = selected ?: c.id
-            val focusName = if (selected == null) c.name else (kids + kids.flatMap { kidsOf(it.id) }).firstOrNull { it.id == selected }?.name ?: c.name
+            val focusName = if (selected == null) c.name else rows.firstOrNull { it.c.id == selected }?.c?.name ?: c.name
             val recent = recentFor(focus)
             if (recent.isNotEmpty()) {
-                Hairline(Modifier.padding(start = Gutter, end = Gutter, top = 12.dp, bottom = 6.dp))
+                Hairline(Modifier.padding(start = BoxPad, end = BoxPad, top = 15.dp, bottom = 4.dp))
                 var lastDay = ""
                 for (t in recent) {
                     val day = WidgetModel.shortTime(t.occurredAt).take(5).replace('/', '.')
@@ -642,7 +643,7 @@ private fun CategoryBox(
                 }
             }
             Row(
-                Modifier.padding(start = Gutter - 6.dp, top = 4.dp, bottom = 12.dp).clip(RoundedCornerShape(10.dp))
+                Modifier.padding(start = BoxTxPad - 6.dp, top = 4.dp, bottom = 12.dp).clip(RoundedCornerShape(10.dp))
                     .tap(onClickLabel = "$focusName 거래 보기") { onCategory(focus) }.padding(horizontal = 6.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -663,69 +664,85 @@ private fun Tag(text: String) {
     )
 }
 
-/** 박스 안의 폴더(2단계): 어두운 작은 박스에 이름·남은 돈·막대, 그 안 분류는 칸. 머리를 누르면 이 폴더를 고른다 */
+/** 트리 한 줄: 분류와 그 깊이, 위 단계마다 세로선이 이어지는지(그 단계에 뒤 형제가 있는지), 자기 뒤에 형제가 있는지 */
+private class TreeLine(val c: CategoryBudget, val depth: Int, val through: List<Boolean>, val hasNext: Boolean)
+
+/** 박스 안 분류를 위에서부터 차례로(폴더는 바로 아래에 그 안을 한 단계 더 들여서) */
+private fun treeRows(rootId: Long, kidsOf: (Long) -> List<CategoryBudget>): List<TreeLine> {
+    val out = mutableListOf<TreeLine>()
+    fun walk(id: Long, depth: Int, through: List<Boolean>) {
+        val kids = kidsOf(id)
+        kids.forEachIndexed { i, k ->
+            val hasNext = i < kids.lastIndex
+            out += TreeLine(k, depth, through, hasNext)
+            walk(k.id, depth + 1, through + hasNext)
+        }
+    }
+    walk(rootId, 0, emptyList())
+    return out
+}
+
+/**
+ * 트리 줄: 왼쪽에 세로선·가지(├ └), 오른쪽에 이름과 "쓴 돈 / 남은 돈", 아래 막대. 줄끼리 틈 없이 붙여 세로선이 이어진다.
+ * 고른 줄은 오른쪽 칸을 옅게 칠한다.
+ */
 @Composable
-private fun InnerFolderBox(f: CategoryBudget, kids: List<CategoryBudget>, selected: Long?, onSelect: (Long) -> Unit) {
+private fun TreeRow(r: TreeLine, selected: Boolean, onClick: () -> Unit) {
     val m = LocalModo.current
-    val on = selected == f.id
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.bg)
-            .then(if (on) Modifier.border(1.5.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f), RoundedCornerShape(16.dp)) else Modifier),
-    ) {
+    val rail = m.muted.copy(alpha = 0.2f)
+    val lead = RailX + RailStep * r.depth + NameOffset - HlPad
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Box(
+            Modifier.width(lead).fillMaxHeight().drawBehind {
+                val w = 1.dp.toPx()
+                val branchY = (TreeRowPadTop + TreeNameLine / 2).toPx()
+                // 위 단계 세로선: 그 단계에 뒤 형제가 남아 있으면 줄 전체를 지나간다
+                r.through.forEachIndexed { lvl, goes ->
+                    if (goes) {
+                        val x = (RailX + RailStep * lvl).toPx()
+                        drawLine(rail, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, size.height), w)
+                    }
+                }
+                val x = (RailX + RailStep * r.depth).toPx()
+                drawLine(rail, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, if (r.hasNext) size.height else branchY), w)
+                drawLine(rail, androidx.compose.ui.geometry.Offset(x, branchY), androidx.compose.ui.geometry.Offset(x + BranchLen.toPx(), branchY), w)
+            },
+        )
+        // 줄 간격(시안): 이름 줄 22 · 2 · 막대 5 · 8 → 다음 이름. 칠하는 칸은 위 4·아래 2만 품는다
         Column(
-            Modifier.fillMaxWidth().tap(onClickLabel = "${f.name} 고르기") { onSelect(f.id) }.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.weight(1f).padding(bottom = 2.dp)
+                .clip(RoundedCornerShape(10.dp)).background(if (selected) m.raised else androidx.compose.ui.graphics.Color.Transparent)
+                .tap(onClickLabel = "${r.c.name} 고르기", onClick = onClick)
+                .padding(start = HlPad, end = HlPad, top = TreeRowPadTop, bottom = 2.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.height(TreeNameLine), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    Text(f.name, Modifier.weight(1f, fill = false), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    budgetTag(f)?.let { Tag(it) }
+                    Text(r.c.name, Modifier.weight(1f, fill = false), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    budgetTag(r.c)?.let { Tag(it) }
                 }
                 Spacer(Modifier.width(10.dp))
-                val (text, color) = leftText(f)
-                Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
+                Text(spentAndLeft(r.c, FontWeight.Medium), fontSize = 15.sp, maxLines = 1)
             }
-            if (f.budget > 0) ModoBar(f.ratio, budgetColor(f.ratio))
-        }
-        Column(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            for (pair in kids.chunked(2)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (k in pair) KidCell(k, selected == k.id, Modifier.weight(1f)) { onSelect(k.id) }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
-                }
-            }
+            if (r.c.budget > 0) ModoBar(r.c.ratio, budgetColor(r.c.ratio), Modifier.padding(top = 2.dp)) else Spacer(Modifier.height(7.dp))
         }
     }
 }
 
-/** 박스 안 최근 결제 한 줄: "11.10  가게 이름  6,550원"(같은 날이면 날짜는 첫 줄에만) */
+/** 박스 안 최근 결제 줄의 옆 여백(시안: 박스 이름보다 조금 안쪽) */
+private val BoxTxPad = 22.dp
+
+/** 박스 안 최근 결제 한 줄: "11.10  가게 이름  1,800원"(같은 날이면 날짜는 첫 줄에만) */
 @Composable
 private fun PreviewTxRow(t: TransactionDto, day: String, onClick: () -> Unit) {
     val m = LocalModo.current
     Row(
-        Modifier.fillMaxWidth().tap(onClickLabel = "${t.merchant} 결제 보기", onClick = onClick).padding(horizontal = Gutter, vertical = 9.dp),
+        Modifier.fillMaxWidth().tap(onClickLabel = "${t.merchant} 결제 보기", onClick = onClick).padding(horizontal = BoxTxPad, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(day, Modifier.width(52.dp), fontSize = 14.sp, color = m.muted, maxLines = 1)
+        Text(day, Modifier.width(47.dp), fontSize = 13.sp, color = m.muted, maxLines = 1)
         Text(t.merchant.ifBlank { "이름 없는 결제" }, Modifier.weight(1f), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.width(12.dp))
         Text((if (t.flow == "in") "+" else "") + Money.won(t.amount), fontSize = 15.sp, color = if (t.flow == "in") m.income else MaterialTheme.colorScheme.onBackground, maxLines = 1)
-    }
-}
-
-/** 폴더 안 한 칸: 회색 이름, 남은 돈, 얇은 막대(예산이 없으면 막대 자리만). 고른 칸은 옅게 칠한다 */
-@Composable
-private fun KidCell(k: CategoryBudget, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val m = LocalModo.current
-    Column(
-        modifier.clip(RoundedCornerShape(12.dp)).background(if (selected) m.raised else androidx.compose.ui.graphics.Color.Transparent)
-            .tap(onClickLabel = "${k.name} 고르기", onClick = onClick).padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(k.name, fontSize = 15.sp, color = if (selected) MaterialTheme.colorScheme.onBackground else m.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        val (text, color) = leftText(k)
-        Text(text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
-        if (k.budget > 0) ModoBar(k.ratio, budgetColor(k.ratio), Modifier.padding(top = 4.dp)) else Spacer(Modifier.height(9.dp))
     }
 }
 

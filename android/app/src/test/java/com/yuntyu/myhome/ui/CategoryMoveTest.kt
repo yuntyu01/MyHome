@@ -108,7 +108,7 @@ class CategoryMoveTest {
         assertTrue("taps=$taps drops=$drops", taps.isEmpty() && drops.isEmpty())
     }
 
-    // 홈: 맨 위 분류마다 박스. 처음엔 접혀 있고, 누르면 박스 안에 안 분류(두 칸)와 그 폴더 최근 결제 3개. "더 보기·접기" 줄 없음
+    // 홈: 맨 위 분류마다 박스("쓴 돈 / 남은 돈"). 처음엔 접혀 있고, 누르면 박스 안에 안 분류 트리와 그 폴더 최근 결제 3개. "더 보기·접기" 줄 없음
     @Test fun homeCategoryBoxesOpenInPlace() {
         fun cb(id: Long, name: String, parent: Long? = null, budget: Long, spent: Long) =
             CategoryBudget(id, name, parentId = parent, depth = if (parent == null) 0 else 1, budget = budget, spent = spent, remaining = budget - spent, ratio = if (budget > 0) spent.toDouble() / budget else 0.0)
@@ -124,7 +124,7 @@ class CategoryMoveTest {
                 cb(4, "교통", 1, budget = 50_000, spent = 0),
                 cb(5, "구독", 1, budget = 15_000, spent = 0),
                 cb(6, "쇼핑", budget = 100_000, spent = 0),
-                CategoryBudget(7, "배달", parentId = 2, depth = 2, budget = 0, spent = 2_000, remaining = -2_000), // 식비 안의 분류 → 식비는 작은 박스
+                CategoryBudget(7, "배달", parentId = 2, depth = 2, budget = 0, spent = 2_000, remaining = -2_000), // 식비 안의 분류 → 트리에서 식비 아래 한 단계 더
             ),
             // 최근 거래 박스에는 앞의 쇼핑 셋이 나오고, 생활 박스 미리보기에는 생활 안 결제 중 새것 셋
             recent = listOf(
@@ -143,15 +143,15 @@ class CategoryMoveTest {
                 )
             }
         }
-        rule.onNodeWithText("588,100원").assertExists()
+        rule.onNodeWithText("11,900 / 588,100원").assertExists()
         rule.onNodeWithText("쇼핑").assertExists() // 다른 분류도 박스로 바로
         rule.onNodeWithText("분류 1개 더 보기").assertDoesNotExist()
-        rule.onNodeWithText("296,400원").assertDoesNotExist() // 처음엔 접힘
+        rule.onNodeWithText("3,600 / 296,400원").assertDoesNotExist() // 처음엔 접힘
         rule.onNodeWithText("합성식당").assertDoesNotExist()
 
         rule.onNodeWithText("생활").performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("296,400원").assertExists() // 식비 칸
+        rule.onNodeWithText("3,600 / 296,400원").assertExists() // 식비 줄
         rule.onNodeWithText("합성식당").assertExists()
         rule.onNodeWithText("합성카페").assertExists()
         rule.onNodeWithText("합성분식").assertExists()
@@ -163,11 +163,11 @@ class CategoryMoveTest {
         rule.waitForIdle()
         rule.onNodeWithText("합성카페").assertExists()
         rule.onNodeWithText("합성식당").assertDoesNotExist()
-        rule.onNodeWithText("구독").assertExists() // 고른 뒤에도 옆 칸들은 그대로
+        rule.onNodeWithText("구독").assertExists() // 고른 뒤에도 다른 줄은 그대로
         rule.onNodeWithText("카페·간식 거래 모두 보기").performScrollTo().performClick()
         rule.waitForIdle()
         assertEquals(3L, opened)
-        // 안의 폴더(식비, 안에 배달)는 작은 박스: 머리를 누르면 식비 아래 전부, 배달을 누르면 배달만
+        // 안의 폴더(식비, 안에 배달)는 트리 한 단계 더: 식비 줄을 누르면 식비 아래 전부, 배달을 누르면 배달만
         rule.onNodeWithText("식비").performScrollTo().performClick()
         rule.waitForIdle()
         rule.onNodeWithText("합성치킨").assertExists()
