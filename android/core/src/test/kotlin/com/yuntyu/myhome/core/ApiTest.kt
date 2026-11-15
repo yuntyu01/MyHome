@@ -2,6 +2,7 @@ package com.yuntyu.myhome.core
 
 import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.core.api.Category
+import com.yuntyu.myhome.core.api.EventNotice
 import com.yuntyu.myhome.core.api.EventPayload
 import com.yuntyu.myhome.core.api.InvestAlerts
 import com.yuntyu.myhome.core.api.InvestStatus
@@ -46,6 +47,20 @@ class ApiTest {
         assertTrue(body.contains("\"source_package\":\"test.card\""))
         assertTrue(body.contains("\"posted_at\":1793000000000"))
         assertEquals(UploadDecision.SENT, r.toUploadDecision())
+    }
+
+    // 서버가 원래 알림을 지울지 알려 준다(notice). 남겨 둔 것은 원문 id로 다시 묻는다
+    @Test fun eventNotice() {
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"id":8,"duplicate":false,"notice":"wait"}"""))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"notices":[{"id":8,"notice":"dismiss"},{"id":9,"notice":"keep"}]}"""))
+        val a = api()
+        assertEquals("wait", (a.postEvent(payload) as ApiResult.Ok).value.notice)
+        server.takeRequest()
+        val r = a.eventNotices(listOf(8, 9)) as ApiResult.Ok
+        assertEquals(listOf(EventNotice(8, "dismiss"), EventNotice(9, "keep")), r.value.notices)
+        val req = server.takeRequest()
+        assertEquals("GET", req.method)
+        assertEquals("/v1/events/notice?ids=8,9", req.path)
     }
 
     @Test fun duplicateIsSent() {

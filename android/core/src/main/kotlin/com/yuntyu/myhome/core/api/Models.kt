@@ -28,7 +28,16 @@ data class EventResponse(
     val id: Long,
     val duplicate: Boolean = false,
     val result: JsonElement? = null,
+    /** 원래 알림을 지울지(dismiss|wait|keep, NoticePolicy). 예전 서버는 보내지 않는다(null이면 바로 지운다). */
+    val notice: String? = null,
 )
+
+/** GET /v1/events/notice 응답의 한 줄. */
+@Serializable
+data class EventNotice(val id: Long, val notice: String)
+
+@Serializable
+data class EventNotices(val notices: List<EventNotice> = emptyList())
 
 /** 오류 본문 {"error": 메시지, "code": 코드}. code는 건강 API처럼 붙이는 경로만 있다. */
 @Serializable

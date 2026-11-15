@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -353,5 +354,48 @@ func TestHealthzChecksDB(t *testing.T) {
 	c.h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("DB에 못 닿으면 503: %d", rec.Code)
+	}
+}
+
+// 수집 응답과 GET /v1/events/notice가 원래 알림을 지울지 알려 준다: 알아본 결제만 dismiss,
+// 규칙 없는 지출은 AI가 켜져 있으면 wait(판정 대기), 꺼져 있으면 keep. 사용자가 분류하면 dismiss.
+func TestEventNotice(t *testing.T) {
+	c := newClient(t)
+	now := time.Now()
+	known := c.event("test.kb", "KB국민카드", "홍*동님 4,500원 일시불 메가커피 역삼점", now)
+	unknown := c.event("test.kb", "KB국민카드", "홍*동님 9,000원 일시불 처음보는가게", now.Add(time.Second))
+	if known["notice"] != "dismiss" || unknown["notice"] != "keep" {
+		t.Fatalf("수집 응답 notice: %v / %v", known["notice"], unknown["notice"])
+	}
+	kid, uid := int64(known["id"].(float64)), int64(unknown["id"].(float64))
+	txID := int64(unknown["result"].(map[string]any)["transaction"].(map[string]any)["id"].(float64))
+	if code := c.do("PATCH", fmt.Sprintf("/v1/transactions/%d", txID), map[string]any{"category_id": c.catID("식비")}, nil); code != 200 {
+		t.Fatalf("patch %d", code)
+	}
+	var out struct {
+		Notices []struct {
+			ID     int64
+			Notice string
+		}
+	}
+	if code := c.do("GET", fmt.Sprintf("/v1/events/notice?ids=%d,%d,999999", kid, uid), nil, &out); code != 200 {
+		t.Fatalf("notice %d", code)
+	}
+	want := []string{"dismiss", "dismiss", "keep"}
+	if len(out.Notices) != 3 {
+		t.Fatalf("notices %+v", out.Notices)
+	}
+	for i, n := range out.Notices {
+		if n.Notice != want[i] {
+			t.Errorf("%d: %s, 기대 %s", n.ID, n.Notice, want[i])
+		}
+	}
+	if code := c.do("GET", "/v1/events/notice?ids=1,x", nil, nil); code != 400 {
+		t.Errorf("잘못된 id: %d", code)
+	}
+
+	ai := newClientWith(t, func(cfg *config.Config) { cfg.AIClassify = true })
+	if r := ai.event("test.kb", "KB국민카드", "홍*동님 9,000원 일시불 처음보는가게", now); r["notice"] != "wait" {
+		t.Errorf("AI 켜짐: %v", r["notice"])
 	}
 }

@@ -6,11 +6,14 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.capture.CaptureService
+import com.yuntyu.myhome.core.NoticePolicy
 import com.yuntyu.myhome.core.UploadQueuePolicy
+import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.core.api.EventPayload
 import com.yuntyu.myhome.core.api.UploadDecision
 import com.yuntyu.myhome.core.api.describe
 import com.yuntyu.myhome.core.api.toUploadDecision
+import com.yuntyu.myhome.data.HeldNotice
 import com.yuntyu.myhome.data.SendLogEntry
 import com.yuntyu.myhome.notify.Notifications
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +21,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * 대기열의 알림 원문을 오래된 것부터 서버로 보낸다.
- * - 성공(새로/중복): 대기열에서 지우고, 설정이 켜져 있으면 원래 알림을 제거한다.
+ * - 성공(새로/중복): 대기열에서 지우고, 설정이 켜져 있으면 원래 알림을 제거한다. 단 서버가 알아본 결제만(notice=dismiss)
+ *   지우고, 나머지는 붙들어 두었다가 AI 판정·사용자 분류 뒤 NoticeCheckWorker가 지운다.
  * - 일시 오류: 남겨두고 재시도(지수 백오프). 같은 항목이 여러 번 실패하면 남겨 둔 채 뒤 항목부터 보낸다(UploadQueuePolicy).
  * - 인증 실패: 남겨두고 멈춘다. 홈 화면에 경고를 띄운다.
  * - 형식 거부: REJECTED로 보존한다(삭제하지 않음).
@@ -29,6 +33,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val app = applicationContext as MyHomeApp
         val dao = app.db.pendingEvents()
         var sentAny = false
+        var heldAny = false // 이번에 지우지 않고 붙든 알림이 있다
         val skipped = mutableListOf<Long>() // 계속 실패해서 이번엔 건너뛴 항목(대기열에 남음)
         var consecutiveFailures = 0
         while (true) {
@@ -41,7 +46,18 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                     UploadDecision.SENT -> {
                         dao.delete(e.id)
                         app.db.sendLog().add(SendLogEntry(at = now(), packageName = e.packageName, success = true, message = msg))
-                        if (app.settings.autoDelete) CaptureService.dismiss(e.notificationKey)
+                        if (app.settings.autoDelete) {
+                            // 가계부가 알아본 결제만 지운다. 아직 모르는 것(AI 판정 전·못 읽음)은 붙들어 두고 다시 묻는다
+                            val resp = (result as ApiResult.Ok).value
+                            if (NoticePolicy.dismissNow(resp.notice)) {
+                                CaptureService.dismiss(e.notificationKey, e.postedAt)
+                            } else {
+                                app.db.heldNotices().upsert(
+                                    HeldNotice(resp.id, e.notificationKey, e.packageName, e.postedAt, now(), resp.notice.orEmpty()),
+                                )
+                                heldAny = true
+                            }
+                        }
                         app.settings.authProblem = null
                         sentAny = true
                         consecutiveFailures = 0
@@ -75,6 +91,12 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             }
         }
         afterSent(sentAny)
+        // 붙든 알림: 새로 붙들었으면 AI 판정이 날 즈음 묻고, 예전 것만 있으면 지금(주기 작업마다) 다시 묻는다
+        if (heldAny) {
+            WorkScheduler.checkNotices(applicationContext, delaySeconds = NoticeCheckWorker.FIRST_DELAY_SECONDS)
+        } else if (app.db.heldNotices().count() > 0) {
+            WorkScheduler.checkNotices(applicationContext)
+        }
         // 건너뛴 항목이 남았으면 나중에 다시 보낸다.
         if (skipped.isNotEmpty()) Result.retry() else Result.success()
     }

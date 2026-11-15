@@ -123,16 +123,30 @@ class CaptureService : NotificationListenerService() {
             }
         }
 
-        /** 알림을 지운다. 수집기가 연결돼 있지 않거나 이미 사라진 알림이면 조용히 넘어간다. */
-        fun dismiss(key: String): Boolean {
+        /**
+         * 알림을 지운다. 수집기가 연결돼 있지 않으면 false. 이미 사라졌거나 같은 자리(key)에 새 알림(postTime이 다름)이
+         * 떠 있으면 지우지 않고 true(새 알림은 따로 보내서 따로 판단한다).
+         */
+        fun dismiss(key: String, postedAt: Long): Boolean {
             val svc = current ?: return false
             return try {
-                svc.cancelNotification(key)
+                val now = svc.getActiveNotifications(arrayOf(key))?.firstOrNull()
+                if (now != null && now.postTime == postedAt) svc.cancelNotification(key)
                 true
             } catch (e: SecurityException) {
                 false
             } catch (e: RuntimeException) {
                 false
+            }
+        }
+
+        /** 지금 떠 있는 알림 key → postTime. 수집기가 연결돼 있지 않으면 null. */
+        fun activePostTimes(): Map<String, Long>? {
+            val svc = current ?: return null
+            return try {
+                (svc.activeNotifications ?: emptyArray()).associate { it.key to it.postTime }
+            } catch (e: RuntimeException) {
+                null
             }
         }
     }

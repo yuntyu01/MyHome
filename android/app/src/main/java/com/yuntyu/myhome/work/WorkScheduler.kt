@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit
 object WorkScheduler {
     private const val UPLOAD_NOW = "upload-now"
     private const val UPLOAD_PERIODIC = "upload-periodic"
+    private const val NOTICE_CHECK = "notice-check"
 
     private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
@@ -38,5 +39,18 @@ object WorkScheduler {
             .setConstraints(network)
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(UPLOAD_PERIODIC, ExistingPeriodicWorkPolicy.KEEP, req)
+    }
+
+    /**
+     * 붙든 결제 알림을 지워도 되는지 서버에 다시 묻는다(NoticeCheckWorker). AI 판정을 기다리는 동안은 작업이 스스로 재시도한다.
+     * 새로 부르면 기다리던 것을 바꿔서 바로(또는 delaySeconds 뒤) 묻는다.
+     */
+    fun checkNotices(context: Context, delaySeconds: Long = 0) {
+        val req = OneTimeWorkRequestBuilder<NoticeCheckWorker>()
+            .setConstraints(network)
+            .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
+            .setBackoffCriteria(BackoffPolicy.LINEAR, NoticeCheckWorker.RETRY_SECONDS, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(NOTICE_CHECK, ExistingWorkPolicy.REPLACE, req)
     }
 }

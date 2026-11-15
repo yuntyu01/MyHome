@@ -58,6 +58,7 @@ import com.yuntyu.myhome.core.api.ManualTransaction
 import com.yuntyu.myhome.core.api.TransactionDto
 import com.yuntyu.myhome.core.api.TransactionEdit
 import com.yuntyu.myhome.widget.WidgetRefresher
+import com.yuntyu.myhome.work.WorkScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -156,6 +157,8 @@ fun TransactionsScreen(
                 selected = null
                 reloadTick++
                 WidgetRefresher.refresh(ctx)
+                // 분류를 정했으니 붙들어 둔 원래 알림을 지울 수 있다
+                WorkScheduler.checkNotices(ctx)
             } else {
                 Toast.makeText(ctx, "바꾸지 못했어요. ${r.plain()}", Toast.LENGTH_LONG).show()
             }

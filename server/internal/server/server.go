@@ -20,6 +20,7 @@ import (
 	"github.com/yuntyu01/MyHome/server/internal/health/foods"
 	"github.com/yuntyu01/MyHome/server/internal/httpx"
 	"github.com/yuntyu01/MyHome/server/internal/ingest"
+	"github.com/yuntyu01/MyHome/server/internal/notice"
 	"github.com/yuntyu01/MyHome/server/internal/pipeline"
 )
 
@@ -54,6 +55,8 @@ func New(d Deps) http.Handler {
 	ing := &ingest.Handler{Pool: d.Pool, Logger: d.Logger}
 	if d.Processor != nil {
 		ing.Processor = d.Processor
+		nc := notice.Checker{AI: d.Config.AIClassify}
+		ing.Notice = func(ctx context.Context, id int64) (string, error) { return nc.State(ctx, q, id) }
 	}
 	deviceLimiter := httpx.NewRateLimiter(d.Config.RateLimitRPS, d.Config.RateLimitBurst)
 	mux.Handle("POST /v1/events", auth.RequireDevice(q, d.Logger, perDeviceLimit(deviceLimiter, http.HandlerFunc(ing.PostEvent))))

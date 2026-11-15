@@ -135,3 +135,39 @@ func Lookup(ctx context.Context, q *dbq.Queries, in []Input) ([]*Suggestion, err
 	}
 	return out, nil
 }
+
+// Verdict는 확인 필요 거래 하나에 대한 AI 판정 상태다. 앱이 원래 결제 알림을 지울지 정할 때 쓴다(notice).
+type Verdict int
+
+const (
+	NotAsked Verdict = iota // AI가 볼 거래가 아니다(송금·결제대행사 이름뿐·입금·취소 등)
+	Pending                 // 아직 답이 없다(곧 묻는다)
+	Sure                    // AutoConfidence 이상: 작업이 곧 그 분류로 넣는다(Worker.Auto)
+	Unsure                  // 답했지만 모름·낮은 확신이거나 그 분류가 보관됐다. 사용자가 고른다
+)
+
+// VerdictFor는 거래 하나의 AI 판정 상태를 본다. AI 작업이 꺼져 있는지는 부르는 쪽이 따진다.
+func VerdictFor(ctx context.Context, q *dbq.Queries, in Input) (Verdict, error) {
+	if !Eligible(in) {
+		return NotAsked, nil
+	}
+	cfg, err := pipeline.LoadConfig(ctx, q)
+	if err != nil {
+		return NotAsked, err
+	}
+	_, key, ok := Target(in.Merchant, cfg.ReviewMerchantPatterns)
+	if !ok {
+		return NotAsked, nil
+	}
+	rows, err := q.ListMerchantSuggestions(ctx, []string{key})
+	if err != nil {
+		return NotAsked, err
+	}
+	if len(rows) == 0 {
+		return Pending, nil
+	}
+	if s := visible(rows[0]); s != nil && s.Confidence >= AutoConfidence {
+		return Sure, nil
+	}
+	return Unsure, nil
+}

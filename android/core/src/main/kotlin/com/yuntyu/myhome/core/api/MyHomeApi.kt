@@ -28,6 +28,10 @@ class MyHomeApi(
     fun postEvent(payload: EventPayload): ApiResult<EventResponse> =
         call("POST", "/v1/events", MyHomeJson.encodeToString(EventPayload.serializer(), payload), EventResponse.serializer())
 
+    /** 남겨 둔 결제 알림을 이제 지워도 되는지(AI 판정·사용자 분류 뒤) 묻는다. ids는 원문 id(수집 응답의 id), 100개까지. */
+    fun eventNotices(ids: List<Long>): ApiResult<EventNotices> =
+        call("GET", "/v1/events/notice?ids=" + ids.joinToString(","), null, EventNotices.serializer())
+
     /** 이번 기간 요약(위젯·홈). recent는 최근 거래 개수. */
     /** month("2026-10")를 주면 그 기간, 없으면 이번 기간 */
     fun summary(recent: Int = 4, month: String? = null): ApiResult<Summary> =

@@ -29,6 +29,20 @@ data class PendingEvent(
     }
 }
 
+/**
+ * 서버가 아직 지우지 말라고 한 결제 알림(notice wait·keep). 원문 id로 다시 물어서 dismiss가 되면 지운다(NoticePolicy).
+ * postedAt은 같은 자리(key)에 새 알림이 떴는지 가리는 데 쓴다.
+ */
+@Entity(tableName = "held_notices")
+data class HeldNotice(
+    @PrimaryKey val rawEventId: Long,
+    val notificationKey: String,
+    val packageName: String,
+    val postedAt: Long,
+    val sentAt: Long,
+    val state: String,
+)
+
 /** 전송 로그. 최근 50건만 남긴다. 본문은 저장하지 않는다. */
 @Entity(tableName = "send_log")
 data class SendLogEntry(

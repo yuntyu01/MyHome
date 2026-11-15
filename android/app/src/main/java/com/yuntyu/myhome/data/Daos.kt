@@ -84,3 +84,30 @@ abstract class RecentAppDao {
     @Query("DELETE FROM recent_apps WHERE lastSeenAt < :before")
     abstract suspend fun deleteOlderThan(before: Long)
 }
+
+@Dao
+interface HeldNoticeDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(n: HeldNotice)
+
+    @Query("SELECT * FROM held_notices ORDER BY sentAt LIMIT :limit")
+    suspend fun oldest(limit: Int): List<HeldNotice>
+
+    @Query("SELECT * FROM held_notices")
+    suspend fun all(): List<HeldNotice>
+
+    @Query("SELECT COUNT(*) FROM held_notices")
+    suspend fun count(): Int
+
+    @Query("UPDATE held_notices SET state = :state WHERE rawEventId = :id")
+    suspend fun setState(id: Long, state: String)
+
+    @Query("DELETE FROM held_notices WHERE rawEventId IN (:ids)")
+    suspend fun delete(ids: List<Long>)
+
+    @Query("DELETE FROM held_notices WHERE sentAt < :before")
+    suspend fun deleteSentBefore(before: Long)
+
+    @Query("DELETE FROM held_notices")
+    suspend fun clear()
+}

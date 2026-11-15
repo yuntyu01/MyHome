@@ -37,6 +37,9 @@ type Response struct {
 	Duplicate bool  `json:"duplicate"`
 	// Result는 처리 파이프라인 결과(거래 생성 등)다. 처리기가 없으면 비어 있다.
 	Result any `json:"result,omitempty"`
+	// Notice는 앱이 원래 알림을 지울지다(notice 패키지: dismiss|wait|keep). Notice 훅이 없으면 비어 있고,
+	// 앱은 비어 있으면 예전처럼 바로 지운다.
+	Notice string `json:"notice,omitempty"`
 }
 
 // Processor는 저장된 원문을 해석해서 거래를 만든다(Phase 3).
@@ -48,8 +51,10 @@ type Processor interface {
 type Handler struct {
 	Pool      *pgxpool.Pool
 	Processor Processor // nil이면 저장만 한다.
-	Logger    *slog.Logger
-	Now       func() time.Time
+	// Notice는 처리 뒤 원래 알림을 지울지 정한다(notice.Checker). nil이면 응답에 넣지 않는다.
+	Notice func(ctx context.Context, rawEventID int64) (string, error)
+	Logger *slog.Logger
+	Now    func() time.Time
 }
 
 const (
@@ -150,6 +155,7 @@ func (h *Handler) PostEvent(w http.ResponseWriter, r *http.Request) {
 		if existing.ProcessedAt == nil && h.Processor != nil {
 			resp.Result = h.process(r.Context(), existing.ID)
 		}
+		resp.Notice = h.notice(r.Context(), existing.ID)
 		httpx.JSON(w, http.StatusOK, resp)
 		return
 	}
@@ -164,6 +170,7 @@ func (h *Handler) PostEvent(w http.ResponseWriter, r *http.Request) {
 	if h.Processor != nil {
 		resp.Result = h.process(r.Context(), row.ID)
 	}
+	resp.Notice = h.notice(r.Context(), row.ID)
 	// 원문은 이미 저장됐으므로 처리 실패와 관계없이 201을 반환한다.
 	// 그래야 앱이 알림을 지우고 재전송을 멈춘다. 처리 실패는 parse_error로 남아 재처리할 수 있다.
 	httpx.JSON(w, http.StatusCreated, resp)
@@ -176,4 +183,17 @@ func (h *Handler) process(ctx context.Context, id int64) any {
 		return map[string]string{"error": "processing failed"}
 	}
 	return res
+}
+
+// notice는 원래 알림을 지울지 정한다. 실패하면 기록하고 wait로 둔다(앱이 나중에 다시 묻는다).
+func (h *Handler) notice(ctx context.Context, id int64) string {
+	if h.Notice == nil {
+		return ""
+	}
+	n, err := h.Notice(ctx, id)
+	if err != nil {
+		h.Logger.Error("알림 지우기 판단 실패", "raw_event_id", id, "err", err)
+		return "wait"
+	}
+	return n
 }
