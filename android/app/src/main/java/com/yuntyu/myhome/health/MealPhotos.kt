@@ -61,7 +61,7 @@ object MealPhotos {
             bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
             out.toByteArray()
         }
-    }.getOrNull()
+    }.onFailure { com.yuntyu.myhome.ClientErrors.report("photo_downscale", "사진 줄이기 실패(${file.length()}바이트)", it) }.getOrNull()
 
     /** 저장한 끼니의 사진을 바꾼다(전에 있던 같은 끼니 사진은 지운다). */
     fun keep(context: Context, date: String, index: Int, photos: List<ByteArray>) {

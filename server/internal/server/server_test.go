@@ -516,3 +516,14 @@ func TestResolveUnreadNotifications(t *testing.T) {
 		t.Errorf("처리한 알림은 지움: %+v", out.Notices)
 	}
 }
+
+// 앱 오류 보고는 로그에만 남기고 200. 빈 보고는 400
+func TestClientErrorReport(t *testing.T) {
+	c := newClient(t)
+	if code := c.do("POST", "/v1/client-errors", map[string]any{"kind": "crash", "message": "java.lang.IllegalStateException: 합성", "app_version": "1.0(1)"}, nil); code != 200 {
+		t.Fatalf("보고 %d", code)
+	}
+	if code := c.do("POST", "/v1/client-errors", map[string]any{"kind": "crash"}, nil); code != 400 {
+		t.Errorf("빈 보고 %d", code)
+	}
+}

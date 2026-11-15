@@ -32,6 +32,10 @@ class MyHomeApi(
     fun eventNotices(ids: List<Long>): ApiResult<EventNotices> =
         call("GET", "/v1/events/notice?ids=" + ids.joinToString(","), null, EventNotices.serializer())
 
+    /** 앱 오류 보고(서버 로그에만 남는다) */
+    fun clientError(e: ClientError): ApiResult<JsonElement> =
+        call("POST", "/v1/client-errors", MyHomeJson.encodeToString(ClientError.serializer(), e), JsonElement.serializer())
+
     /** 읽지 못한 알림 중 아직 처리 안 한 것(최근 것부터) */
     fun unreadEvents(limit: Int = 50): ApiResult<RawEventList> =
         call("GET", "/v1/raw-events?failed=true&limit=$limit", null, RawEventList.serializer())

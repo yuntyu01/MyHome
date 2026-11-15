@@ -100,6 +100,7 @@ fun BodyScreen(modifier: Modifier) {
                 }
                 else -> {
                     Toast.makeText(ctx, r.plain(), Toast.LENGTH_LONG).show()
+                    com.yuntyu.myhome.ClientErrors.report("scale_read", r.plain())
                     editing = Triple(today, "", false)
                 }
             }
@@ -108,7 +109,10 @@ fun BodyScreen(modifier: Modifier) {
     val bodyCam = rememberSilentCamera { f ->
         scope.launch {
             val kept = withContext(Dispatchers.IO) { BodyPhotos.keep(ctx, f, LocalDate.now()) }
-            if (kept == null) Toast.makeText(ctx, "사진을 저장하지 못했어요", Toast.LENGTH_SHORT).show()
+            if (kept == null) {
+                Toast.makeText(ctx, "사진을 저장하지 못했어요", Toast.LENGTH_SHORT).show()
+                com.yuntyu.myhome.ClientErrors.report("body_photo", "몸 사진 저장 실패")
+            }
             photosTick++
         }
     }

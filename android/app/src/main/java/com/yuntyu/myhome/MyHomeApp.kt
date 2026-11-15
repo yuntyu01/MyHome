@@ -35,6 +35,7 @@ open class MyHomeApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        ClientErrors.install(this)
         db = AppDatabase.create(this)
         settings = AppSettings(this)
         tokenStore = TokenStore(this)
@@ -43,6 +44,7 @@ open class MyHomeApp : Application() {
         healthLocal = HealthLocal(this)
         Notifications.createChannels(this)
         startBackground()
+        ClientErrors.flushCrash(this) // 지난번에 앱이 죽었으면 그 스택을 서버 로그로
     }
 
     /** 주기 작업·알림·지오펜스·타이머 같은 배경 일. JVM 화면 테스트는 이것만 바꾼다 */

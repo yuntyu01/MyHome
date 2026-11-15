@@ -173,6 +173,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit, 
             if (date == null) date = HealthPlan.scheduleDay(st.meals, LocalDateTime.now()).toString()
         } else {
             message = "설정을 불러오지 못했어요: ${r.describe()}"
+            com.yuntyu.myhome.ClientErrors.report("health_settings", r.describe())
             if (date == null) date = java.time.LocalDate.now().toString()
         }
     }
@@ -207,6 +208,7 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit, 
                     noCredit = (r as? ApiResult.HttpError)?.errorCode == "AI_NO_CREDIT"
                     // 크레딧이 없으면 다시 해도 같으니 직접 입력만 안내한다
                     message = if (noCredit) "AI 크레딧이 없어요 - 직접 입력해 주세요" else "음식 인식에 실패했어요. 다시 알아보거나 직접 입력해 주세요 (${r.describe()})"
+                    com.yuntyu.myhome.ClientErrors.report("meal_analyze", "${r.describe()} · 사진 ${bytes.size}장(${bytes.sumOf { it.size }}바이트), 찍은 파일 ${files.size}개")
                 }
             }
             phase = Phase.REVIEW
@@ -288,7 +290,10 @@ fun HealthCaptureScreen(modifier: Modifier, nav: HealthNav, onDone: () -> Unit, 
                     Toast.makeText(ctx, "지금은 보내지 못했어요. 연결되면 ${HealthPlan.label(i)} 기록을 보내요", Toast.LENGTH_LONG).show()
                     onDone()
                 }
-                else -> message = "저장하지 못했어요: ${r.describe()}"
+                else -> {
+                    message = "저장하지 못했어요: ${r.describe()}"
+                    com.yuntyu.myhome.ClientErrors.report("meal_save", r.describe())
+                }
             }
         }
     }

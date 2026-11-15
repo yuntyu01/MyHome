@@ -47,6 +47,15 @@ data class RawEventDto(
 @Serializable
 data class RawEventList(@SerialName("raw_events") val rawEvents: List<RawEventDto> = emptyList())
 
+/** POST /v1/client-errors: 앱이 죽은 스택이나 화면에 띄운 오류 메시지(알림 원문·금액·사진은 넣지 않는다) */
+@Serializable
+data class ClientError(
+    val kind: String,
+    val message: String,
+    @SerialName("app_version") val appVersion: String = "",
+    val at: String = "",
+)
+
 /** GET /v1/events/notice 응답의 한 줄. */
 @Serializable
 data class EventNotice(val id: Long, val notice: String)

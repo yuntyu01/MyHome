@@ -130,8 +130,14 @@ class CameraShooter {
 /** 미리보기 한 장을 끼니 사진 임시 jpg로 저장한다(실패하면 null) */
 suspend fun saveShot(ctx: Context, bmp: Bitmap): File? = withContext(Dispatchers.IO) {
     val (file, _) = MealPhotos.newCapture(ctx)
-    val ok = runCatching { file.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) } }.getOrDefault(false)
-    if (ok && file.length() > 0) file else { file.delete(); null }
+    val r = runCatching { file.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) } }
+    if (r.getOrDefault(false) && file.length() > 0) {
+        file
+    } else {
+        com.yuntyu.myhome.ClientErrors.report("camera_save", "미리보기 저장 실패(${bmp.width}x${bmp.height})", r.exceptionOrNull())
+        file.delete()
+        null
+    }
 }
 
 /**
@@ -188,7 +194,10 @@ private fun CameraPreview(shooter: CameraShooter, modifier: Modifier, fill: Bool
                 shooter.hasTorch = cam.cameraInfo.hasFlashUnit()
                 shooter.error = null
                 shooter.ready = true
-            }.onFailure { shooter.error = "카메라를 열지 못했어요" }
+            }.onFailure {
+                shooter.error = "카메라를 열지 못했어요"
+                com.yuntyu.myhome.ClientErrors.report("camera_open", "카메라를 열지 못했어요", it)
+            }
         }, ContextCompat.getMainExecutor(ctx))
         onDispose {
             shooter.ready = false
