@@ -460,3 +460,59 @@ func TestBalanceGaps(t *testing.T) {
 		t.Fatalf("처리 뒤 %+v review=%d→%d", sum.Balances, review, sum.NeedsReview)
 	}
 }
+
+// 읽지 못한 알림을 앱에서 처리한다: 결제 아님으로 치우거나, 금액·분류를 넣어 적는다(그 원문에 달린 확정 거래).
+// 처리한 것은 목록·요약 수에서 빠지고, 폰의 원래 알림은 지워도 된다(notice dismiss). 두 번 처리하면 400
+func TestResolveUnreadNotifications(t *testing.T) {
+	c := newClient(t)
+	posted := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
+	a := c.event("test.toss", "토스", "결제 내역을 확인해 주세요", posted)
+	b := c.event("test.toss", "토스", "결제 알림을 다시 확인해 주세요", posted.Add(time.Minute))
+	aid, bid := int64(a["id"].(float64)), int64(b["id"].(float64))
+	failed := func() int {
+		var raw struct {
+			RawEvents []struct{ ID int64 } `json:"raw_events"`
+		}
+		c.do("GET", "/v1/raw-events?failed=true", nil, &raw)
+		return len(raw.RawEvents)
+	}
+	if n := failed(); n != 2 {
+		t.Fatalf("처리 전 %d", n)
+	}
+	if code := c.do("POST", fmt.Sprintf("/v1/raw-events/%d/ignore", aid), nil, nil); code != 200 {
+		t.Fatalf("결제 아님 %d", code)
+	}
+	var created struct {
+		Transaction map[string]any
+	}
+	body := map[string]any{"amount": 12_000, "merchant": "합성분식", "category_id": c.catID("식비")}
+	if code := c.do("POST", fmt.Sprintf("/v1/raw-events/%d/record", bid), body, &created); code != 201 {
+		t.Fatalf("적기 %d", code)
+	}
+	tx := created.Transaction
+	if tx["status"] != "confirmed" || tx["amount"].(float64) != 12_000 || tx["category"] != "식비" || int64(tx["raw_event_id"].(float64)) != bid {
+		t.Fatalf("적은 거래 %+v", tx)
+	}
+	if at, _ := time.Parse(time.RFC3339, tx["occurred_at"].(string)); !at.Equal(posted.Add(time.Minute)) {
+		t.Errorf("알림 시각으로 적어야 함: %v", tx["occurred_at"])
+	}
+	if code := c.do("POST", fmt.Sprintf("/v1/raw-events/%d/record", bid), body, nil); code != 400 {
+		t.Errorf("두 번 적기 %d", code)
+	}
+	if n := failed(); n != 0 {
+		t.Errorf("처리 뒤 %d", n)
+	}
+	var sum struct {
+		FailedEvents int64 `json:"failed_events"`
+	}
+	if c.do("GET", "/v1/summary", nil, &sum); sum.FailedEvents != 0 {
+		t.Errorf("요약 읽지 못한 알림 %d", sum.FailedEvents)
+	}
+	var out struct {
+		Notices []struct{ Notice string }
+	}
+	c.do("GET", fmt.Sprintf("/v1/events/notice?ids=%d,%d", aid, bid), nil, &out)
+	if len(out.Notices) != 2 || out.Notices[0].Notice != "dismiss" || out.Notices[1].Notice != "dismiss" {
+		t.Errorf("처리한 알림은 지움: %+v", out.Notices)
+	}
+}

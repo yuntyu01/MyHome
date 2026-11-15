@@ -32,6 +32,17 @@ class MyHomeApi(
     fun eventNotices(ids: List<Long>): ApiResult<EventNotices> =
         call("GET", "/v1/events/notice?ids=" + ids.joinToString(","), null, EventNotices.serializer())
 
+    /** 읽지 못한 알림 중 아직 처리 안 한 것(최근 것부터) */
+    fun unreadEvents(limit: Int = 50): ApiResult<RawEventList> =
+        call("GET", "/v1/raw-events?failed=true&limit=$limit", null, RawEventList.serializer())
+
+    /** 읽지 못한 알림을 금액·분류를 넣어 적는다(시각은 알림 시각). 이미 처리했으면 400 */
+    fun recordUnread(id: Long, m: ManualTransaction): ApiResult<CreatedTransaction> =
+        call("POST", "/v1/raw-events/$id/record", MyHomeJson.encodeToString(ManualTransaction.serializer(), m), CreatedTransaction.serializer())
+
+    /** 읽지 못한 알림을 "결제 아님"으로 치운다 */
+    fun ignoreUnread(id: Long): ApiResult<JsonElement> = call("POST", "/v1/raw-events/$id/ignore", null, JsonElement.serializer())
+
     /** 계좌 잔액(알림 기준)과 잔액이 안 맞는 빈 돈 목록 */
     fun balances(): ApiResult<BalanceAccounts> = call("GET", "/v1/balances", null, BalanceAccounts.serializer())
 

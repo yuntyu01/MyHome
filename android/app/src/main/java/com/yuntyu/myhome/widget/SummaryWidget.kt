@@ -234,7 +234,7 @@ private fun BudgetPage(context: Context, summary: Summary?) {
             Text(
                 "실패 ${summary.failedEvents}",
                 style = TextStyle(color = OverColor, fontSize = 12.sp, fontWeight = FontWeight.Bold),
-                modifier = GlanceModifier.padding(start = 6.dp),
+                modifier = GlanceModifier.padding(start = 6.dp).clickable(actionStartActivity(openIntent(context, "unread"))),
             )
         }
     }

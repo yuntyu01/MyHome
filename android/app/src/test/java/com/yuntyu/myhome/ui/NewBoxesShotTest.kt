@@ -14,6 +14,7 @@ import com.yuntyu.myhome.core.NoticePolicy
 import com.yuntyu.myhome.core.api.BalanceBrief
 import com.yuntyu.myhome.core.api.BalanceGap
 import com.yuntyu.myhome.core.api.PeriodInfo
+import com.yuntyu.myhome.core.api.RawEventDto
 import com.yuntyu.myhome.core.api.Summary
 import com.yuntyu.myhome.core.api.Totals
 import com.yuntyu.myhome.data.SummaryRepository
@@ -67,7 +68,7 @@ class NewBoxesShotTest {
         save("new-home-balance")
     }
 
-    @Test @Config(qualifiers = "w360dp-h900dp-night-xxhdpi")
+    @Test @Config(qualifiers = "w360dp-h1000dp-night-xxhdpi")
     fun gapsAndModes() {
         assumeTrue(System.getenv("SHOTS_OUT") != null)
         val apps = listOf(AppEntry("a.kb", "KB Pay", null), AppEntry("a.toss", "토스", null), AppEntry("a.cp", "쿠팡", null), AppEntry("a.kp", "카카오페이", null))
@@ -78,6 +79,7 @@ class NewBoxesShotTest {
                 FlatRow("1,015,000원", sub = "11/15 12:03 알림 기준", bold = true, chevron = false)
                 GapRow(BalanceGap(4, "2026-11-15T12:01:00+09:00", "2026-11-15T12:02:00+09:00", 1_070_000, 1_000_000, "다른상점", -50_000), false, {}, {})
                 GapRow(BalanceGap(6, "2026-11-15T12:02:00+09:00", "2026-11-15T12:03:00+09:00", 1_000_000, 1_015_000, "김철수", 5_000), false, {}, {})
+                UnreadRow(RawEventDto(3, "test.toss", "토스", "결제 내역을 확인해 주세요", "", "2026-11-15T03:03:00Z", "no amount"), "토스", false, {}, {})
                 SectionLabel("결제 알림 지우기")
                 ModeGroups(apps, { modes[it] ?: NoticePolicy.Mode.KNOWN }, ModeDrag()) { _, _ -> }
             }

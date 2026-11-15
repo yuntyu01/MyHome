@@ -612,3 +612,37 @@ func (a *API) listRawEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"raw_events": out})
 }
+
+// recordRawEvent는 POST /v1/raw-events/{id}/record다: 읽지 못한 알림을 금액·분류를 넣어 적는다(본문은 현금 입력과 같다).
+func (a *API) recordRawEvent(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		httpx.Error(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var in pipeline.Manual
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	t, err := a.Editor.RecordRaw(r.Context(), id, in)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, map[string]any{"transaction": fromTx(t, a.categoryName(r, t.CategoryID))})
+}
+
+// ignoreRawEvent는 POST /v1/raw-events/{id}/ignore다: 읽지 못한 알림을 "결제 아님"으로 치운다.
+func (a *API) ignoreRawEvent(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		httpx.Error(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.Editor.IgnoreRaw(r.Context(), id); err != nil {
+		a.fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true})
+}

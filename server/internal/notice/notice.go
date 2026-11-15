@@ -46,7 +46,9 @@ func (c Checker) State(ctx context.Context, q *dbq.Queries, rawEventID int64) (s
 	if raw.ProcessedAt == nil {
 		return Wait, nil
 	}
-	if raw.ParseError != nil || raw.IgnoreReason != nil {
+	// 사용자가 앱·웹에서 처리한 읽지 못한 알림(직접 적음·결제 아님)은 알아본 것으로 친다
+	userDone := pipeline.IsUserResolved(raw.IgnoreReason)
+	if !userDone && (raw.ParseError != nil || raw.IgnoreReason != nil) {
 		return Keep, nil
 	}
 	txs, err := q.ListTransactionsByRawEvent(ctx, &raw.ID)
@@ -54,8 +56,8 @@ func (c Checker) State(ctx context.Context, q *dbq.Queries, rawEventID int64) (s
 		return "", err
 	}
 	if len(txs) == 0 {
-		// 거래 없이 처리된 원문은 앱의 테스트 알림이다(지우는지 확인하는 용도라 지운다)
-		if strings.HasPrefix(strings.TrimSpace(raw.Title), pipeline.TestTitleMarker) {
+		// 거래 없이 처리된 원문: 사용자가 "결제 아님"으로 치운 것, 앱의 테스트 알림(지우는지 확인하는 용도)은 지운다
+		if userDone || strings.HasPrefix(strings.TrimSpace(raw.Title), pipeline.TestTitleMarker) {
 			return Dismiss, nil
 		}
 		return Keep, nil

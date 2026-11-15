@@ -87,6 +87,8 @@ enum class Screen(val title: String) {
     BODY("몸 기록"),
     /** 계좌 잔액(알림 기준)과 잔액이 안 맞는 빈 돈 */
     BALANCE("잔액"),
+    /** 읽지 못한 결제 알림: 적기·결제 아님(예전에는 웹 관리 화면) */
+    UNREAD("읽지 못한 알림"),
     /** 처음 설정(온보딩). 머리·하단바 없이 화면을 다 쓴다 */
     ONBOARDING(""),
     ;
@@ -189,6 +191,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             "transactions" -> { txTab = 0; txCategory = null; screen = Screen.TRANSACTIONS }
             "settings" -> screen = Screen.SETTINGS
             "budgets" -> { screen = Screen.SETTINGS; go(Screen.BUDGETS) }
+            "unread" -> { screen = Screen.HOME; go(Screen.UNREAD) }
             "apps" -> { screen = Screen.SETTINGS; go(Screen.APPS) }
             "health" -> screen = Screen.HEALTH
             "invest" -> screen = Screen.INVEST
@@ -287,6 +290,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                 Screen.BUDGETS -> BudgetsScreen(mod)
                 Screen.BODY -> BodyScreen(mod)
                 Screen.BALANCE -> BalanceScreen(mod)
+                Screen.UNREAD -> UnreadScreen(mod)
                 Screen.FOCUS -> FocusScreen(mod, resumeTick)
                 Screen.INVEST -> InvestScreen(mod, resumeTick, onNavigate = { go(it) })
                 Screen.INVEST_VALUE -> InvestValueScreen(mod)

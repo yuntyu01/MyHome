@@ -5,6 +5,7 @@ import com.yuntyu.myhome.core.api.Category
 import com.yuntyu.myhome.core.api.EventNotice
 import com.yuntyu.myhome.core.api.EventPayload
 import com.yuntyu.myhome.core.api.InvestAlerts
+import com.yuntyu.myhome.core.api.ManualTransaction
 import com.yuntyu.myhome.core.api.InvestStatus
 import com.yuntyu.myhome.core.api.InvestValue
 import com.yuntyu.myhome.core.api.MyHomeApi
@@ -80,6 +81,24 @@ class ApiTest {
         val req = server.takeRequest()
         assertEquals("POST", req.method)
         assertEquals("/v1/balances/gaps/4/ignore", req.path)
+    }
+
+    // 읽지 못한 알림: 목록, 적기(현금 입력과 같은 본문), 결제 아님
+    @Test fun unreadEvents() {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"raw_events":[{"id":3,"source_package":"test.toss","title":"합성","text":"결제 내역을 확인해 주세요","big_text":"","posted_at":"2026-11-15T12:00:00+09:00","parse_error":"no amount"}]}"""))
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"transaction":{"id":9,"occurred_at":"2026-11-15T12:00:00+09:00","amount":12000,"flow":"out","merchant":"합성","direction":"expense","status":"confirmed"}}"""))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ok":true}"""))
+        val a = api()
+        val e = (a.unreadEvents() as ApiResult.Ok).value.rawEvents.single()
+        assertEquals(3L, e.id)
+        assertEquals("test.toss", e.sourcePackage)
+        assertEquals("/v1/raw-events?failed=true&limit=50", server.takeRequest().path)
+        assertTrue(a.recordUnread(3, ManualTransaction(amount = 12000, merchant = "합성", categoryId = 1)) is ApiResult.Ok)
+        val rec = server.takeRequest()
+        assertEquals("/v1/raw-events/3/record", rec.path)
+        assertTrue(rec.body.readUtf8().contains("\"amount\":12000"))
+        assertTrue(a.ignoreUnread(3) is ApiResult.Ok)
+        assertEquals("/v1/raw-events/3/ignore", server.takeRequest().path)
     }
 
     @Test fun duplicateIsSent() {

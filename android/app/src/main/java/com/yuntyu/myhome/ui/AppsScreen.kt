@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.yuntyu.myhome.MyHomeApp
+import com.yuntyu.myhome.core.AppOrder
 import com.yuntyu.myhome.core.NoticePolicy
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -70,19 +71,9 @@ import kotlinx.coroutines.withContext
 
 internal class AppEntry(val pkg: String, val label: String, val icon: ImageBitmap?)
 
-/**
- * 이름에 이런 말이 들어간 앱을 "결제 앱 같아요"로 먼저 보여준다. 순서만 바꿀 뿐 고르는 건 사용자다
- * (패키지명은 코드에 박지 않는다: 앱 업데이트·지역에 따라 다를 수 있어서). docs/DECISIONS.md 「앱 화면 단순화」
- */
-private val PAY_WORDS = listOf(
-    "카드", "페이", "pay", "뱅크", "bank", "은행", "토스", "toss", "국민", "kb", "신한", "하나", "우리", "농협", "nh",
-    "기업", "ibk", "쿠팡", "coupang", "네이버", "카카오", "월렛", "wallet", "티머니", "증권", "머니", "money",
-)
-
-private fun payLike(label: String): Boolean = label.lowercase().let { l -> PAY_WORDS.any { l.contains(it) } }
 
 /**
- * 알림 읽을 앱 고르기: 폰에 깔린 앱(런처에 보이는 앱)을 보여준다. 결제 앱 같은 것을 먼저, 나머지는 펼치거나 검색해서 고른다.
+ * 알림 읽을 앱 고르기: 폰에 깔린 앱(런처에 보이는 앱)을 보여준다. 최근 알림 앱·은행·배달·쇼핑 앱을 먼저(AppOrder), 나머지는 펼치거나 검색해서 고른다.
  * 알림이 한 번도 안 온 앱도 고를 수 있어서 "목록이 비어 있어요" 상태가 없다. 고른 앱의 알림만 읽는다.
  */
 @Composable
@@ -93,6 +84,7 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
     val settings by app.settings.state.collectAsState()
     val recent by remember { app.db.recentApps().all() }.collectAsState(initial = emptyList())
     val counts = recent.associate { it.packageName to it.count }
+    val lastSeen = recent.associate { it.packageName to it.lastSeenAt }
     var query by rememberSaveable { mutableStateOf("") }
     var showAll by rememberSaveable { mutableStateOf(false) }
     val installed by produceState<List<AppEntry>?>(null) { value = withContext(Dispatchers.IO) { loadInstalled(ctx) } }
@@ -105,16 +97,23 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
         list + extra.map { pkg -> AppEntry(pkg, recent.firstOrNull { it.packageName == pkg }?.appLabel ?: pkg, null) }
     }
     val q = query.trim().lowercase()
-    // 화면을 열 때 이미 고른 앱도 위에 둔다. 고르는 도중에는 순서를 바꾸지 않는다(누른 줄이 튀지 않게)
+    // 화면을 열 때 이미 고른 앱도 위에 둔다. 고르는 도중에는 순서를 바꾸지 않는다(누른 줄이 튀지 않게):
+    // 앱 목록·최근 알림 기록이 처음 들어왔을 때만 다시 정한다
     val pinned = remember(installed == null) { selected }
-    val (likely, others) = all.partition { payLike(it.label) || it.pkg in pinned }
+    val (likely, others) = remember(installed == null, recent.isEmpty(), all.size) {
+        val byPkg = all.associateBy { it.pkg }
+        val (top, rest) = AppOrder.split(all.map { AppOrder.App(it.pkg, it.label, lastSeen[it.pkg] ?: 0L) }, pinned, System.currentTimeMillis())
+        top.mapNotNull { byPkg[it.pkg] } to rest.mapNotNull { byPkg[it.pkg] }
+    }
     fun toggle(pkg: String) = app.settings.setPackageSelected(pkg, pkg !in selected)
     val drag = remember { ModeDrag() }
 
     Box(modifier.fillMaxSize().onGloballyPositioned { drag.rootWin = it.positionInWindow() }) {
     Column(Modifier.fillMaxSize()) {
+        // 항목마다 key를 준다: 검색어를 치면 위 칸들이 사라지는데, key가 없으면 검색칸이 새로 만들어져
+        // 한 글자("ㅂ")마다 키보드가 내려갔다(2026-11-15)
         LazyColumn(Modifier.weight(1f)) {
-            item {
+            item(key = "title") {
                 Column(Modifier.padding(start = Gutter, end = Gutter, top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("결제 알림이 오는 앱을\n골라 주세요", fontSize = 24.sp, fontWeight = FontWeight.Bold, lineHeight = 33.sp)
                     Text("고른 앱 알림만 읽어요", fontSize = 15.sp, color = m.muted, lineHeight = 22.sp)
@@ -133,7 +132,7 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
             }
             // 고른 앱마다: 알림이 실제로 오고 있는지, 안 오면 켜는 곳(폰 설정 + 앱 안 설정)
             if (q.isEmpty() && installed != null && selected.isNotEmpty()) {
-                item {
+                item(key = "check-title") {
                     SectionLabel(
                         "고른 앱 알림 확인",
                         help = "결제 알림을 읽으려면 두 곳이 켜져 있어야 해요. 폰 설정의 그 앱 알림, 그리고 그 앱 안의 결제(승인) 알림이에요. 줄을 누르면 폰 설정이 열려요.",
@@ -151,23 +150,23 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
                         onClick = { openAppNotificationSettings(ctx, a.pkg) },
                     )
                 }
-                item { Hairline(Modifier.padding(top = 8.dp)) }
+                item(key = "check-end") { Hairline(Modifier.padding(top = 8.dp)) }
             }
-            item { SearchBox(query) { query = it } }
+            item(key = "search") { SearchBox(query) { query = it } }
             when {
-                installed == null -> item { EmptyNote("폰에 있는 앱을 찾는 중이에요") }
+                installed == null -> item(key = "loading") { EmptyNote("폰에 있는 앱을 찾는 중이에요") }
                 q.isNotEmpty() -> {
                     val found = all.filter { it.label.lowercase().contains(q) || it.pkg.lowercase().contains(q) }
-                    if (found.isEmpty()) item { EmptyNote("'$query' 이름의 앱이 없어요") }
+                    if (found.isEmpty()) item(key = "none") { EmptyNote("'$query' 이름의 앱이 없어요") }
                     items(found, key = { it.pkg }) { a -> AppRow(a, a.pkg in selected, counts[a.pkg] ?: 0) { toggle(a.pkg) } }
                 }
                 else -> {
                     // 결제 앱 같은 게 없으면 접지 않고 전부 보여준다
                     val first = likely.ifEmpty { others }
-                    item { SectionLabel(if (likely.isEmpty()) "이 폰의 앱" else "결제 앱 같아요") }
+                    item(key = "first-title") { SectionLabel(if (likely.isEmpty()) "이 폰의 앱" else "최근 알림·결제·배달 앱") }
                     items(first, key = { it.pkg }) { a -> AppRow(a, a.pkg in selected, counts[a.pkg] ?: 0) { toggle(a.pkg) } }
                     if (likely.isNotEmpty() && others.isNotEmpty()) {
-                        item {
+                        item(key = "more") {
                             Hairline(Modifier.padding(top = 8.dp))
                             FlatRow(
                                 if (showAll) "다른 앱 접기" else "다른 앱 모두 보기",

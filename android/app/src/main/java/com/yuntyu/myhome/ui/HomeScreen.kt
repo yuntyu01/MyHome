@@ -38,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -266,7 +265,6 @@ internal fun InUseHome(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val m = LocalModo.current
-    val uri = LocalUriHandler.current
     var refreshing by remember { mutableStateOf(false) }
     val refresh: () -> Unit = { scope.launch { refreshing = true; WidgetRefresher.refresh(ctx); refreshing = false } }
     PullToRefreshBox(
@@ -396,16 +394,15 @@ internal fun InUseHome(
                 }
             }
 
-            // 읽지 못한 결제 알림: 홈 맨 밑(사용자 요청, 2026-11-15). 누르면 웹 관리 화면의 '읽지 못한 알림' 탭(서버 주소가 있을 때)
+            // 읽지 못한 결제 알림: 홈 맨 밑(사용자 요청, 2026-11-15). 누르면 앱 안에서 적기·결제 아님(예전에는 웹 관리 화면)
             if (!pastMonth && s.failedEvents > 0) {
-                val admin = serverUrl?.trimEnd('/')?.let { "$it/admin?tab=failed" }
                 Spacer(Modifier.height(CardGap))
                 HomeCard {
                     FlatRow(
                         "읽지 못한 결제 알림 ${s.failedEvents}건",
-                        help = "금액을 못 찾아서 가계부에 안 적힌 알림이에요. ${if (admin != null) "눌러서 " else ""}웹 관리 화면에서 볼 수 있어요. 원문은 남아 있어서 읽는 방법을 고치면 다시 적을 수 있어요.",
+                        help = "금액을 못 찾아서 가계부에 안 적힌 알림이에요. 눌러서 금액을 넣어 적거나 결제가 아니면 치우세요.",
                         leading = { Dot(m.warn) },
-                        onClick = admin?.let { a -> { runCatching { uri.openUri(a) } } },
+                        onClick = { onNavigate(Screen.UNREAD) },
                     )
                 }
             }

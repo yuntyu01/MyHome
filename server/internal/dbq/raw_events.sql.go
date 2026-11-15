@@ -14,7 +14,7 @@ const countAttentionRawEvents = `-- name: CountAttentionRawEvents :one
 SELECT count(*)
 FROM raw_events
 WHERE received_at >= $1
-  AND (parse_error IS NOT NULL OR (processed_at IS NULL AND received_at < $2))
+  AND ((parse_error IS NOT NULL AND ignore_reason IS NULL) OR (processed_at IS NULL AND received_at < $2))
 `
 
 type CountAttentionRawEventsParams struct {
@@ -158,11 +158,13 @@ func (q *Queries) InsertRawEvent(ctx context.Context, arg InsertRawEventParams) 
 const listFailedRawEvents = `-- name: ListFailedRawEvents :many
 SELECT id, device_id, source_package, title, text, big_text, posted_at, received_at, content_hash, processed_at, parse_error, ignore_reason
 FROM raw_events
-WHERE parse_error IS NOT NULL
+WHERE parse_error IS NOT NULL AND ignore_reason IS NULL
 ORDER BY posted_at DESC
 LIMIT $1
 `
 
+// 읽지 못한 알림 중 아직 처리 안 한 것. 사용자가 적었거나 "결제 아님"으로 치운 것(ignore_reason)은 뺀다
+// (parse_error는 파서 보정용으로 그대로 남는다).
 func (q *Queries) ListFailedRawEvents(ctx context.Context, limit int32) ([]RawEvent, error) {
 	rows, err := q.db.Query(ctx, listFailedRawEvents, limit)
 	if err != nil {
@@ -353,4 +355,24 @@ WHERE id = ANY ($1::bigint[])
 func (q *Queries) ResetRawEventProcessing(ctx context.Context, ids []int64) error {
 	_, err := q.db.Exec(ctx, resetRawEventProcessing, ids)
 	return err
+}
+
+const resolveRawEvent = `-- name: ResolveRawEvent :execrows
+UPDATE raw_events
+SET ignore_reason = $1, processed_at = COALESCE(processed_at, now())
+WHERE id = $2 AND parse_error IS NOT NULL AND ignore_reason IS NULL
+`
+
+type ResolveRawEventParams struct {
+	Reason *string `json:"reason"`
+	ID     int64   `json:"id"`
+}
+
+// 읽지 못한 알림을 사용자가 처리했다(적음 또는 결제 아님). parse_error는 남긴다.
+func (q *Queries) ResolveRawEvent(ctx context.Context, arg ResolveRawEventParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resolveRawEvent, arg.Reason, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

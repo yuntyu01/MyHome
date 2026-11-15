@@ -234,3 +234,89 @@ func (ed *Editor) CreateManual(ctx context.Context, in Manual, now time.Time) (d
 		Direction: DirectionFor(c), CategoryID: &cid, Status: "confirmed", Source: "manual", Kind: "manual", ManuallyEdited: true,
 	})
 }
+
+// UserResolvedPrefix로 시작하는 ignore_reason은 사용자가 읽지 못한 알림을 앱·웹에서 처리했다는 뜻이다(2026-11-15).
+// 재처리는 이런 원문을 건너뛴다(사용자 결정을 지우지 않게). parse_error는 파서 보정용으로 남는다.
+const UserResolvedPrefix = "사용자: "
+
+const (
+	ResolvedRecorded = UserResolvedPrefix + "직접 적음"
+	ResolvedNotPay   = UserResolvedPrefix + "결제 아님"
+)
+
+// IsUserResolved는 사용자가 처리한 원문인지 본다.
+func IsUserResolved(ignoreReason *string) bool {
+	return ignoreReason != nil && strings.HasPrefix(*ignoreReason, UserResolvedPrefix)
+}
+
+// ErrRawResolved는 이미 처리했거나 읽지 못한 알림이 아닐 때다.
+var ErrRawResolved = invalid("이미 처리한 알림이에요")
+
+// RecordRaw는 읽지 못한 알림을 사용자가 금액·분류를 넣어 적는다. 거래는 그 원문에 달리고(raw_event_id) 시각은 알림 시각이다.
+// 사용자가 만든 거래라 재처리가 지우지 않는다(manually_edited).
+func (ed *Editor) RecordRaw(ctx context.Context, rawID int64, in Manual) (dbq.Transaction, error) {
+	if in.Amount <= 0 {
+		return dbq.Transaction{}, invalid("금액은 1원 이상이어야 합니다")
+	}
+	var out dbq.Transaction
+	err := db.InTx(ctx, ed.Pool, func(tx pgx.Tx) error {
+		q := dbq.New(tx)
+		raw, err := q.GetRawEvent(ctx, rawID)
+		if err != nil {
+			return err // 없는 원문은 pgx.ErrNoRows → 404
+		}
+		c, err := q.GetCategory(ctx, in.CategoryID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return invalid("없는 분류입니다")
+		}
+		if err != nil {
+			return err
+		}
+		flow := in.Flow
+		if flow == "" {
+			flow = "out"
+			if c.Kind == "income" {
+				flow = "in"
+			}
+		}
+		if flow != "out" && flow != "in" {
+			return invalid("flow는 out 또는 in")
+		}
+		n, err := q.ResolveRawEvent(ctx, dbq.ResolveRawEventParams{ID: rawID, Reason: ptr(ResolvedRecorded)})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrRawResolved
+		}
+		at := raw.PostedAt
+		if in.OccurredAt != nil {
+			at = *in.OccurredAt
+		}
+		merchant := strings.TrimSpace(in.Merchant)
+		if merchant == "" {
+			merchant = strings.TrimSpace(raw.Title)
+		}
+		cid, id := c.ID, raw.ID
+		out, err = q.InsertTransaction(ctx, dbq.InsertTransactionParams{
+			RawEventID: &id, OccurredAt: at, Amount: in.Amount, Flow: flow, Merchant: merchant, Memo: strings.TrimSpace(in.Memo),
+			Direction: DirectionFor(c), CategoryID: &cid, Status: "confirmed", Source: "manual", Kind: "manual", ManuallyEdited: true,
+		})
+		return err
+	})
+	return out, err
+}
+
+// IgnoreRaw는 읽지 못한 알림을 "결제 아님"으로 치운다.
+func (ed *Editor) IgnoreRaw(ctx context.Context, rawID int64) error {
+	n, err := dbq.New(ed.Pool).ResolveRawEvent(ctx, dbq.ResolveRawEventParams{ID: rawID, Reason: ptr(ResolvedNotPay)})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrRawResolved
+	}
+	return nil
+}
+
+func ptr(s string) *string { return &s }

@@ -32,6 +32,21 @@ data class EventResponse(
     val notice: String? = null,
 )
 
+/** 읽지 못한 알림 원문(GET /v1/raw-events?failed=true). postedAt은 ISO-8601 */
+@Serializable
+data class RawEventDto(
+    val id: Long,
+    @SerialName("source_package") val sourcePackage: String = "",
+    val title: String = "",
+    val text: String = "",
+    @SerialName("big_text") val bigText: String = "",
+    @SerialName("posted_at") val postedAt: String = "",
+    @SerialName("parse_error") val parseError: String? = null,
+)
+
+@Serializable
+data class RawEventList(@SerialName("raw_events") val rawEvents: List<RawEventDto> = emptyList())
+
 /** GET /v1/events/notice 응답의 한 줄. */
 @Serializable
 data class EventNotice(val id: Long, val notice: String)

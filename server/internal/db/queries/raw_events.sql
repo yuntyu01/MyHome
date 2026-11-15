@@ -29,11 +29,19 @@ SET processed_at  = now(),
 WHERE id = $1;
 
 -- name: ListFailedRawEvents :many
+-- 읽지 못한 알림 중 아직 처리 안 한 것. 사용자가 적었거나 "결제 아님"으로 치운 것(ignore_reason)은 뺀다
+-- (parse_error는 파서 보정용으로 그대로 남는다).
 SELECT *
 FROM raw_events
-WHERE parse_error IS NOT NULL
+WHERE parse_error IS NOT NULL AND ignore_reason IS NULL
 ORDER BY posted_at DESC
 LIMIT $1;
+
+-- name: ResolveRawEvent :execrows
+-- 읽지 못한 알림을 사용자가 처리했다(적음 또는 결제 아님). parse_error는 남긴다.
+UPDATE raw_events
+SET ignore_reason = @reason, processed_at = COALESCE(processed_at, now())
+WHERE id = @id AND parse_error IS NOT NULL AND ignore_reason IS NULL;
 
 -- name: ListRawEvents :many
 SELECT *
@@ -67,4 +75,4 @@ WHERE id = ANY (@ids::bigint[]);
 SELECT count(*)
 FROM raw_events
 WHERE received_at >= @since
-  AND (parse_error IS NOT NULL OR (processed_at IS NULL AND received_at < @stale_before));
+  AND ((parse_error IS NOT NULL AND ignore_reason IS NULL) OR (processed_at IS NULL AND received_at < @stale_before));

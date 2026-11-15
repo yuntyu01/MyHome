@@ -77,9 +77,13 @@ func (p *Processor) Reprocess(ctx context.Context, from, to time.Time, apply boo
 			}
 		}
 
-		// 사용자가 고친 거래가 달린 원문은 건너뛴다.
+		// 사용자가 고친 거래가 달린 원문, 사용자가 처리한 읽지 못한 알림("결제 아님" 등)은 건너뛴다.
 		var todo []dbq.RawEvent
 		for _, r := range rawByID {
+			if IsUserResolved(r.IgnoreReason) {
+				rep.SkippedManual++
+				continue
+			}
 			all, err := q.ListTransactionsByRawEvent(ctx, &r.ID)
 			if err != nil {
 				return err
