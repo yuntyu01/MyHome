@@ -14,6 +14,7 @@ import (
 	"github.com/yuntyu01/MyHome/server/internal/httpx"
 	"github.com/yuntyu01/MyHome/server/internal/invest"
 	"github.com/yuntyu01/MyHome/server/internal/invest/store"
+	"github.com/yuntyu01/MyHome/server/internal/period"
 )
 
 // 투자 화면 — 자동매매(internal/invest) 상태를 DB에서 읽기만 한다.
@@ -81,25 +82,30 @@ type investLedgerRow struct {
 // investValue는 평가 화면이다.
 // 앱은 GET /v1/invest/value로 같은 값을 받는다.
 type investValue struct {
-	Migrated       bool              `json:"migrated"`
-	Symbol         string            `json:"symbol"`
-	Shares         int               `json:"shares"`
-	PriceStale     bool              `json:"price_stale"`
-	LastPriceDay   string            `json:"last_price_day"`
-	LastPriceLabel string            `json:"last_price_label"`
-	CanValue       bool              `json:"can_value"`
-	Why            string            `json:"why"` // 평가할 수 없는 이유
-	NetKRW         int64             `json:"net_krw"`
-	Basis          string            `json:"basis"` // 평가에 쓴 종가·환율과 그 날짜
-	ContributedKRW int64             `json:"contributed_krw"`
-	GainKRW        int64             `json:"gain_krw"`
-	GainPct        string            `json:"gain_pct"`
-	TaxKRW         int64             `json:"tax_krw"`
-	CashUSD        string            `json:"cash_usd"`
-	Ledger         []investLedgerRow `json:"ledger"`
-	LedgerSum      int64             `json:"ledger_sum"`
-	LedgerGap      int64             `json:"ledger_gap"`
-	LedgerBad      bool              `json:"ledger_bad"`
+	Migrated       bool   `json:"migrated"`
+	Symbol         string `json:"symbol"`
+	Shares         int    `json:"shares"`
+	PriceStale     bool   `json:"price_stale"`
+	LastPriceDay   string `json:"last_price_day"`
+	LastPriceLabel string `json:"last_price_label"`
+	CanValue       bool   `json:"can_value"`
+	Why            string `json:"why"` // 평가할 수 없는 이유
+	NetKRW         int64  `json:"net_krw"`
+	Basis          string `json:"basis"` // 평가에 쓴 종가·환율과 그 날짜
+	ContributedKRW int64  `json:"contributed_krw"`
+	GainKRW        int64  `json:"gain_krw"`
+	GainPct        string `json:"gain_pct"`
+	TaxKRW         int64  `json:"tax_krw"`
+	CashUSD        string `json:"cash_usd"`
+	// 증권사(토스)가 마지막으로 알려 준 주문가능 현금과 그 시각(매매 작업이 남긴 값, 웹은 토스를 부르지 않는다).
+	// 아직 없으면 빈 값. CashGapUSD는 증권사 − 장부(1달러 미만이면 빈 값): 배당·앱 밖 입금·수동 매매 등 장부가 놓친 돈이다
+	BrokerCashUSD string            `json:"broker_cash_usd"`
+	BrokerCashAt  string            `json:"broker_cash_at"`
+	CashGapUSD    string            `json:"cash_gap_usd"`
+	Ledger        []investLedgerRow `json:"ledger"`
+	LedgerSum     int64             `json:"ledger_sum"`
+	LedgerGap     int64             `json:"ledger_gap"`
+	LedgerBad     bool              `json:"ledger_bad"`
 }
 
 // ---- 핸들러 ----
@@ -184,7 +190,25 @@ func (wb *Web) loadInvestValue(ctx context.Context) (investValue, error) {
 	if err != nil {
 		return investValue{}, err
 	}
-	return buildInvestValue(time.Now(), pos, prices, ledger), nil
+	v := buildInvestValue(time.Now(), pos, prices, ledger)
+	// 표시용이라 못 읽어도 화면은 그대로 보여 준다
+	if cash, at, ok, err := st.LastBrokerCash(ctx); err == nil && ok {
+		v.addBrokerCash(pos.Holdings.CashUSD, cash, at)
+	}
+	return v, nil
+}
+
+// addBrokerCash는 증권사 주문가능 현금과 장부 현금 차이를 붙인다.
+func (v *investValue) addBrokerCash(ledgerUSD, brokerUSD float64, at time.Time) {
+	v.BrokerCashUSD = usd(brokerUSD)
+	v.BrokerCashAt = at.In(period.KST).Format("1/2 15:04")
+	if d := brokerUSD - ledgerUSD; math.Abs(d) >= 1 {
+		sign := "+"
+		if d < 0 {
+			sign = "-"
+		}
+		v.CashGapUSD = sign + usd(math.Abs(d))
+	}
 }
 
 // investInputs는 첫 화면이 position 말고 더 읽는 것이다.

@@ -20,16 +20,15 @@ class NoticeCheckWorker(context: Context, params: WorkerParameters) : CoroutineW
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val app = applicationContext as MyHomeApp
         val dao = app.db.heldNotices()
-        if (!app.settings.autoDelete) {
-            dao.clear()
-            return@withContext Result.success()
-        }
         val now = System.currentTimeMillis()
         dao.deleteSentBefore(now - NoticePolicy.FORGET_AFTER_MS)
         // 수집기가 안 붙어 있으면 지울 수도, 떠 있는지 볼 수도 없다. 다음 전송·주기 작업 때 다시 본다
         val active = CaptureService.activePostTimes() ?: return@withContext Result.success()
         val held = dao.oldest(NoticePolicy.MAX_IDS)
-        val gone = held.filter { active[it.notificationKey] != it.postedAt }
+        // 붙든 뒤 그 앱 방식을 바꿨으면 바꾼 대로: 다 지움이면 지금 지우고, 안 지움이면 잊는다
+        val modes = held.associate { it.rawEventId to app.settings.deleteModeOf(it.packageName) }
+        for (h in held) if (modes[h.rawEventId] == NoticePolicy.Mode.ALL) CaptureService.dismiss(h.notificationKey, h.postedAt)
+        val gone = held.filter { active[it.notificationKey] != it.postedAt || modes[it.rawEventId] != NoticePolicy.Mode.KNOWN }
         if (gone.isNotEmpty()) dao.delete(gone.map { it.rawEventId })
         val ask = held - gone.toSet()
         if (ask.isEmpty()) return@withContext Result.success()

@@ -379,6 +379,23 @@ internal fun InUseHome(
                 )
             }
 
+            // 계좌 잔액(알림 기준)과 빈 돈(사용자 요청, 2026-11-15). 누르면 빈 돈 채우기·무시
+            if (!pastMonth && s.balances.isNotEmpty()) {
+                Spacer(Modifier.height(CardGap))
+                HomeCard {
+                    for (b in s.balances) {
+                        FlatRow(
+                            b.label,
+                            sub = if (b.openGaps > 0) "빈 돈 ${b.openGaps}건" else null,
+                            subColor = if (b.openGaps > 0) m.warn else null,
+                            value = Money.won(b.balance),
+                            leading = if (b.openGaps > 0) ({ Dot(m.warn) }) else null,
+                            onClick = { onNavigate(Screen.BALANCE) },
+                        )
+                    }
+                }
+            }
+
             // 읽지 못한 결제 알림: 홈 맨 밑(사용자 요청, 2026-11-15). 누르면 웹 관리 화면의 '읽지 못한 알림' 탭(서버 주소가 있을 때)
             if (!pastMonth && s.failedEvents > 0) {
                 val admin = serverUrl?.trimEnd('/')?.let { "$it/admin?tab=failed" }

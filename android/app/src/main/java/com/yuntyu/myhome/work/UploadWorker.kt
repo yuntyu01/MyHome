@@ -46,17 +46,17 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                     UploadDecision.SENT -> {
                         dao.delete(e.id)
                         app.db.sendLog().add(SendLogEntry(at = now(), packageName = e.packageName, success = true, message = msg))
-                        if (app.settings.autoDelete) {
-                            // 가계부가 알아본 결제만 지운다. 아직 모르는 것(AI 판정 전·못 읽음)은 붙들어 두고 다시 묻는다
-                            val resp = (result as ApiResult.Ok).value
-                            if (NoticePolicy.dismissNow(resp.notice)) {
-                                CaptureService.dismiss(e.notificationKey, e.postedAt)
-                            } else {
+                        // 앱마다 방식대로: 다 지움 / 알아본 것만(아직 모르는 것은 붙들어 두고 다시 묻는다) / 안 지움
+                        val resp = (result as ApiResult.Ok).value
+                        when (NoticePolicy.afterSend(app.settings.deleteModeOf(e.packageName), resp.notice)) {
+                            NoticePolicy.Action.DISMISS -> CaptureService.dismiss(e.notificationKey, e.postedAt)
+                            NoticePolicy.Action.HOLD -> {
                                 app.db.heldNotices().upsert(
                                     HeldNotice(resp.id, e.notificationKey, e.packageName, e.postedAt, now(), resp.notice.orEmpty()),
                                 )
                                 heldAny = true
                             }
+                            NoticePolicy.Action.LEAVE -> Unit
                         }
                         app.settings.authProblem = null
                         sentAny = true

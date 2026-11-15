@@ -17,6 +17,14 @@ type AppLinkCode struct {
 	UsedAt    *time.Time `json:"used_at"`
 }
 
+type BalanceGapMark struct {
+	ToTransactionID     int64     `json:"to_transaction_id"`
+	Gap                 int64     `json:"gap"`
+	Resolution          string    `json:"resolution"`
+	FilledTransactionID *int64    `json:"filled_transaction_id"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
 type BodyWeight struct {
 	Day       time.Time `json:"day"`
 	WeightKg  float64   `json:"weight_kg"`
@@ -129,6 +137,13 @@ type InvestAlert struct {
 	ExitCode  *int32    `json:"exit_code"`
 	Title     string    `json:"title"`
 	Body      string    `json:"body"`
+}
+
+type InvestBrokerCash struct {
+	ID        int64     `json:"id"`
+	CashUsd   float64   `json:"cash_usd"`
+	Cmd       string    `json:"cmd"`
+	FetchedAt time.Time `json:"fetched_at"`
 }
 
 type InvestContribution struct {

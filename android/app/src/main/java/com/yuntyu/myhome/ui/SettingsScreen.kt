@@ -82,7 +82,15 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
 
         SectionLabel("알림")
         SwitchRow("예산 80% 알림", settings.budgetAlerts, help = "예산의 80%를 넘을 때와 다 썼을 때 소리 없이 알려요.") { app.settings.setBudgetAlerts(it) }
-        SwitchRow("적은 결제 알림 지우기", settings.autoDelete, help = "가계부가 알아본 결제만 카드·은행 앱의 원래 알림을 치워요. 못 읽었거나 분류를 모르는 알림은 남겨요(AI 판정 뒤, 직접 분류하면 치워요).") { app.settings.setAutoDelete(it) }
+        // 앱마다 지우기 방식은 "알림 읽을 앱"에서 묶음으로 끌어 넣어 고른다(사용자 요청, 2026-11-15)
+        val modeCounts = settings.selectedPackages.groupingBy { settings.modeOf(it) }.eachCount()
+        FlatRow(
+            "결제 알림 지우기",
+            value = com.yuntyu.myhome.core.NoticePolicy.Mode.entries.filter { (modeCounts[it] ?: 0) > 0 }
+                .joinToString(" · ") { "${it.label} ${modeCounts[it]}" }.ifEmpty { "앱을 골라 주세요" },
+            help = "앱마다 고르는 방식이에요. 다 지움: 보낸 알림은 전부 치워요. 알아본 것만: 가계부가 알아본 결제만 치우고, 못 읽었거나 분류를 모르는 건 AI 판정 뒤나 직접 분류하면 치워요. 안 지움: 그대로 둬요.",
+            onClick = { onNavigate(Screen.APPS) },
+        )
 
         SectionLabel("건강")
         FlatRow("끼니 시간과 목표", onClick = { onNavigate(Screen.HEALTH_SETTINGS) })

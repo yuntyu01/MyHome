@@ -399,3 +399,64 @@ func TestEventNotice(t *testing.T) {
 		t.Errorf("AI 켜짐: %v", r["notice"])
 	}
 }
+
+// 토스뱅크 알림 잔액으로 빈 돈을 찾고(요약·목록), 채우면 확인 필요 거래가 생기고 빈 돈이 닫힌다. 무시도 닫는다
+func TestBalanceGaps(t *testing.T) {
+	c := newClient(t)
+	now := time.Now().Add(-time.Hour)
+	c.event("test.toss", "토스뱅크", "입금 100,000원 | 홍길동\n잔액 1,100,000원", now)
+	c.event("test.toss", "토스뱅크", "출금 30,000원 | 테스트상점\n잔액 1,070,000원", now.Add(time.Minute))
+	c.event("test.toss", "토스뱅크", "출금 20,000원 | 다른상점\n잔액 1,000,000원", now.Add(2*time.Minute)) // 50,000 놓침
+	c.event("test.toss", "토스뱅크", "입금 10,000원 | 김철수\n잔액 1,015,000원", now.Add(3*time.Minute))  // 5,000 놓침
+
+	var sum struct {
+		Balances []struct {
+			Label    string
+			Balance  int64
+			OpenGaps int `json:"open_gaps"`
+		}
+		NeedsReview int64 `json:"needs_review"`
+	}
+	if code := c.do("GET", "/v1/summary", nil, &sum); code != 200 {
+		t.Fatalf("summary %d", code)
+	}
+	if len(sum.Balances) != 1 || sum.Balances[0].Label != "토스뱅크" || sum.Balances[0].Balance != 1_015_000 || sum.Balances[0].OpenGaps != 2 {
+		t.Fatalf("요약 잔액 %+v", sum.Balances)
+	}
+	review := sum.NeedsReview
+
+	type gap struct {
+		ToID   int64 `json:"to_id"`
+		Amount int64
+	}
+	var list struct {
+		Accounts []struct{ Gaps []gap }
+	}
+	if code := c.do("GET", "/v1/balances", nil, &list); code != 200 || len(list.Accounts) != 1 || len(list.Accounts[0].Gaps) != 2 {
+		t.Fatalf("목록 %d %+v", code, list)
+	}
+	in, out := list.Accounts[0].Gaps[0], list.Accounts[0].Gaps[1] // 최근 것부터
+	if in.Amount != 5_000 || out.Amount != -50_000 {
+		t.Fatalf("빈 돈 %+v %+v", in, out)
+	}
+
+	var filled struct {
+		Transaction map[string]any
+	}
+	if code := c.do("POST", fmt.Sprintf("/v1/balances/gaps/%d/fill", out.ToID), nil, &filled); code != 201 {
+		t.Fatalf("채우기 %d", code)
+	}
+	tx := filled.Transaction
+	if tx["amount"].(float64) != 50_000 || tx["flow"] != "out" || tx["status"] != "needs_review" || tx["review_reason"] != "balance_gap" || tx["merchant"] != "토스뱅크 빈 돈" {
+		t.Fatalf("채운 거래 %+v", tx)
+	}
+	if code := c.do("POST", fmt.Sprintf("/v1/balances/gaps/%d/fill", out.ToID), nil, nil); code != 409 {
+		t.Errorf("두 번 채우기 %d", code)
+	}
+	if code := c.do("POST", fmt.Sprintf("/v1/balances/gaps/%d/ignore", in.ToID), nil, nil); code != 200 {
+		t.Fatalf("무시 %d", code)
+	}
+	if code := c.do("GET", "/v1/summary", nil, &sum); code != 200 || sum.Balances[0].OpenGaps != 0 || sum.NeedsReview != review+1 {
+		t.Fatalf("처리 뒤 %+v review=%d→%d", sum.Balances, review, sum.NeedsReview)
+	}
+}

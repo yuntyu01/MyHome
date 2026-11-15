@@ -46,6 +46,11 @@ data class InvestValue(
     @SerialName("gain_pct") val gainPct: String = "",
     @SerialName("tax_krw") val taxKrw: Long = 0,
     @SerialName("cash_usd") val cashUsd: String = "",
+    /** 토스가 마지막으로 알려 준 주문가능 현금("$300.51")과 그 시각("11/16 11:23"). 아직 없으면 빈 값 */
+    @SerialName("broker_cash_usd") val brokerCashUsd: String = "",
+    @SerialName("broker_cash_at") val brokerCashAt: String = "",
+    /** 토스 − 장부("+$14.50"). 1달러 미만이면 빈 값 */
+    @SerialName("cash_gap_usd") val cashGapUsd: String = "",
     val ledger: List<InvestLedgerRow>? = null,
     @SerialName("ledger_sum") val ledgerSum: Long = 0,
     @SerialName("ledger_gap") val ledgerGap: Long = 0,

@@ -63,6 +63,25 @@ class ApiTest {
         assertEquals("/v1/events/notice?ids=8,9", req.path)
     }
 
+    // 잔액·빈 돈: 목록을 읽고 채우기·무시는 빈 돈 뒤 거래 id로 부른다
+    @Test fun balanceGaps() {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"accounts":[{"source":"toss","label":"토스뱅크","balance":1015000,"at":"2026-11-15T12:03:00+09:00","gaps":[{"to_id":4,"from_id":2,"from_at":"2026-11-15T12:01:00+09:00","to_at":"2026-11-15T12:02:00+09:00","from_balance":1070000,"to_balance":1000000,"to_merchant":"다른상점","amount":-50000}]}]}"""))
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"transaction":{"id":9}}"""))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ok":true}"""))
+        val a = api()
+        val acct = (a.balances() as ApiResult.Ok).value.accounts.single()
+        assertEquals("토스뱅크", acct.label)
+        assertEquals(-50000L, acct.gaps.single().amount)
+        assertEquals(4L, acct.gaps.single().toId)
+        server.takeRequest()
+        assertTrue(a.fillBalanceGap(4) is ApiResult.Ok)
+        assertEquals("/v1/balances/gaps/4/fill", server.takeRequest().path)
+        assertTrue(a.ignoreBalanceGap(4) is ApiResult.Ok)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/v1/balances/gaps/4/ignore", req.path)
+    }
+
     @Test fun duplicateIsSent() {
         server.enqueue(MockResponse().setResponseCode(200).setBody("""{"id":7,"duplicate":true}"""))
         val r = api().postEvent(payload)

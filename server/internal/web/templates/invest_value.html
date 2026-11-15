@@ -21,6 +21,7 @@
   <div class="card stat"><span class="label">세후 손익</span>{{if .CanValue}}<span class="value {{if lt .GainKRW 0}}neg{{end}}">{{plus .GainKRW}}원</span>{{if .GainPct}}<span class="sub">{{.GainPct}}</span>{{end}}{{else}}<span class="value muted">—</span>{{end}}</div>
   <div class="card stat"><span class="label">미납 세금</span><span class="value">{{won .TaxKRW}}</span><span class="sub">평가액에서 뺐어요</span></div>
   <div class="card stat"><span class="label">현금</span><span class="value">{{.CashUSD}}</span><span class="sub">다음 달로 이월</span></div>
+  {{if .BrokerCashUSD}}<div class="card stat"><span class="label">토스 주문가능</span><span class="value">{{.BrokerCashUSD}}</span><span class="sub">{{.BrokerCashAt}} 기준{{if .CashGapUSD}} · <span class="neg">장부와 {{.CashGapUSD}}</span>{{end}}</span></div>{{end}}
 </section>
 
 <section class="card">

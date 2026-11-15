@@ -278,6 +278,7 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		if err != nil {
 			return a.fail(ExitFail, "매도 전 잔고 조회 실패: %v", err)
 		}
+		a.noteCash(ctx, bal.CashUSD)
 		real := bal.SharesOf(sym)
 		if real != qty {
 			a.printf("⚠ 남은 장부 %d주 vs 증권사 %d주 — 실제 보유 전량을 판다", qty, real)
@@ -332,6 +333,7 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		if err != nil {
 			return a.fail(ExitFail, "매수가능금액 조회 실패: %v\n  얼마나 살 수 있는지 모르는 채로 주문하지 않는다", err)
 		}
+		a.noteCash(ctx, b.CashUSD)
 		// 매도 체결을 확인한 바로 그 실행에서 사는 것은 매도대금이 주문가능금액에 들어와 있을 때만이다.
 		// 안 들어온 채로 계좌 기준으로 사면 매도대금이 한 달 동안 현금으로 논다 — 다음 실행에 맡긴다
 		if sameRun && b.CashUSD < proceedsUSD*proceedsSeen {

@@ -656,3 +656,20 @@ func (s *Store) AddAlert(ctx context.Context, p dbq.InsertInvestAlertParams) (db
 func (s *Store) AlertsAfter(ctx context.Context, afterID int64, since time.Time, max int) ([]dbq.InvestAlert, error) {
 	return s.q.ListInvestAlertsAfter(ctx, dbq.ListInvestAlertsAfterParams{AfterID: afterID, Since: since, MaxRows: int32(max)})
 }
+
+// SaveBrokerCash는 증권사가 준 주문가능 현금(USD)을 남긴다. 웹·앱 투자 화면 표시용이고 매매 판단에는 쓰지 않는다.
+func (s *Store) SaveBrokerCash(ctx context.Context, cashUSD float64, at time.Time) error {
+	return s.q.InsertBrokerCash(ctx, dbq.InsertBrokerCashParams{CashUsd: cashUSD, Cmd: s.cmd(), FetchedAt: at})
+}
+
+// LastBrokerCash는 증권사가 마지막으로 알려 준 주문가능 현금이다. 아직 없으면 ok=false.
+func (s *Store) LastBrokerCash(ctx context.Context) (cashUSD float64, at time.Time, ok bool, err error) {
+	r, err := s.q.LastBrokerCash(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, time.Time{}, false, nil
+	}
+	if err != nil {
+		return 0, time.Time{}, false, err
+	}
+	return r.CashUsd, r.FetchedAt, true, nil
+}

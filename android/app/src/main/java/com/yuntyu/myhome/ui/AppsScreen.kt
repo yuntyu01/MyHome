@@ -7,6 +7,11 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +26,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,6 +42,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -45,10 +63,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.yuntyu.myhome.MyHomeApp
+import com.yuntyu.myhome.core.NoticePolicy
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private class AppEntry(val pkg: String, val label: String, val icon: ImageBitmap?)
+internal class AppEntry(val pkg: String, val label: String, val icon: ImageBitmap?)
 
 /**
  * 이름에 이런 말이 들어간 앱을 "결제 앱 같아요"로 먼저 보여준다. 순서만 바꿀 뿐 고르는 건 사용자다
@@ -78,22 +98,37 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
     val installed by produceState<List<AppEntry>?>(null) { value = withContext(Dispatchers.IO) { loadInstalled(ctx) } }
     val selected = settings.selectedPackages
     // 고른 앱인데 폰에서 지웠거나 런처에 없는 앱도 보이게(고른 것을 풀 수 있게)
+    // 런처에 없는 앱도: 알림을 보낸 적 있는 앱(최근 알림 기록)과 이미 고른 앱은 찾을 수 있게 넣는다
     val all = installed.orEmpty().let { list ->
         val known = list.map { it.pkg }.toSet()
-        list + selected.filter { it !in known }.map { pkg -> AppEntry(pkg, recent.firstOrNull { it.packageName == pkg }?.appLabel ?: pkg, null) }
+        val extra = (recent.map { it.packageName } + selected).distinct().filter { it !in known && it != ctx.packageName }
+        list + extra.map { pkg -> AppEntry(pkg, recent.firstOrNull { it.packageName == pkg }?.appLabel ?: pkg, null) }
     }
     val q = query.trim().lowercase()
     // 화면을 열 때 이미 고른 앱도 위에 둔다. 고르는 도중에는 순서를 바꾸지 않는다(누른 줄이 튀지 않게)
     val pinned = remember(installed == null) { selected }
     val (likely, others) = all.partition { payLike(it.label) || it.pkg in pinned }
     fun toggle(pkg: String) = app.settings.setPackageSelected(pkg, pkg !in selected)
+    val drag = remember { ModeDrag() }
 
-    Column(modifier.fillMaxSize()) {
+    Box(modifier.fillMaxSize().onGloballyPositioned { drag.rootWin = it.positionInWindow() }) {
+    Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f)) {
             item {
                 Column(Modifier.padding(start = Gutter, end = Gutter, top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("결제 알림이 오는 앱을\n골라 주세요", fontSize = 24.sp, fontWeight = FontWeight.Bold, lineHeight = 33.sp)
                     Text("고른 앱 알림만 읽어요", fontSize = 15.sp, color = m.muted, lineHeight = 22.sp)
+                }
+            }
+            // 고른 앱을 지우기 방식 묶음에 꾹 눌러 끌어 넣는다(사용자 요청, 2026-11-15). 눌러도 고를 수 있다(폰이 좁을 때)
+            if (q.isEmpty() && installed != null && selected.isNotEmpty()) {
+                item(key = "modes") {
+                    SectionLabel(
+                        "결제 알림 지우기",
+                        help = "앱을 꾹 눌러 다른 칸으로 끌어 놓거나, 눌러서 고르세요. 다 지움: 보낸 알림은 전부 치워요. " +
+                            "알아본 것만: 가계부가 알아본 결제만 치우고, 못 읽었거나 분류를 모르는 건 AI 판정 뒤나 직접 분류하면 치워요. 안 지움: 그대로 둬요.",
+                    )
+                    ModeGroups(all.filter { it.pkg in selected }, settings::modeOf, drag) { pkg, mode -> app.settings.setDeleteMode(pkg, mode) }
                 }
             }
             // 고른 앱마다: 알림이 실제로 오고 있는지, 안 오면 켜는 곳(폰 설정 + 앱 안 설정)
@@ -154,6 +189,115 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
             onClick = onDone,
         )
     }
+    // 끄는 앱은 손가락을 따라 떠 있다
+    drag.pkg?.let { pkg ->
+        val a = all.firstOrNull { it.pkg == pkg }
+        if (a != null) {
+            Box(
+                Modifier.zIndex(1f).offset {
+                    IntOffset((drag.finger.x - drag.rootWin.x - 40.dp.toPx()).roundToInt(), (drag.finger.y - drag.rootWin.y - 56.dp.toPx()).roundToInt())
+                },
+            ) { AppChip(a, Modifier.graphicsLayer { shadowElevation = 12f }) }
+        }
+    }
+    }
+}
+
+/** 지우기 방식 묶음으로 끄는 중인 앱. 좌표는 전부 창 기준 */
+internal class ModeDrag {
+    var pkg by mutableStateOf<String?>(null)
+    var finger by mutableStateOf(Offset.Zero)
+    var rootWin = Offset.Zero
+    val boxes = HashMap<NoticePolicy.Mode, Rect>()
+    fun target(): NoticePolicy.Mode? = boxes.entries.firstOrNull { it.value.contains(finger) }?.key
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun ModeGroups(apps: List<AppEntry>, modeOf: (String) -> NoticePolicy.Mode, drag: ModeDrag, onSet: (String, NoticePolicy.Mode) -> Unit) {
+    val m = LocalModo.current
+    val hover = if (drag.pkg != null) drag.target() else null
+    Column(Modifier.padding(horizontal = Gutter), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (mode in NoticePolicy.Mode.entries) {
+            val inBox = apps.filter { modeOf(it.pkg) == mode }
+            Column(
+                Modifier.fillMaxWidth()
+                    .onGloballyPositioned { drag.boxes[mode] = it.boundsInWindow() }
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (hover == mode) m.selected else m.card)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("${mode.label} ${inBox.size}", fontSize = 13.sp, color = m.muted)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (a in inBox) ModeChip(a, mode, drag, onSet)
+                    if (inBox.isEmpty()) Text("여기로 끌어 놓기", fontSize = 13.sp, color = m.faint, modifier = Modifier.padding(vertical = 6.dp))
+                }
+            }
+        }
+    }
+}
+
+/** 묶음 안 앱 하나: 꾹 눌러 끌기, 눌러서 방식 고르기 */
+@Composable
+private fun ModeChip(a: AppEntry, mode: NoticePolicy.Mode, drag: ModeDrag, onSet: (String, NoticePolicy.Mode) -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    var menu by remember { mutableStateOf(false) }
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    Box {
+        AppChip(
+            a,
+            Modifier
+                .onGloballyPositioned { origin = it.positionInWindow() }
+                .graphicsLayer { alpha = if (drag.pkg == a.pkg) 0.3f else 1f }
+                .pointerInput(a.pkg) { detectTapGestures(onTap = { menu = true }) }
+                .pointerInput(a.pkg) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { o ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            drag.finger = origin + o
+                            drag.pkg = a.pkg
+                        },
+                        onDrag = { change, d -> change.consume(); drag.finger += d },
+                        onDragEnd = {
+                            drag.target()?.let { if (it != mode) onSet(a.pkg, it) }
+                            drag.pkg = null
+                        },
+                        onDragCancel = { drag.pkg = null },
+                    )
+                },
+        )
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            for (x in NoticePolicy.Mode.entries) {
+                DropdownMenuItem(text = { Text((if (x == mode) "✓ " else "") + x.label) }, onClick = { menu = false; onSet(a.pkg, x) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppChip(a: AppEntry, modifier: Modifier = Modifier) {
+    val m = LocalModo.current
+    Row(
+        modifier.clip(RoundedCornerShape(20.dp)).background(m.raised).padding(start = 6.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        AppIcon(a, 22.dp, 6.dp)
+        Text(a.label, fontSize = 14.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun AppIcon(a: AppEntry, size: androidx.compose.ui.unit.Dp, corner: androidx.compose.ui.unit.Dp) {
+    val m = LocalModo.current
+    if (a.icon != null) {
+        Image(a.icon, contentDescription = null, modifier = Modifier.size(size).clip(RoundedCornerShape(corner)))
+    } else {
+        Box(Modifier.size(size).clip(RoundedCornerShape(corner)).background(m.card), contentAlignment = Alignment.Center) {
+            Text(a.label.take(1), fontWeight = FontWeight.Bold, color = m.muted, fontSize = (size.value * 0.45f).sp)
+        }
+    }
 }
 
 @Composable
@@ -187,13 +331,7 @@ private fun AppRow(a: AppEntry, checked: Boolean, notified: Int, onClick: () -> 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        if (a.icon != null) {
-            Image(a.icon, contentDescription = null, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)))
-        } else {
-            Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(m.card), contentAlignment = Alignment.Center) {
-                Text(a.label.take(1), fontWeight = FontWeight.Bold, color = m.muted)
-            }
-        }
+        AppIcon(a, 40.dp, 10.dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(a.label, fontSize = 16.sp, maxLines = 2)
             if (notified > 0) Text("최근 알림 ${notified}건", fontSize = 13.sp, color = m.faint)

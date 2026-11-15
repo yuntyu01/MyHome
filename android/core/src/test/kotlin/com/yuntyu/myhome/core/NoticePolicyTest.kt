@@ -1,6 +1,9 @@
 package com.yuntyu.myhome.core
 
+import com.yuntyu.myhome.core.NoticePolicy.Action
 import com.yuntyu.myhome.core.NoticePolicy.Held
+import com.yuntyu.myhome.core.NoticePolicy.Mode
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,5 +31,15 @@ class NoticePolicyTest {
         val now = 1_000_000_000L
         assertFalse(NoticePolicy.forget(now - 60_000, now))
         assertTrue(NoticePolicy.forget(now - NoticePolicy.FORGET_AFTER_MS - 1, now))
+    }
+
+    @Test fun perAppMode() {
+        assertEquals(Action.DISMISS, NoticePolicy.afterSend(Mode.ALL, "keep"))
+        assertEquals(Action.DISMISS, NoticePolicy.afterSend(Mode.KNOWN, "dismiss"))
+        assertEquals(Action.HOLD, NoticePolicy.afterSend(Mode.KNOWN, "wait"))
+        assertEquals(Action.HOLD, NoticePolicy.afterSend(Mode.KNOWN, "keep"))
+        assertEquals(Action.LEAVE, NoticePolicy.afterSend(Mode.NONE, "dismiss"))
+        assertEquals(Mode.ALL, Mode.of("all"))
+        assertEquals(null, Mode.of("x"))
     }
 }

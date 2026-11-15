@@ -3,6 +3,7 @@ package com.yuntyu.myhome.settings
 import android.content.Context
 import androidx.core.content.edit
 import com.yuntyu.myhome.BuildConfig
+import com.yuntyu.myhome.core.NoticePolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +20,12 @@ class AppSettings(context: Context) {
         val selectedPackages: Set<String>,
         val autoDelete: Boolean,
         val budgetAlerts: Boolean,
-    )
+        /** 앱마다 지우기 방식. 없는 앱은 기본(예전 "결제 알림 지우기"가 꺼져 있었으면 안 지움, 아니면 알아본 것만) */
+        val deleteModes: Map<String, NoticePolicy.Mode>,
+    ) {
+        fun modeOf(pkg: String): NoticePolicy.Mode =
+            deleteModes[pkg] ?: if (autoDelete) NoticePolicy.Mode.KNOWN else NoticePolicy.Mode.NONE
+    }
 
     private val _state = MutableStateFlow(load())
     val state: StateFlow<Snapshot> = _state.asStateFlow()
@@ -29,6 +35,10 @@ class AppSettings(context: Context) {
         selectedPackages = prefs.getStringSet(KEY_PACKAGES, emptySet())?.toSet() ?: emptySet(),
         autoDelete = prefs.getBoolean(KEY_AUTO_DELETE, true),
         budgetAlerts = prefs.getBoolean(KEY_BUDGET_ALERTS, true),
+        deleteModes = prefs.getStringSet(KEY_DELETE_MODES, emptySet()).orEmpty().mapNotNull { e ->
+            val pkg = e.substringBeforeLast('=')
+            NoticePolicy.Mode.of(e.substringAfterLast('=', ""))?.let { pkg to it }
+        }.toMap(),
     )
 
     private fun refresh() {
@@ -48,6 +58,15 @@ class AppSettings(context: Context) {
     fun setPackageSelected(pkg: String, selected: Boolean) {
         val next = selectedPackages.toMutableSet().apply { if (selected) add(pkg) else remove(pkg) }
         prefs.edit { putStringSet(KEY_PACKAGES, next) }
+        refresh()
+    }
+
+    fun deleteModeOf(pkg: String): NoticePolicy.Mode = _state.value.modeOf(pkg)
+
+    /** 앱 하나의 지우기 방식을 바꾼다("pkg=mode" 모음으로 저장) */
+    fun setDeleteMode(pkg: String, mode: NoticePolicy.Mode) {
+        val next = _state.value.deleteModes + (pkg to mode)
+        prefs.edit { putStringSet(KEY_DELETE_MODES, next.map { (p, m) -> "$p=${m.key}" }.toSet()) }
         refresh()
     }
 
@@ -93,6 +112,7 @@ class AppSettings(context: Context) {
         const val KEY_SERVER_URL = "server_url"
         const val KEY_PACKAGES = "selected_packages"
         const val KEY_AUTO_DELETE = "auto_delete"
+        const val KEY_DELETE_MODES = "delete_modes"
         const val KEY_BUDGET_ALERTS = "budget_alerts"
         const val KEY_AUTH_PROBLEM = "auth_problem"
         const val KEY_LAST_CAPTURED = "last_captured_at"

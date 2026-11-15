@@ -84,6 +84,7 @@ type fakeBroker struct {
 	fundsAbove      int   // 0보다 크면 이 수량을 넘는 매수는 자금 부족으로 거절
 	buyableCap      float64
 	buyableAsked    []float64
+	cash            float64 // Balance가 주는 주문가능 현금
 }
 
 // errFakeTimeout은 응답 전에 끊긴 주문이다. 접수 여부를 모른다.
@@ -100,7 +101,7 @@ func (f *fakeBroker) Balance(context.Context) (broker.Balance, error) {
 			hs = append(hs, broker.Holding{Symbol: s, Shares: n, AvgPriceUSD: f.avg[s]})
 		}
 	}
-	return broker.Balance{Holdings: hs}, nil
+	return broker.Balance{Holdings: hs, CashUSD: f.cash}, nil
 }
 
 // Buyable은 체결한 만큼 줄어든다 — 안 깎이는 가짜를 쓰면 '계좌에 있는 만큼 산다'가 무한 매수로 보인다.
@@ -1035,5 +1036,25 @@ func TestTradeSkipsNewYorkHolidays(t *testing.T) {
 	// 첫 거래일에는 정상으로 주문한다
 	if rc := h.trade(execDay, false); rc != 0 || len(h.fb.placed) != 1 {
 		t.Fatalf("rc %d placed %d: %s", rc, len(h.fb.placed), h.err)
+	}
+}
+
+// status는 증권사 현금을 읽어 남긴다(웹·앱 투자 화면 표시용). 증권사를 못 불러도 deadman 판정은 그대로다
+func TestStatusRecordsBrokerCash(t *testing.T) {
+	h := newHarness(t, seedOpt{})
+	h.fb.cash = 123.45
+	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-08-03"}); rc != 0 {
+		t.Fatalf("rc %d %s", rc, h.err)
+	}
+	cash, _, ok, err := h.st.LastBrokerCash(h.ctx)
+	if err != nil || !ok || cash != 123.45 {
+		t.Fatalf("기록 %v %v %v", cash, ok, err)
+	}
+	if out := h.out.String(); !strings.Contains(out, "증권사 주문가능 $123.45") {
+		t.Fatalf("%s", out)
+	}
+	h2 := newHarness(t, seedOpt{noBroker: true})
+	if rc := h2.app.Status(h2.ctx, StatusOpts{Date: "2026-08-03"}); rc != 0 {
+		t.Fatalf("증권사 없이 status가 실패: %d %s", rc, h2.err)
 	}
 }

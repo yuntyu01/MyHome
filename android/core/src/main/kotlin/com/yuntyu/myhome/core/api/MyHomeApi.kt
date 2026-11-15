@@ -32,6 +32,17 @@ class MyHomeApi(
     fun eventNotices(ids: List<Long>): ApiResult<EventNotices> =
         call("GET", "/v1/events/notice?ids=" + ids.joinToString(","), null, EventNotices.serializer())
 
+    /** 계좌 잔액(알림 기준)과 잔액이 안 맞는 빈 돈 목록 */
+    fun balances(): ApiResult<BalanceAccounts> = call("GET", "/v1/balances", null, BalanceAccounts.serializer())
+
+    /** 빈 돈을 확인 필요 거래로 넣는다(분류는 확인 필요에서). 이미 처리했으면 409 */
+    fun fillBalanceGap(toId: Long): ApiResult<JsonElement> =
+        call("POST", "/v1/balances/gaps/$toId/fill", null, JsonElement.serializer())
+
+    /** 빈 돈을 무시한다(이미 적힌 거래 등). 금액이 바뀌면 다시 보인다 */
+    fun ignoreBalanceGap(toId: Long): ApiResult<JsonElement> =
+        call("POST", "/v1/balances/gaps/$toId/ignore", null, JsonElement.serializer())
+
     /** 이번 기간 요약(위젯·홈). recent는 최근 거래 개수. */
     /** month("2026-10")를 주면 그 기간, 없으면 이번 기간 */
     fun summary(recent: Int = 4, month: String? = null): ApiResult<Summary> =

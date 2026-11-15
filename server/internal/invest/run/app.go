@@ -88,6 +88,38 @@ func (a *App) sleep(d time.Duration) {
 	time.Sleep(d)
 }
 
+// noteCash는 증권사가 준 주문가능 현금을 기록한다(웹·앱 투자 화면 표시용). 표시용이라 실패해도 명령은 그대로 간다.
+// 상태 트랜잭션 안에서 불려도 a.Store(풀)로 따로 쓰므로 그 트랜잭션을 깨지 않는다.
+func (a *App) noteCash(ctx context.Context, cashUSD float64) {
+	if a.Store == nil {
+		return
+	}
+	if err := a.Store.SaveBrokerCash(ctx, cashUSD, a.now()); err != nil {
+		a.warnf("⚠ 주문가능 현금 기록 실패(매매와 무관): %v", err)
+	}
+}
+
+// probeCash는 증권사 현금을 읽기만 해서 기록한다(주간 status). 실패해도 deadman 판정과 무관하게 한 줄만 남긴다.
+func (a *App) probeCash(ctx context.Context, ledgerUSD float64) {
+	if a.Broker == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	client, err := a.Broker(ctx)
+	if err != nil {
+		a.printf("현금      증권사 조회 못 함(판정과 무관) — %v", err)
+		return
+	}
+	bal, err := client.Balance(ctx)
+	if err != nil {
+		a.printf("현금      증권사 조회 못 함(판정과 무관) — %v", err)
+		return
+	}
+	a.noteCash(ctx, bal.CashUSD)
+	a.printf("현금      장부 %s · 증권사 주문가능 %s", usd(ledgerUSD), usd(bal.CashUSD))
+}
+
 func (a *App) printf(format string, args ...any) { fmt.Fprintf(a.Out, format+"\n", args...) }
 func (a *App) warnf(format string, args ...any)  { fmt.Fprintf(a.Err, format+"\n", args...) }
 

@@ -76,6 +76,7 @@ private val reviewReasonLabels = mapOf(
     "no_merchant" to "가게 이름이 없어요", "no_rule" to "처음 보는 가게예요", "payment_gateway" to "결제대행사 이름으로 찍혔어요",
     "transfer" to "송금이에요", "deposit" to "어떤 입금인지 골라 주세요", "unknown_kind" to "어떤 거래인지 몰라요",
     "cancel_unmatched" to "원래 결제를 못 찾은 취소예요", "cancel_partial" to "부분 취소예요",
+    "balance_gap" to "잔액이 안 맞아서 넣은 빈 돈이에요",
     "foreign_currency" to "외화 결제예요(금액은 웹에서 고쳐 주세요)",
 )
 

@@ -111,6 +111,21 @@ func (q *Queries) GetInvestState(ctx context.Context, key string) (GetInvestStat
 	return i, err
 }
 
+const insertBrokerCash = `-- name: InsertBrokerCash :exec
+INSERT INTO invest_broker_cash (cash_usd, cmd, fetched_at) VALUES ($1, $2, $3)
+`
+
+type InsertBrokerCashParams struct {
+	CashUsd   float64   `json:"cash_usd"`
+	Cmd       string    `json:"cmd"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+func (q *Queries) InsertBrokerCash(ctx context.Context, arg InsertBrokerCashParams) error {
+	_, err := q.db.Exec(ctx, insertBrokerCash, arg.CashUsd, arg.Cmd, arg.FetchedAt)
+	return err
+}
+
 const insertInvestAdjustment = `-- name: InsertInvestAdjustment :one
 INSERT INTO invest_adjustments (on_day, symbol, shares, paid_krw, reason)
 VALUES ($1, $2, $3, $4, $5)
@@ -345,6 +360,24 @@ func (q *Queries) InvestHealth(ctx context.Context) (InvestHealthRow, error) {
 		&i.JudgeExit,
 		&i.TradeExit,
 	)
+	return i, err
+}
+
+const lastBrokerCash = `-- name: LastBrokerCash :one
+SELECT cash_usd, cmd, fetched_at FROM invest_broker_cash ORDER BY fetched_at DESC, id DESC LIMIT 1
+`
+
+type LastBrokerCashRow struct {
+	CashUsd   float64   `json:"cash_usd"`
+	Cmd       string    `json:"cmd"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// 증권사가 마지막으로 알려 준 주문가능 현금(웹·앱 투자 화면).
+func (q *Queries) LastBrokerCash(ctx context.Context) (LastBrokerCashRow, error) {
+	row := q.db.QueryRow(ctx, lastBrokerCash)
+	var i LastBrokerCashRow
+	err := row.Scan(&i.CashUsd, &i.Cmd, &i.FetchedAt)
 	return i, err
 }
 

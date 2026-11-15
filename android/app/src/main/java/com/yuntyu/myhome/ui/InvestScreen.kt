@@ -180,6 +180,19 @@ fun InvestValueScreen(modifier: Modifier) {
                     Tile("미납 세금", Money.won(v.taxKrw), "평가액에서 뺐어요", Modifier.weight(1f))
                     Tile("현금", v.cashUsd, "다음 달로 이월", Modifier.weight(1f))
                 }
+                // 토스가 마지막으로 알려 준 주문가능 현금(매매 작업 시각 기준). 장부와 다르면 장부가 놓친 돈이다
+                if (v.brokerCashUsd.isNotBlank()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Tile("토스 주문가능", v.brokerCashUsd, "${v.brokerCashAt} 기준", Modifier.weight(1f))
+                        Tile(
+                            "장부와 차이",
+                            v.cashGapUsd.ifBlank { "없음" },
+                            if (v.cashGapUsd.isBlank()) null else "배당·입금 등",
+                            Modifier.weight(1f),
+                            if (v.cashGapUsd.isBlank()) null else m.warn,
+                        )
+                    }
+                }
                 SectionCard("원금 내역", Modifier.onGloballyPositioned { ledgerY = it.positionInParent().y.toInt() }) {
                     val ledger = v.ledger.orEmpty()
                     if (ledger.isEmpty()) Text("원금 내역이 없어요.", color = m.muted)

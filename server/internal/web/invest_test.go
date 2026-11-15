@@ -346,3 +346,23 @@ func TestInvestHealthStaleBoundary(t *testing.T) {
 		t.Errorf("시작 전: %d %+v", code, h)
 	}
 }
+
+// 토스 주문가능 현금은 마지막 작업 시각(KST)과 같이, 장부와 1달러 넘게 다르면 차이를 붙인다
+func TestInvestValueBrokerCash(t *testing.T) {
+	at := time.Date(2026, 11, 16, 2, 23, 0, 0, time.UTC) // 11/16 11:23 KST
+	var v investValue
+	v.addBrokerCash(286.01, 300.51, at)
+	if v.BrokerCashUSD != "$300.51" || v.BrokerCashAt != "11/16 11:23" || v.CashGapUSD != "+$14.50" {
+		t.Fatalf("%+v", v)
+	}
+	var same investValue
+	same.addBrokerCash(286.01, 286.5, at)
+	if same.CashGapUSD != "" {
+		t.Errorf("1달러 미만은 차이 없음: %+v", same)
+	}
+	var less investValue
+	less.addBrokerCash(286.01, 200, at)
+	if less.CashGapUSD != "-$86.01" {
+		t.Errorf("%+v", less)
+	}
+}

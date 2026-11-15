@@ -145,3 +145,10 @@ SELECT
               ORDER BY started_at DESC LIMIT 1), 0)::integer AS judge_exit,
     COALESCE((SELECT exit_code FROM invest_runs WHERE cmd = 'trade' AND finished_at IS NOT NULL
               ORDER BY started_at DESC LIMIT 1), 0)::integer AS trade_exit;
+
+-- name: InsertBrokerCash :exec
+INSERT INTO invest_broker_cash (cash_usd, cmd, fetched_at) VALUES ($1, $2, $3);
+
+-- name: LastBrokerCash :one
+-- 증권사가 마지막으로 알려 준 주문가능 현금(웹·앱 투자 화면).
+SELECT cash_usd, cmd, fetched_at FROM invest_broker_cash ORDER BY fetched_at DESC, id DESC LIMIT 1;

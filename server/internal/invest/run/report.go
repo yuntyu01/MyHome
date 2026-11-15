@@ -65,6 +65,8 @@ func (a *App) Status(ctx context.Context, o StatusOpts) int {
 		a.printf("이탈      이번 달 없음")
 	}
 	a.printf("규칙      SPX %d일선 · 변동성 %.0f%% · 월말", invest.SMAPeriod, invest.VolThreshold*100)
+	// 증권사 현금은 표시용으로 읽어 남긴다(웹·앱 투자 화면). 실패해도 아래 deadman 판정은 그대로다
+	a.probeCash(ctx, acct.CashUSD)
 
 	// deadman ① 판정이 안 돌았나
 	if stale > 35 {
@@ -467,6 +469,7 @@ func (a *App) Reconcile(ctx context.Context, o ReconcileOpts) int {
 	if err != nil {
 		return a.fail(ExitFail, "잔고 조회 실패: %v", err)
 	}
+	a.noteCash(ctx, bal.CashUSD)
 	pos, err := a.Store.LoadPosition(ctx)
 	if err != nil {
 		return a.fail(ExitFail, "%v", err)

@@ -13,7 +13,44 @@ data class Summary(
     @SerialName("needs_review") val needsReview: Long = 0,
     /** 최근 7일 동안 서버가 읽지 못했거나 처리하지 못한 알림 수(웹 관리 > 읽지 못한 알림) */
     @SerialName("failed_events") val failedEvents: Long = 0,
+    /** 알림에 찍힌 계좌 마지막 잔액과 잔액이 안 맞는 빈 돈 수(옛 서버는 안 준다) */
+    val balances: List<BalanceBrief> = emptyList(),
     @SerialName("generated_at") val generatedAt: String = "",
+)
+
+/** 계좌 하나(예: 토스뱅크)의 마지막 알림 잔액. at은 그 알림 시각(ISO-8601) */
+@Serializable
+data class BalanceBrief(
+    val source: String = "",
+    val label: String = "",
+    val balance: Long = 0,
+    val at: String = "",
+    @SerialName("open_gaps") val openGaps: Int = 0,
+)
+
+/** GET /v1/balances: 계좌마다 마지막 잔액과 아직 처리 안 한 빈 돈(최근 것부터) */
+@Serializable
+data class BalanceAccounts(val accounts: List<BalanceAccount> = emptyList())
+
+@Serializable
+data class BalanceAccount(
+    val source: String = "",
+    val label: String = "",
+    val balance: Long = 0,
+    val at: String = "",
+    val gaps: List<BalanceGap> = emptyList(),
+)
+
+/** 잔액이 안 맞는 곳 하나. amount가 음수면 나간 돈을, 양수면 들어온 돈을 놓쳤다. 처리는 toId로 한다 */
+@Serializable
+data class BalanceGap(
+    @SerialName("to_id") val toId: Long,
+    @SerialName("from_at") val fromAt: String = "",
+    @SerialName("to_at") val toAt: String = "",
+    @SerialName("from_balance") val fromBalance: Long = 0,
+    @SerialName("to_balance") val toBalance: Long = 0,
+    @SerialName("to_merchant") val toMerchant: String = "",
+    val amount: Long = 0,
 )
 
 @Serializable
