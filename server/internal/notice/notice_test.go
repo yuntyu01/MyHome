@@ -137,7 +137,8 @@ func TestKnownOnly(t *testing.T) {
 	}
 }
 
-// 규칙이 없는 지출: AI 판정 전엔 기다리고, 확신해서 넣으면 지우고, 모름·애매하면 남긴다. AI가 꺼져 있으면 바로 남긴다.
+// 규칙이 없는 지출: AI 판정 전엔 기다리고, 판정이 나면 지운다(확신하면 넣고, 모름·애매·여러 분류면 위젯에서 고른다).
+// AI가 꺼져 있으면 기다릴 판정이 없어서 바로 지운다(위젯에서 고른다).
 func TestWaitsForAI(t *testing.T) {
 	h := newHarness(t)
 	on, off := notice.Checker{AI: true}, notice.Checker{AI: false}
@@ -148,7 +149,7 @@ func TestWaitsForAI(t *testing.T) {
 		if got := h.state(on, id); got != notice.Wait {
 			t.Errorf("AI 답 전 %d: %s", id, got)
 		}
-		if got := h.state(off, id); got != notice.Keep {
+		if got := h.state(off, id); got != notice.Dismiss {
 			t.Errorf("AI 꺼짐 %d: %s", id, got)
 		}
 	}
@@ -156,7 +157,9 @@ func TestWaitsForAI(t *testing.T) {
 	g := guesses{
 		"동네분식":  {Category: "식비", Confidence: suggest.AutoConfidence},
 		"애매한상호": {Category: "쇼핑", Confidence: suggest.AutoConfidence - 0.01},
+		"합성편의점": {Category: "식비", Confidence: 0.95, Mixed: true},
 	}
+	mixed, _ := h.event("test.kb", "KB국민카드", "홍*동님 3,300원 일시불 합성편의점", base.Add(3*time.Hour))
 	// 답은 저장됐지만 아직 넣기 전(Auto 꺼짐): 확신한 답은 곧 들어가므로 기다린다
 	w := &suggest.Worker{Pool: h.pool, Classifier: g, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if _, err := w.RunOnce(context.Background()); err != nil {
@@ -172,9 +175,35 @@ func TestWaitsForAI(t *testing.T) {
 	for name, tc := range map[string]struct {
 		id   int64
 		want string
-	}{"확신": {sure, notice.Dismiss}, "애매": {maybe, notice.Keep}, "모름": {unk, notice.Keep}} {
+	}{"확신": {sure, notice.Dismiss}, "애매": {maybe, notice.Dismiss}, "모름": {unk, notice.Dismiss}, "여러 분류": {mixed, notice.Dismiss}} {
 		if got := h.state(on, tc.id); got != tc.want {
 			t.Errorf("%s: %s, 기대 %s", name, got, tc.want)
 		}
+	}
+}
+
+// AI가 여러 분류라고 본 가게는 확신이 높아도 넣지 않고 위젯에 남기며, 다음 결제부터는 처음부터 애매한 가게(ambiguous)다.
+func TestMixedMerchantGoesToWidget(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	first, res := h.event("test.kb", "KB국민카드", "홍*동님 3,300원 일시불 합성편의점", base)
+	w := &suggest.Worker{Pool: h.pool, Classifier: guesses{"합성편의점": {Category: "식비", Confidence: 0.95, Mixed: true}}, Auto: true,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if _, err := w.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := h.q.GetTransaction(ctx, res.Transaction.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tx.Status != "needs_review" {
+		t.Errorf("여러 분류 가게는 AI로 넣지 않음: %s", tx.Status)
+	}
+	if got := h.state(notice.Checker{AI: true}, first); got != notice.Dismiss {
+		t.Errorf("위젯에서 고를 것이라 원래 알림은 지움: %s", got)
+	}
+	_, res = h.event("test.kb", "KB국민카드", "홍*동님 2,100원 일시불 합성편의점", base.Add(time.Hour))
+	if r := res.Transaction.ReviewReason; r == nil || *r != pipeline.ReviewAmbiguous {
+		t.Errorf("다음 결제는 애매한 가게: %v", r)
 	}
 }

@@ -17,9 +17,12 @@ const UnknownCategory = "모름"
 const MaxMerchantsPerCall = 20
 
 // MerchantGuess는 가맹점 하나에 대한 답이다. Category가 ""이면 모른다는 뜻이다(이때 Confidence는 0).
+// Mixed는 여러 종류를 파는 곳(편의점·마트·쿠팡 같은 종합 쇼핑몰 등)이라 산 물건에 따라 분류가 갈린다는 뜻이다.
+// 이때 Category는 가장 흔한 분류다(위젯 동그라미 첫 칸). 사용자 요청, 2026-11-16 "AI가 검사하고 애매한 거면 위젯에".
 type MerchantGuess struct {
 	Category   string
 	Confidence float64
+	Mixed      bool
 }
 
 // CategoryChoice는 AI가 고를 수 있는 분류 하나다. Name은 폴더 경로까지 붙인 이름(예: "생활비 › 식비")이라 겹치지 않고,
@@ -55,7 +58,10 @@ const merchantPrompt = `한국 카드 결제 알림에 찍힌 가맹점 이름�
 분류 뒤 설명은 사용자가 그 분류에 넣고 싶은 것을 적은 글이다. 설명이 있으면 설명을 가장 먼저 따르라.
 "공통 메모"가 있으면 사용자가 모든 가맹점에 대해 적은 규칙이다. 분류 설명과 함께 가장 먼저 따르라.
 가맹점 이름만 보고 판단해라. 어떤 가게인지 모르겠거나, 이름만으로 무엇을 샀는지 알 수 없으면(결제대행사·간편결제·사람 이름 등) "모름"이라고 답해라.
-confidence는 그 분류가 맞을 가능성(0~1)이다. 추측이면 낮게 줘라. results에는 받은 id마다 하나씩 답해라.`
+confidence는 그 분류가 맞을 가능성(0~1)이다. 추측이면 낮게 줘라.
+mixed는 여러 종류를 파는 곳이라 무엇을 샀는지에 따라 분류가 갈리면 true다(편의점, 대형마트, 쿠팡 같은 종합 쇼핑몰, 다이소, 올리브영 등).
+그 경우에도 category에는 가장 흔한 분류를 골라라. 한 종류만 파는 곳(카페, 식당, 주유소 등)은 false다.
+results에는 받은 id마다 하나씩 답해라.`
 
 // merchantItem은 프롬프트에 싣는 가맹점 한 줄이다. id는 답을 다시 맞추는 번호(0부터)다.
 type merchantItem struct {
@@ -96,10 +102,10 @@ func choiceNames(categories []CategoryChoice) []string {
 	return out
 }
 
-// merchantSchema는 답 모양이다: {results:[{id, category(분류 이름 또는 "모름"), confidence}]}.
+// merchantSchema는 답 모양이다: {results:[{id, category(분류 이름 또는 "모름"), confidence, mixed}]}.
 func merchantSchema(categories []string) Schema {
 	values := append(append([]string(nil), categories...), UnknownCategory)
-	item := Object(map[string]Schema{"id": Integer(), "category": Enum(values...), "confidence": Number()}, "id", "category", "confidence")
+	item := Object(map[string]Schema{"id": Integer(), "category": Enum(values...), "confidence": Number(), "mixed": Boolean()}, "id", "category", "confidence", "mixed")
 	return Object(map[string]Schema{"results": Array(item)}, "results")
 }
 
@@ -142,6 +148,7 @@ func parseMerchantGuesses(text string, n int, categories []string) ([]MerchantGu
 			ID         *int     `json:"id"`
 			Category   string   `json:"category"`
 			Confidence *float64 `json:"confidence"`
+			Mixed      bool     `json:"mixed"`
 		} `json:"results"`
 	}
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
@@ -164,7 +171,7 @@ func parseMerchantGuesses(text string, n int, categories []string) ([]MerchantGu
 		if !known[r.Category] || r.Confidence == nil || math.IsNaN(*r.Confidence) || *r.Confidence < 0 || *r.Confidence > 1 {
 			continue // 모름
 		}
-		out[*r.ID] = MerchantGuess{Category: r.Category, Confidence: *r.Confidence}
+		out[*r.ID] = MerchantGuess{Category: r.Category, Confidence: *r.Confidence, Mixed: r.Mixed}
 	}
 	return out, nil
 }
@@ -177,7 +184,7 @@ var mockMerchantWords = []struct {
 }{
 	{"분식", "식비", 0.9}, {"식당", "식비", 0.9}, {"국밥", "식비", 0.9}, {"반점", "식비", 0.85}, {"치킨", "식비", 0.85},
 	{"커피", "카페·간식", 0.9}, {"카페", "카페·간식", 0.9}, {"베이커리", "카페·간식", 0.85},
-	{"마트", "생활", 0.8}, {"철물", "생활", 0.8},
+	{"편의점", "식비", 0.85}, {"마트", "생활", 0.8}, {"철물", "생활", 0.8},
 	{"주유", "교통", 0.85}, {"주차", "교통", 0.8},
 	{"서점", "문화·여가", 0.8}, {"꽃집", "경조사", 0.65},
 	{"상회", "생활", 0.4}, // 낮은 확신: 저장은 하지만 화면에는 나오지 않는다(MinConfidence 확인용)
@@ -200,7 +207,7 @@ func (Mock) ClassifyMerchants(_ context.Context, merchants []string, categories 
 	for i, m := range merchants {
 		for _, w := range mockMerchantWords {
 			if full, ok := have[w.category]; ok && strings.Contains(m, w.word) {
-				out[i] = MerchantGuess{Category: full, Confidence: w.confidence}
+				out[i] = MerchantGuess{Category: full, Confidence: w.confidence, Mixed: w.word == "편의점" || w.word == "마트"}
 				break
 			}
 		}

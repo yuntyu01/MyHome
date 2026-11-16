@@ -88,7 +88,7 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
             "결제 알림 지우기",
             value = com.yuntyu.myhome.core.NoticePolicy.Mode.entries.filter { (modeCounts[it] ?: 0) > 0 }
                 .joinToString(" · ") { "${it.label} ${modeCounts[it]}" }.ifEmpty { "앱을 골라 주세요" },
-            help = "앱마다 고르는 방식이에요. 다 지움: 보낸 알림은 전부 치워요. 알아본 것만: 가계부가 알아본 결제만 치우고, 못 읽었거나 분류를 모르는 건 AI 판정 뒤나 직접 분류하면 치워요. 안 지움: 그대로 둬요.",
+            help = "앱마다 고르는 방식이에요. 다 지움: 보낸 알림은 전부 치워요. 알아본 것만: 가계부가 알아본 결제와 위젯에서 고를 결제는 AI 판정 뒤에 치우고, 못 읽은 알림·송금은 직접 처리하면 치워요. 안 지움: 그대로 둬요.",
             onClick = { onNavigate(Screen.APPS) },
         )
 

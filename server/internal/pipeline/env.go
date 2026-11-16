@@ -39,6 +39,8 @@ type env struct {
 	rules  []classify.Rule
 	cats   map[int64]dbq.Category
 	byCode map[string]dbq.Category
+	// mixed는 AI가 "산 물건에 따라 분류가 갈린다"고 본 가맹점 키(classify.Normalize)다
+	mixed map[string]bool
 }
 
 func loadEnv(ctx context.Context, q *dbq.Queries) (*env, error) {
@@ -63,7 +65,14 @@ func loadEnv(ctx context.Context, q *dbq.Queries) (*env, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := &env{cfg: cfg, rules: rules, cats: map[int64]dbq.Category{}, byCode: map[string]dbq.Category{}}
+	keys, err := q.ListMixedMerchantKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e := &env{cfg: cfg, rules: rules, cats: map[int64]dbq.Category{}, byCode: map[string]dbq.Category{}, mixed: make(map[string]bool, len(keys))}
+	for _, k := range keys {
+		e.mixed[k] = true
+	}
 	for _, c := range cats {
 		e.cats[c.ID] = c
 		if c.Code != nil {
@@ -155,8 +164,12 @@ func (e *env) classify(merchant string, kind parser.Kind, flow string) classific
 		target = rest
 	}
 	r, ok := classify.First(e.rules, target, flow, live)
-	// 살 때마다 분류가 다른 가게는 위젯에서 고르게 확인 필요로 둔다. 더 긴 규칙(쿠팡이츠)이 맞으면 그 규칙을 쓴다
+	// 살 때마다 분류가 다른 가게는 위젯에서 고르게 확인 필요로 둔다: AI가 그렇다고 본 가게, 설정 목록(쿠팡·편의점)에 있는 가게.
+	// 목록 쪽은 더 긴 규칙(쿠팡이츠 → 식비)이 맞으면 그 규칙을 쓴다
 	if flow == "out" {
+		if e.mixed[classify.Normalize(target)] {
+			return review(ReviewAmbiguous)
+		}
 		if p, amb := AmbiguousMatch(target, e.cfg.AmbiguousMerchants); amb && (!ok || runeLen(classify.Normalize(r.Pattern)) <= runeLen(classify.Normalize(p))) {
 			return review(ReviewAmbiguous)
 		}
@@ -171,6 +184,26 @@ func (e *env) classify(merchant string, kind parser.Kind, flow string) classific
 		return review(ReviewUnknownKind)
 	}
 	return review(ReviewNoRule)
+}
+
+// WidgetPickReasons는 위젯에서 동그라미 한 번으로 분류할 확인 필요 사유다(사용자 요청, 2026-11-16).
+// 송금·입금·취소·외화·종류 모름은 분류만 고를 일이 아니라서 앱에서 한다.
+var WidgetPickReasons = []string{ReviewAmbiguous, ReviewNoRule, ReviewPaymentGateway, ReviewNoMerchant, ReviewBalanceGap}
+
+// ReviewBalanceGap은 잔액으로 찾은 빈 돈을 채운 거래의 사유다(balance 패키지가 만든다).
+const ReviewBalanceGap = "balance_gap"
+
+// WidgetPickable은 위젯에서 고를 거래인지 본다(queries/picks.sql ListPicks와 같은 조건).
+func WidgetPickable(status string, reason *string, flow string, cancelsID, mergedInto *int64) bool {
+	if status != "needs_review" || reason == nil || flow != "out" || cancelsID != nil || mergedInto != nil {
+		return false
+	}
+	for _, r := range WidgetPickReasons {
+		if *reason == r {
+			return true
+		}
+	}
+	return false
 }
 
 // AmbiguousMatch는 가맹점이 살 때마다 분류가 다른 가게(Config.AmbiguousMerchants)인지 보고 맞은 낱말을 돌려준다.

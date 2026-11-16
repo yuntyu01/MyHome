@@ -92,6 +92,7 @@ SELECT s.merchant_key,
        s.confidence,
        s.model,
        s.catalog,
+       s.mixed,
        c.name     AS category_name,
        c.kind     AS category_kind,
        c.archived AS category_archived
@@ -106,6 +107,7 @@ type ListMerchantSuggestionsRow struct {
 	Confidence       float64 `json:"confidence"`
 	Model            string  `json:"model"`
 	Catalog          string  `json:"catalog"`
+	Mixed            bool    `json:"mixed"`
 	CategoryName     *string `json:"category_name"`
 	CategoryKind     *string `json:"category_kind"`
 	CategoryArchived *bool   `json:"category_archived"`
@@ -127,6 +129,7 @@ func (q *Queries) ListMerchantSuggestions(ctx context.Context, keys []string) ([
 			&i.Confidence,
 			&i.Model,
 			&i.Catalog,
+			&i.Mixed,
 			&i.CategoryName,
 			&i.CategoryKind,
 			&i.CategoryArchived,
@@ -134,6 +137,33 @@ func (q *Queries) ListMerchantSuggestions(ctx context.Context, keys []string) ([
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMixedMerchantKeys = `-- name: ListMixedMerchantKeys :many
+SELECT merchant_key
+FROM merchant_suggestions
+WHERE mixed
+`
+
+// AI가 "산 물건에 따라 분류가 갈린다"고 본 가맹점 키. 파이프라인이 이 가맹점을 위젯에서 고르게 확인 필요로 둔다.
+func (q *Queries) ListMixedMerchantKeys(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listMixedMerchantKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var merchant_key string
+		if err := rows.Scan(&merchant_key); err != nil {
+			return nil, err
+		}
+		items = append(items, merchant_key)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -183,13 +213,14 @@ func (q *Queries) ListSuggestionMerchants(ctx context.Context, lim int32) ([]Lis
 }
 
 const upsertMerchantSuggestion = `-- name: UpsertMerchantSuggestion :exec
-INSERT INTO merchant_suggestions (merchant_key, category_id, confidence, model, catalog)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO merchant_suggestions (merchant_key, category_id, confidence, model, catalog, mixed)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (merchant_key) DO UPDATE
     SET category_id = excluded.category_id,
         confidence  = excluded.confidence,
         model       = excluded.model,
         catalog     = excluded.catalog,
+        mixed       = excluded.mixed,
         created_at  = now()
 `
 
@@ -199,6 +230,7 @@ type UpsertMerchantSuggestionParams struct {
 	Confidence  float64 `json:"confidence"`
 	Model       string  `json:"model"`
 	Catalog     string  `json:"catalog"`
+	Mixed       bool    `json:"mixed"`
 }
 
 func (q *Queries) UpsertMerchantSuggestion(ctx context.Context, arg UpsertMerchantSuggestionParams) error {
@@ -208,6 +240,7 @@ func (q *Queries) UpsertMerchantSuggestion(ctx context.Context, arg UpsertMercha
 		arg.Confidence,
 		arg.Model,
 		arg.Catalog,
+		arg.Mixed,
 	)
 	return err
 }

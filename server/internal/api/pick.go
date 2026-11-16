@@ -5,7 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/yuntyu01/MyHome/server/internal/balance"
 	"github.com/yuntyu01/MyHome/server/internal/cattree"
 	"github.com/yuntyu01/MyHome/server/internal/dbq"
 	"github.com/yuntyu01/MyHome/server/internal/pipeline"
@@ -30,8 +29,8 @@ type PickChoice struct {
 	Name string `json:"name"`
 }
 
-// PickReasons는 위젯에서 고를 확인 필요 사유다. 송금·입금·취소·외화·종류 모름은 분류만 고를 일이 아니라서 앱에서 한다.
-var PickReasons = []string{pipeline.ReviewAmbiguous, pipeline.ReviewNoRule, pipeline.ReviewPaymentGateway, pipeline.ReviewNoMerchant, balance.ReviewBalanceGap}
+// PickReasons는 위젯에서 고를 확인 필요 사유다(pipeline.WidgetPickReasons).
+var PickReasons = pipeline.WidgetPickReasons
 
 // MaxPickChoices는 위젯 한 줄에 들어가는 동그라미 수다.
 const MaxPickChoices = 4

@@ -464,7 +464,8 @@ private fun ClassifySheet(
     onSubmit: (TransactionEdit) -> Unit,
 ) {
     val m = LocalModo.current
-    var learn by remember { mutableStateOf(t.merchant.isNotBlank()) }
+    // "이 가게는 항상"은 직접 켤 때만(예전엔 켜져 있어서 고를 때마다 모르게 규칙이 생겼다, 2026-11-16)
+    var learn by remember { mutableStateOf(false) }
     var memoOpen by remember { mutableStateOf(false) }
     var fixOpen by remember { mutableStateOf(false) }
     // 폴더 순서대로 들여 쓴다. 들어온 돈이면 수입·정산·내 계좌 같은 특수 분류를 먼저 보여준다

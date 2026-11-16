@@ -20,6 +20,7 @@ SELECT s.merchant_key,
        s.confidence,
        s.model,
        s.catalog,
+       s.mixed,
        c.name     AS category_name,
        c.kind     AS category_kind,
        c.archived AS category_archived
@@ -28,14 +29,21 @@ FROM merchant_suggestions s
 WHERE s.merchant_key = ANY (@keys::text[]);
 
 -- name: UpsertMerchantSuggestion :exec
-INSERT INTO merchant_suggestions (merchant_key, category_id, confidence, model, catalog)
-VALUES (@merchant_key, sqlc.narg(category_id), @confidence, @model, @catalog)
+INSERT INTO merchant_suggestions (merchant_key, category_id, confidence, model, catalog, mixed)
+VALUES (@merchant_key, sqlc.narg(category_id), @confidence, @model, @catalog, @mixed)
 ON CONFLICT (merchant_key) DO UPDATE
     SET category_id = excluded.category_id,
         confidence  = excluded.confidence,
         model       = excluded.model,
         catalog     = excluded.catalog,
+        mixed       = excluded.mixed,
         created_at  = now();
+
+-- name: ListMixedMerchantKeys :many
+-- AI가 "산 물건에 따라 분류가 갈린다"고 본 가맹점 키. 파이프라인이 이 가맹점을 위젯에서 고르게 확인 필요로 둔다.
+SELECT merchant_key
+FROM merchant_suggestions
+WHERE mixed;
 
 -- name: DeleteMerchantSuggestion :exec
 DELETE

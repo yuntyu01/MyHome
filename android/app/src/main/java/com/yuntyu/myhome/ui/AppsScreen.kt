@@ -125,7 +125,7 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
                     SectionLabel(
                         "결제 알림 지우기",
                         help = "앱을 꾹 눌러 다른 칸으로 끌어 놓거나, 눌러서 고르세요. 다 지움: 보낸 알림은 전부 치워요. " +
-                            "알아본 것만: 가계부가 알아본 결제만 치우고, 못 읽었거나 분류를 모르는 건 AI 판정 뒤나 직접 분류하면 치워요. 안 지움: 그대로 둬요.",
+                            "알아본 것만: 가계부가 알아본 결제와 위젯에서 고를 결제는 AI 판정 뒤에 치우고, 못 읽은 알림·송금은 직접 처리하면 치워요. 안 지움: 그대로 둬요.",
                     )
                     ModeGroups(all.filter { it.pkg in selected }, settings::modeOf, drag) { pkg, mode -> app.settings.setDeleteMode(pkg, mode) }
                 }

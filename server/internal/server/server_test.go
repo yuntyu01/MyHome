@@ -357,15 +357,16 @@ func TestHealthzChecksDB(t *testing.T) {
 	}
 }
 
-// 수집 응답과 GET /v1/events/notice가 원래 알림을 지울지 알려 준다: 알아본 결제만 dismiss,
-// 규칙 없는 지출은 AI가 켜져 있으면 wait(판정 대기), 꺼져 있으면 keep. 사용자가 분류하면 dismiss.
+// 수집 응답과 GET /v1/events/notice가 원래 알림을 지울지 알려 준다: 알아본 결제와 위젯에서 고를 지출(처음 보는 가게 등)은
+// dismiss, 규칙 없는 지출은 AI가 켜져 있으면 wait(판정 대기). 송금은 keep이고 사용자가 분류하면 dismiss.
 func TestEventNotice(t *testing.T) {
 	c := newClient(t)
 	now := time.Now()
 	known := c.event("test.kb", "KB국민카드", "홍*동님 4,500원 일시불 메가커피 역삼점", now)
-	unknown := c.event("test.kb", "KB국민카드", "홍*동님 9,000원 일시불 처음보는가게", now.Add(time.Second))
-	if known["notice"] != "dismiss" || unknown["notice"] != "keep" {
-		t.Fatalf("수집 응답 notice: %v / %v", known["notice"], unknown["notice"])
+	pick := c.event("test.kb", "KB국민카드", "홍*동님 9,000원 일시불 처음보는가게", now.Add(time.Second))
+	unknown := c.event("test.toss", "토스", "김민수님에게 25,000원을 보냈어요", now.Add(2*time.Second))
+	if known["notice"] != "dismiss" || pick["notice"] != "dismiss" || unknown["notice"] != "keep" {
+		t.Fatalf("수집 응답 notice: %v / %v / %v", known["notice"], pick["notice"], unknown["notice"])
 	}
 	kid, uid := int64(known["id"].(float64)), int64(unknown["id"].(float64))
 	txID := int64(unknown["result"].(map[string]any)["transaction"].(map[string]any)["id"].(float64))

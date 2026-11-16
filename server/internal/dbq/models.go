@@ -274,6 +274,7 @@ type MerchantSuggestion struct {
 	Model       string    `json:"model"`
 	CreatedAt   time.Time `json:"created_at"`
 	Catalog     string    `json:"catalog"`
+	Mixed       bool      `json:"mixed"`
 }
 
 type PeriodTotalBudget struct {

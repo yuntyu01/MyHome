@@ -24,7 +24,7 @@ import (
 // Lookback 안의 잔액만 본다(위젯 요약에도 쓰므로 가볍게).
 const Lookback = 90 * 24 * time.Hour
 
-// ReviewBalanceGap은 빈 돈을 채워서 만든 확인 필요 거래의 사유다.
+// ReviewBalanceGap은 빈 돈을 채워서 만든 확인 필요 거래의 사유다(pipeline.ReviewBalanceGap과 같다).
 const ReviewBalanceGap = "balance_gap"
 
 // Gap은 빈 돈 하나다. Amount가 음수면 나간 돈을, 양수면 들어온 돈을 놓쳤다.

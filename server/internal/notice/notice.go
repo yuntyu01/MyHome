@@ -1,9 +1,10 @@
 // Package notice는 앱이 카드·은행 앱의 원래 결제 알림을 지워도 되는지 정한다(사용자 요청, 2026-11-15).
 //
-// 가계부가 알아본 것만 지운다: 분류까지 끝난 거래(confirmed)와 지출에서 뺀 거래(excluded: 카드대금·머니 충전·사용자 제외 등).
-// 읽지 못한 알림(parse_error), 결제가 아닌 알림(ignore_reason), 분류를 모르는 확인 필요는 남긴다.
-// 규칙이 없는 지출(no_rule)은 AI 판정을 기다린다: AI가 확신하면 바로 넣으므로(suggest.AutoConfidence) 그때 지우고,
-// 모름·낮은 확신이면 남긴다. 남긴 알림도 사용자가 분류하면 다음 확인 때 지운다.
+// 가계부가 알아본 것만 지운다: 분류까지 끝난 거래(confirmed)와 지출에서 뺀 거래(excluded: 카드대금·머니 충전·사용자 제외 등),
+// 그리고 위젯에서 동그라미로 고를 거래(애매한 가게·처음 보는 가게 등, pipeline.WidgetPickable — 고르는 곳이 위젯이라서,
+// 사용자 요청 2026-11-16 "그냥 지워지고 여기서 선택"). 규칙이 없는 지출(no_rule)은 AI 판정 뒤에 지운다(사용자 요청 2026-11-15).
+// 읽지 못한 알림(parse_error), 결제가 아닌 알림(ignore_reason), 송금·입금처럼 앱에서 처리할 확인 필요는 남기고,
+// 사용자가 분류하면 다음 확인 때 지운다.
 package notice
 
 import (
@@ -72,16 +73,19 @@ func (c Checker) State(ctx context.Context, q *dbq.Queries, rawEventID int64) (s
 	case "confirmed", "excluded":
 		return Dismiss, nil
 	case "needs_review":
-		if !c.AI {
-			return Keep, nil
+		pick := pipeline.WidgetPickable(t.Status, t.ReviewReason, t.Flow, t.CancelsID, t.MergedInto)
+		if c.AI {
+			v, err := suggest.VerdictFor(ctx, q, suggest.Input{Status: t.Status, ReviewReason: t.ReviewReason, Direction: t.Direction,
+				Flow: t.Flow, Merchant: t.Merchant, CancelsID: t.CancelsID})
+			if err != nil {
+				return "", err
+			}
+			if v == suggest.Pending || v == suggest.Sure {
+				return Wait, nil
+			}
 		}
-		v, err := suggest.VerdictFor(ctx, q, suggest.Input{Status: t.Status, ReviewReason: t.ReviewReason, Direction: t.Direction,
-			Flow: t.Flow, Merchant: t.Merchant, CancelsID: t.CancelsID})
-		if err != nil {
-			return "", err
-		}
-		if v == suggest.Pending || v == suggest.Sure {
-			return Wait, nil
+		if pick {
+			return Dismiss, nil
 		}
 	}
 	return Keep, nil

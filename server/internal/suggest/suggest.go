@@ -3,6 +3,7 @@
 // 순서: 사용자 규칙(기존 파이프라인) → 규칙이 없으면(no_rule) AI에 묻는다 → 확신이 AutoConfidence 이상이면 그 분류로 바로 넣고
 // (사용자 요청, 2026-11-10), MinConfidence~AutoConfidence면 확인 필요에 추천만 붙인다(한 번 눌러 확정 → "이 가맹점은 항상" 학습 규칙).
 // AI에는 가맹점 이름과 지출 분류 이름만 보낸다(금액·시각·알림 원문·카드·계좌 정보는 보내지 않는다).
+// AI가 여러 분류 가게(편의점·마트·쿠팡 등, mixed)라고 보면 확신이 높아도 넣지 않고 위젯에서 고르게 둔다(2026-11-16).
 // 답은 가맹점마다 merchant_suggestions에 한 번 저장하고, 같은 가맹점은 다시 묻지 않는다.
 package suggest
 
@@ -166,7 +167,7 @@ func VerdictFor(ctx context.Context, q *dbq.Queries, in Input) (Verdict, error) 
 	if len(rows) == 0 {
 		return Pending, nil
 	}
-	if s := visible(rows[0]); s != nil && s.Confidence >= AutoConfidence {
+	if s := visible(rows[0]); s != nil && s.Confidence >= AutoConfidence && !rows[0].Mixed {
 		return Sure, nil
 	}
 	return Unsure, nil

@@ -42,7 +42,8 @@ func TestGeminiClassifyMerchantsRequestAndParse(t *testing.T) {
 			t.Errorf("요청 JSON: %v", err)
 		}
 		// 0: 정상, 1: 모름, 2: 모르는 분류 이름 → 모름, 3: 확신 범위 밖 → 모름, 4: 빠짐 → 모름, 9: 없는 id(무시), 0 중복(무시)
-		answer := `{"results":[{"id":0,"category":"식비","confidence":0.9},{"id":1,"category":"모름","confidence":0.3},` +
+		// 0은 여러 분류 가게(mixed)라는 답도 같이 온다
+		answer := `{"results":[{"id":0,"category":"식비","confidence":0.9,"mixed":true},{"id":1,"category":"모름","confidence":0.3},` +
 			`{"id":2,"category":"술집","confidence":0.8},{"id":3,"category":"생활","confidence":95},` +
 			`{"id":9,"category":"식비","confidence":1},{"id":0,"category":"생활","confidence":1}]}`
 		resp, _ := json.Marshal(map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{map[string]any{"text": answer}}}}}})
@@ -57,7 +58,7 @@ func TestGeminiClassifyMerchantsRequestAndParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []MerchantGuess{{"식비", 0.9}, {}, {}, {}, {}}
+	want := []MerchantGuess{{Category: "식비", Confidence: 0.9, Mixed: true}, {}, {}, {}, {}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("답 %+v", got)
 	}
@@ -118,11 +119,12 @@ func TestGeminiClassifyMerchantsBadAnswer(t *testing.T) {
 // mock은 낱말 표로 늘 같은 답을 준다. 받은 분류 목록에 없는 분류는 고르지 않고, 폴더 경로는 마지막 이름으로 맞춘다.
 func TestMockClassifyMerchants(t *testing.T) {
 	cats := []CategoryChoice{{Name: "생활비 › 식비"}, {Name: "카페·간식"}, {Name: "생활"}}
-	got, err := Mock{}.ClassifyMerchants(context.Background(), []string{"동네분식", "골목커피", "주유소앞", "대박상회", "알수없음"}, cats, "")
+	got, err := Mock{}.ClassifyMerchants(context.Background(), []string{"동네분식", "골목커피", "주유소앞", "대박상회", "알수없음", "합성편의점"}, cats, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []MerchantGuess{{"생활비 › 식비", 0.9}, {"카페·간식", 0.9}, {}, {"생활", 0.4}, {}}
+	want := []MerchantGuess{{Category: "생활비 › 식비", Confidence: 0.9}, {Category: "카페·간식", Confidence: 0.9}, {}, {Category: "생활", Confidence: 0.4}, {},
+		{Category: "생활비 › 식비", Confidence: 0.85, Mixed: true}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("mock %+v", got)
 	}

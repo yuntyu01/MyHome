@@ -337,7 +337,7 @@ private fun PickCard(p: Pick, picking: Pair<Long, Long>?) {
                 maxLines = 1,
             )
             Text(Money.won(p.amount), style = TextStyle(color = TextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium))
-            if (p.left > 1) Text("  ${p.left}건", style = TextStyle(color = SubColor, fontSize = 11.sp))
+            Text("  ${p.left}건 남음", style = TextStyle(color = SubColor, fontSize = 11.sp))
         }
         Spacer(GlanceModifier.height(4.dp))
         Row(modifier = GlanceModifier.fillMaxWidth()) {

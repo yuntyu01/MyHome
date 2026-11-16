@@ -261,7 +261,8 @@ func (w *Worker) file(ctx context.Context, q *dbq.Queries, gateways []string) (i
 	}
 	sure := map[string]int64{}
 	for _, r := range saved {
-		if s := visible(r); s != nil && s.Confidence >= AutoConfidence {
+		// 여러 분류 가게(편의점 등)는 확신이 높아도 넣지 않고 위젯에서 고르게 둔다
+		if s := visible(r); s != nil && s.Confidence >= AutoConfidence && !r.Mixed {
 			sure[r.MerchantKey] = s.CategoryID
 		}
 	}
@@ -313,7 +314,7 @@ func (w *Worker) ask(ctx context.Context, q *dbq.Queries, chunk []target, names 
 			st.Suggested++
 		}
 		conf = min(max(conf, 0), 1)
-		if err := q.UpsertMerchantSuggestion(ctx, dbq.UpsertMerchantSuggestionParams{MerchantKey: chunk[i].key, CategoryID: cid, Confidence: conf, Model: model, Catalog: catalog}); err != nil {
+		if err := q.UpsertMerchantSuggestion(ctx, dbq.UpsertMerchantSuggestionParams{MerchantKey: chunk[i].key, CategoryID: cid, Confidence: conf, Model: model, Catalog: catalog, Mixed: g.Mixed}); err != nil {
 			return err
 		}
 		st.Asked++
