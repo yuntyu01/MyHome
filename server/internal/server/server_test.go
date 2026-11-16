@@ -527,3 +527,50 @@ func TestClientErrorReport(t *testing.T) {
 		t.Errorf("빈 보고 %d", code)
 	}
 }
+
+// 애매한 가게(편의점)는 요약 pick으로 위젯에 나오고, 동그라미(분류)를 고르면 확정되고 다음 것이 나온다.
+func TestWidgetPick(t *testing.T) {
+	c := newClient(t)
+	now := time.Now()
+	c.event("test.kb", "KB국민카드", "홍*동님 3,300원 일시불 GS25 합성점", now.Add(-time.Hour))
+	c.event("test.kb", "KB국민카드", "홍*동님 12,900원 일시불 쿠팡", now.Add(-time.Minute))
+	type pick struct {
+		ID       int64  `json:"id"`
+		Merchant string `json:"merchant"`
+		Reason   string `json:"reason"`
+		Left     int64  `json:"left"`
+		Choices  []struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		} `json:"choices"`
+	}
+	var sum struct {
+		Pick *pick `json:"pick"`
+	}
+	c.do("GET", "/v1/summary", nil, &sum)
+	if sum.Pick == nil || sum.Pick.Merchant != "쿠팡" || sum.Pick.Reason != "ambiguous" || sum.Pick.Left != 2 || len(sum.Pick.Choices) != 4 {
+		t.Fatalf("최근 것부터 고름: %+v", sum.Pick)
+	}
+	if code := c.do("PATCH", "/v1/transactions/"+itoa(sum.Pick.ID), map[string]any{"category_id": c.catID("식비")}, nil); code != 200 {
+		t.Fatalf("고르기 %d", code)
+	}
+	sum.Pick = nil
+	c.do("GET", "/v1/summary", nil, &sum)
+	if sum.Pick == nil || sum.Pick.Merchant != "GS25 합성점" || sum.Pick.Left != 1 {
+		t.Fatalf("다음 것: %+v", sum.Pick)
+	}
+	if code := c.do("PATCH", "/v1/transactions/"+itoa(sum.Pick.ID), map[string]any{"category_id": c.catID("카페·간식")}, nil); code != 200 {
+		t.Fatalf("고르기 %d", code)
+	}
+	sum.Pick = nil
+	c.do("GET", "/v1/summary", nil, &sum)
+	if sum.Pick != nil {
+		t.Errorf("다 골랐으면 null: %+v", sum.Pick)
+	}
+	// 다음에 같은 가게가 오면 전에 고른 분류가 첫 칸
+	c.event("test.kb", "KB국민카드", "홍*동님 2,100원 일시불 GS25 합성점", now)
+	c.do("GET", "/v1/summary", nil, &sum)
+	if sum.Pick == nil || sum.Pick.Choices[0].Name != "카페·간식" {
+		t.Errorf("전에 고른 분류가 첫 칸: %+v", sum.Pick)
+	}
+}

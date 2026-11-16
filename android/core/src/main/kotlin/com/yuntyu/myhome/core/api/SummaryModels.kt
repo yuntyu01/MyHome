@@ -15,8 +15,25 @@ data class Summary(
     @SerialName("failed_events") val failedEvents: Long = 0,
     /** 알림에 찍힌 계좌 마지막 잔액과 잔액이 안 맞는 빈 돈 수(옛 서버는 안 준다) */
     val balances: List<BalanceBrief> = emptyList(),
+    /** 위젯에서 동그라미 한 번으로 분류할 다음 거래(애매한 가게·처음 보는 가게 등). 없으면 null */
+    val pick: Pick? = null,
     @SerialName("generated_at") val generatedAt: String = "",
 )
+
+/** 위젯에서 고를 거래 하나. choices는 동그라미(많이 쓴·전에 고른 분류 순), left는 이것을 포함해 남은 수 */
+@Serializable
+data class Pick(
+    val id: Long,
+    val merchant: String = "",
+    val amount: Long = 0,
+    @SerialName("occurred_at") val occurredAt: String = "",
+    val reason: String = "",
+    val choices: List<PickChoice> = emptyList(),
+    val left: Long = 1,
+)
+
+@Serializable
+data class PickChoice(val id: Long, val name: String)
 
 /** 계좌 하나(예: 토스뱅크)의 마지막 알림 잔액. at은 그 알림 시각(ISO-8601) */
 @Serializable

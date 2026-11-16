@@ -92,6 +92,18 @@ object WidgetModel {
         return txs.filter { it.categoryId in ids && it.status != "excluded" }.sortedByDescending { it.occurredAt }.take(n)
     }
 
+    /**
+     * 위젯 줄 수(분류, 최근 결제). 고를 거래가 있으면 고르기 칸(가게 한 줄 + 동그라미 한 줄)이 들어갈 자리를 비운다.
+     * 작은 위젯은 동그라미가 안 들어가서 고르기를 안 보인다([showPick]).
+     */
+    fun rows(layout: WidgetLayout, picking: Boolean): Pair<Int, Int> = when {
+        !showPick(layout, picking) -> layout.categoryCount to layout.recentCount
+        layout == WidgetLayout.MEDIUM -> 0 to 0 // 세로 2칸엔 남은 돈과 고르기 칸만 들어간다
+        else -> 3 to 1
+    }
+
+    fun showPick(layout: WidgetLayout, picking: Boolean): Boolean = picking && layout != WidgetLayout.SMALL
+
     /** 최근 결제: 나간 돈(지출·송금 등) 위주, 확인 필요 건도 포함. */
     fun recentPayments(s: Summary, n: Int): List<TransactionDto> =
         s.recent.filter { it.flow == "out" || it.status == "needs_review" }.take(n)

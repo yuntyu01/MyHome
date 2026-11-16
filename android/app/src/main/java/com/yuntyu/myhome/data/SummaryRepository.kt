@@ -20,7 +20,12 @@ import kotlinx.coroutines.withContext
 class SummaryRepository(context: Context) {
     private val prefs = context.getSharedPreferences("summary_cache", Context.MODE_PRIVATE)
 
-    data class State(val summary: Summary?, val updatedAt: Long, val error: String?)
+    /** picking: 위젯에서 방금 누른 (거래 id, 분류 id). 서버에 적는 동안 그 동그라미를 채워 보이고, 요약을 새로 받으면 비운다 */
+    data class State(val summary: Summary?, val updatedAt: Long, val error: String?, val picking: Pair<Long, Long>? = null)
+
+    fun setPicking(p: Pair<Long, Long>?) {
+        _state.value = _state.value.copy(picking = p)
+    }
 
     private val _state = MutableStateFlow(State(loadCached(), prefs.getLong(KEY_AT, 0), null))
     val state: StateFlow<State> = _state.asStateFlow()

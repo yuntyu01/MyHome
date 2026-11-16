@@ -102,4 +102,25 @@ class WidgetModelTest {
         assertEquals("2025년 12월", WidgetModel.monthName("2025-12", 2026))
         assertEquals("이상한값", WidgetModel.monthName("이상한값", 2026))
     }
+
+    // 고를 거래가 있으면 고르기 칸 자리를 비우고, 작은 위젯은 고르기를 안 보인다
+    @Test fun pickTakesRowsExceptSmall() {
+        assertEquals(WidgetLayout.MEDIUM.categoryCount to WidgetLayout.MEDIUM.recentCount, WidgetModel.rows(WidgetLayout.MEDIUM, false))
+        assertEquals(0 to 0, WidgetModel.rows(WidgetLayout.MEDIUM, true))
+        assertEquals(3 to 1, WidgetModel.rows(WidgetLayout.LARGE, true))
+        assertEquals(WidgetLayout.SMALL.categoryCount to 0, WidgetModel.rows(WidgetLayout.SMALL, true))
+        assertEquals(false, WidgetModel.showPick(WidgetLayout.SMALL, true))
+    }
+
+    @Test fun summaryWithPickDecodes() {
+        val s = MyHomeJson.decodeFromString(
+            Summary.serializer(),
+            """{"period":{"label":"2026-11","start":"2026-11-01","end":"2026-12-01"},"totals":{"budget":0,"spent":0,"settled":0,"remaining":0},
+               "pick":{"id":7,"merchant":"합성편의점","amount":3300,"occurred_at":"2026-11-16T12:00:00+09:00","reason":"ambiguous",
+               "choices":[{"id":1,"name":"식비"},{"id":2,"name":"카페·간식"}],"left":2}}""",
+        )
+        assertEquals(7L, s.pick?.id)
+        assertEquals(listOf("식비", "카페·간식"), s.pick?.choices?.map { it.name })
+        assertEquals(null, MyHomeJson.decodeFromString(Summary.serializer(), """{"period":{"label":"2026-11","start":"2026-11-01","end":"2026-12-01"},"totals":{"budget":0,"spent":0,"settled":0,"remaining":0}}""").pick)
+    }
 }

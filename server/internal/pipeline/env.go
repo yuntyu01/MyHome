@@ -20,6 +20,7 @@ const (
 	ReviewCancelNoMatch  = "cancel_unmatched" // 취소의 원거래를 못 찾음
 	ReviewCancelPartial  = "cancel_partial"   // 부분 취소인데 원거래가 미분류
 	ReviewForeign        = "foreign_currency" // 외화만 있어서 원화 금액을 모름(메모에 외화 금액)
+	ReviewAmbiguous      = "ambiguous"        // 살 때마다 분류가 다른 가게(쿠팡·편의점): 위젯에서 고른다
 )
 
 // 제외 사유
@@ -153,7 +154,14 @@ func (e *env) classify(merchant string, kind parser.Kind, flow string) classific
 		}
 		target = rest
 	}
-	if r, ok := classify.First(e.rules, target, flow, live); ok {
+	r, ok := classify.First(e.rules, target, flow, live)
+	// 살 때마다 분류가 다른 가게는 위젯에서 고르게 확인 필요로 둔다. 더 긴 규칙(쿠팡이츠)이 맞으면 그 규칙을 쓴다
+	if flow == "out" {
+		if p, amb := AmbiguousMatch(target, e.cfg.AmbiguousMerchants); amb && (!ok || runeLen(classify.Normalize(r.Pattern)) <= runeLen(classify.Normalize(p))) {
+			return review(ReviewAmbiguous)
+		}
+	}
+	if ok {
 		return apply(r)
 	}
 	if flow == "in" {
@@ -164,6 +172,36 @@ func (e *env) classify(merchant string, kind parser.Kind, flow string) classific
 	}
 	return review(ReviewNoRule)
 }
+
+// AmbiguousMatch는 가맹점이 살 때마다 분류가 다른 가게(Config.AmbiguousMerchants)인지 보고 맞은 낱말을 돌려준다.
+// 짧은 영문·숫자 이름(GS25, CU)은 이름 앞에서만 맞춘다(CUBE·CUCINA는 아님). 나머지는 들어 있으면 맞다.
+func AmbiguousMatch(merchant string, patterns []string) (string, bool) {
+	for _, p := range patterns {
+		mt := "contains"
+		if isShortLatin(p) {
+			mt = "prefix"
+		}
+		if (classify.Rule{Pattern: p, MatchType: mt}).Matches(merchant, "") {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+func isShortLatin(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 5 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func runeLen(s string) int { return len([]rune(s)) }
 
 func containsAnyNorm(body string, words []string) bool {
 	nb := classify.Normalize(body)

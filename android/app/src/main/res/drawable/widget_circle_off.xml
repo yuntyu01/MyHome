@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 위젯 고르기 동그라미(안 고름). 앱 Modo CheckCircle과 같은 모양: 1.5dp 테두리, faint 색 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#9A9A9A" android:strokeWidth="1.5" android:fillColor="#00000000"
+        android:pathData="M0.75,12a11.25,11.25 0 1,0 22.5,0a11.25,11.25 0 1,0 -22.5,0" />
+</vector>

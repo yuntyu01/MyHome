@@ -149,7 +149,7 @@ func TestWonSignPaymentWithFormalCafeName(t *testing.T) {
 func TestSeedPrefixRules(t *testing.T) {
 	h := newHarness(t)
 	for i, c := range []struct{ merchant, category string }{
-		{"CU 선릉점", "생활"}, {"CU역삼점", "생활"}, {"KT 강남대리점", "주거·통신"}, {"SKT 대리점", "주거·통신"}, {"KTX 서울역", "교통"},
+		{"KT 강남대리점", "주거·통신"}, {"SKT 대리점", "주거·통신"}, {"KTX 서울역", "교통"},
 	} {
 		tx, _ := h.event("test.kb", "KB국민카드", fmt.Sprintf("홍*동님 %d,000원 일시불 %s", i+1, c.merchant), base.Add(time.Duration(i)*time.Hour))
 		h.wantStatus(*tx, "confirmed", c.category)
@@ -165,7 +165,34 @@ func TestAppTitleBecomesMerchant(t *testing.T) {
 	if tx.Merchant != "쿠팡" {
 		t.Errorf("가맹점 = %q, want 쿠팡", tx.Merchant)
 	}
-	h.wantStatus(*tx, "confirmed", "쇼핑")
+	h.wantStatus(*tx, "needs_review", "") // 쿠팡은 살 때마다 분류가 달라 위젯에서 고른다
+}
+
+// 살 때마다 분류가 다른 가게(쿠팡·편의점)는 규칙이 있어도 확인 필요(ambiguous)로 보내 위젯에서 고른다.
+// 더 긴 규칙(쿠팡이츠 → 식비)과 사용자가 만든 규칙은 그대로 쓰고, 비슷한 다른 이름(CUBE)은 잡지 않는다.
+func TestAmbiguousMerchants(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	for i, m := range []string{"쿠팡", "CU 선릉점", "CU역삼점", "GS25 역삼점", "지에스25 합성점", "세븐일레븐 합성점"} {
+		tx, _ := h.event("test.kb", "KB국민카드", fmt.Sprintf("홍*동님 %d,100원 일시불 %s", i+1, m), base.Add(time.Duration(i)*time.Hour))
+		h.wantStatus(*tx, "needs_review", "")
+		if deref(tx.ReviewReason) != pipeline.ReviewAmbiguous {
+			t.Errorf("%s: 사유 = %s, want ambiguous", m, deref(tx.ReviewReason))
+		}
+	}
+	eats, _ := h.event("test.kb", "KB국민카드", "홍*동님 18,000원 일시불 쿠팡이츠", base.Add(10*time.Hour))
+	h.wantStatus(*eats, "confirmed", "식비")
+	cube, _ := h.event("test.kb", "KB국민카드", "홍*동님 7,700원 일시불 CUBE 커피", base.Add(11*time.Hour))
+	if deref(cube.ReviewReason) == pipeline.ReviewAmbiguous {
+		t.Errorf("CUBE는 편의점이 아님: %+v", cube)
+	}
+	// 사용자가 "이 가게는 항상"으로 만든 규칙이 있으면 그 규칙
+	flow := "out"
+	if _, err := h.q.UpsertRule(ctx, dbq.UpsertRuleParams{Pattern: "GS25 단골점", MatchType: "exact", CategoryID: h.cats["식비"], Flow: &flow, Priority: 100, CreatedFrom: "learned"}); err != nil {
+		t.Fatal(err)
+	}
+	mine, _ := h.event("test.kb", "KB국민카드", "홍*동님 2,500원 일시불 GS25 단골점", base.Add(12*time.Hour))
+	h.wantStatus(*mine, "confirmed", "식비")
 }
 
 func TestInstallmentRecordsFullAmount(t *testing.T) {

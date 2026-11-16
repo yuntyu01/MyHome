@@ -62,8 +62,10 @@ type Summary struct {
 	// FailedEvents는 최근 7일 동안 읽지 못했거나(해석 실패) 처리하지 못한 알림 수다. 웹 관리 > 읽지 못한 알림에서 본다.
 	FailedEvents int64 `json:"failed_events"`
 	// Balances는 알림에 찍힌 계좌 마지막 잔액과 잔액이 안 맞는 빈 돈 수다(balance 패키지). 잔액 알림이 없으면 빈 배열.
-	Balances    []balance.Brief `json:"balances"`
-	GeneratedAt time.Time       `json:"generated_at"`
+	Balances []balance.Brief `json:"balances"`
+	// Pick은 위젯에서 동그라미 한 번으로 분류할 다음 거래다(없으면 null). pick.go
+	Pick        *Pick     `json:"pick"`
+	GeneratedAt time.Time `json:"generated_at"`
 }
 
 // attentionLookback 안에 받은 알림만 실패 수에 센다(지난 실패가 영영 남지 않게).
@@ -149,6 +151,12 @@ func (a *API) BuildSummary(r *http.Request, p period.Period, recentN int) (Summa
 		a.Logger.Warn("잔액 조회 실패", "err", err)
 	} else {
 		s.Balances = balance.Briefs(accts)
+	}
+	// 위젯에서 고를 다음 거래도 덧붙이는 정보다
+	if pick, err := a.BuildPick(ctx, q, wall); err != nil {
+		a.Logger.Warn("고를 거래 조회 실패", "err", err)
+	} else {
+		s.Pick = pick
 	}
 	// 한 달 예산·쓴 돈: "예산 없음" 분류(그 폴더 아래 포함)는 빼고 센다. 자유(예산 0)는 쓴 돈만 센다
 	var outSettled int64

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
 import android.widget.RemoteViews
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,16 +62,24 @@ import com.yuntyu.myhome.core.FocusSubjects
 import com.yuntyu.myhome.core.Money
 import com.yuntyu.myhome.core.WidgetLayout
 import com.yuntyu.myhome.core.WidgetModel
+import com.yuntyu.myhome.core.api.ApiResult
+import com.yuntyu.myhome.core.api.Pick
 import com.yuntyu.myhome.core.api.Summary
+import com.yuntyu.myhome.core.api.TransactionEdit
 import com.yuntyu.myhome.core.formatHms
 import com.yuntyu.myhome.data.FocusSession
 import com.yuntyu.myhome.data.FocusSubject
 import com.yuntyu.myhome.focus.FocusTimer
 import com.yuntyu.myhome.ui.MainActivity
+import com.yuntyu.myhome.ui.plain
+import com.yuntyu.myhome.work.WorkScheduler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 홈 화면 위젯. 위의 탭으로 두 페이지를 오간다(위젯은 옆으로 미는 손짓을 받지 못해서 탭으로 바꾼다. 위젯마다 기억한다).
- * - 가계부: 총 남은 돈, 분류별 남은 돈(사용률 높은 순), 최근 결제. 서버 캐시(SummaryRepository)만 읽는다
+ * - 가계부: 총 남은 돈, 고를 거래(동그라미 한 번으로 분류, 다음 것으로 넘어감), 분류별 남은 돈(사용률 높은 순), 최근 결제.
+ *   서버 캐시(SummaryRepository)만 읽는다
  * - 집중: 오늘 순공, 과목 줄(동그라미를 누르면 앱을 열지 않고 시작·멈춤). 폰 기록(Room)만 읽는다
  * 그릴 때 네트워크는 쓰지 않는다. 도는 타이머의 초는 시스템 Chronometer가 그려서 앱을 깨우지 않는다.
  */
@@ -89,7 +98,7 @@ class SummaryWidget : GlanceAppWidget() {
             val day = FocusDay.dayOf(System.currentTimeMillis())
             val subjects by remember { focus.subjects() }.collectAsState(initial = null)
             val sessions by remember(day) { focus.sessionsBetween(FocusDay.startOf(day), FocusDay.endOf(day)) }.collectAsState(initial = emptyList())
-            SummaryWidgetContent(context, page, st.summary, subjects, sessions, running)
+            SummaryWidgetContent(context, page, st.summary, subjects, sessions, running, st.picking)
         }
     }
 
@@ -112,11 +121,12 @@ internal fun SummaryWidgetContent(
     subjects: List<com.yuntyu.myhome.data.FocusSubject>?,
     sessions: List<com.yuntyu.myhome.data.FocusSession>,
     running: com.yuntyu.myhome.focus.FocusTimer.Running?,
+    picking: Pair<Long, Long>? = null,
 ) {
     GlanceTheme {
         WidgetFrame(context, page) {
             if (page == SummaryWidget.PAGE_FOCUS) FocusPage(context, subjects, sessions, running)
-            else BudgetPage(context, summary)
+            else BudgetPage(context, summary, picking)
         }
     }
 }
@@ -127,6 +137,34 @@ class SummaryWidgetReceiver : GlanceAppWidgetReceiver() {
 
 private val PageParam = ActionParameters.Key<Int>("page")
 private val SubjectParam = ActionParameters.Key<String>("subject")
+private val PickTxParam = ActionParameters.Key<Long>("pick_tx")
+private val PickCatParam = ActionParameters.Key<Long>("pick_cat")
+
+/**
+ * 고르기 동그라미(사용자 요청, 2026-11-16 "애매한 건 위젯에서 동그라미 한 번 체크하면 다음 걸로"): 앱을 열지 않고 그 분류로 확정한다.
+ * 누른 동그라미를 바로 채워 보이고, 서버에 적은 뒤 요약을 다시 받으면 다음 거래가 온다. 규칙은 만들지 않는다(살 때마다 다른 가게라서).
+ */
+class PickCategoryAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val tx = parameters[PickTxParam] ?: return
+        val cat = parameters[PickCatParam] ?: return
+        val app = context.applicationContext as MyHomeApp
+        if (app.summaryRepo.state.value.picking != null) return // 앞에 누른 것을 적는 중
+        app.summaryRepo.setPicking(tx to cat)
+        SummaryWidget().updateAll(context)
+        val r = withContext(Dispatchers.IO) { app.api.editTransaction(tx, TransactionEdit(categoryId = cat)) }
+        if (r !is ApiResult.Ok) {
+            app.summaryRepo.setPicking(null)
+            withContext(Dispatchers.Main) { Toast.makeText(context, "못 골랐어요. ${r.plain()}", Toast.LENGTH_LONG).show() }
+        }
+        if (!WidgetRefresher.refresh(context)) {
+            app.summaryRepo.setPicking(null)
+            SummaryWidget().updateAll(context)
+        }
+        // 고른 거래의 원래 결제 알림(분류 몰라 남겨 둔 것)을 치운다
+        if (r is ApiResult.Ok) WorkScheduler.checkNotices(context)
+    }
+}
 
 /** 위의 탭: 그 위젯의 페이지를 바꾼다 */
 class SetWidgetPageAction : ActionCallback {
@@ -154,6 +192,8 @@ private val WidgetBg = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFF
 private val TextColor = ColorProvider(day = Color(0xFF171717), night = Color(0xFFFFFFFF))
 private val SubColor = ColorProvider(day = Color(0xFF777777), night = Color(0xFF949494))
 private val FaintColor = ColorProvider(day = Color(0xFFB0B0B0), night = Color(0xFF5A5A5A))
+// 고르기 칸 바탕: 앱 Modo의 composer(누르고 쓰는 칸 바탕)
+private val PickBg = ColorProvider(day = Color(0xFFEEEEED), night = Color(0xFF2A2A2A))
 
 private fun colorFor(s: BudgetState) = when (s) {
     BudgetState.OVER -> OverColor
@@ -198,7 +238,7 @@ private fun PageTab(label: String, selected: Boolean, page: Int) {
 }
 
 @Composable
-private fun BudgetPage(context: Context, summary: Summary?) {
+private fun BudgetPage(context: Context, summary: Summary?, picking: Pair<Long, Long>?) {
     val size = LocalSize.current
     val layout = WidgetLayout.forSize(size.width.value, size.height.value)
     val text = TextColor
@@ -239,9 +279,15 @@ private fun BudgetPage(context: Context, summary: Summary?) {
         }
     }
     Spacer(GlanceModifier.height(6.dp))
+    val pick = summary.pick?.takeIf { it.choices.isNotEmpty() }
+    val (categoryRows, recentRows) = WidgetModel.rows(layout, pick != null)
+    if (pick != null && WidgetModel.showPick(layout, true)) {
+        PickCard(pick, picking)
+        Spacer(GlanceModifier.height(6.dp))
+    }
     // Glance 컨테이너는 직접 자식을 10개까지만 그리므로 분류·최근 결제를 각각 Column으로 묶는다.
     Column(modifier = GlanceModifier.fillMaxWidth()) {
-        for (c in WidgetModel.topCategories(summary, layout.categoryCount)) {
+        for (c in WidgetModel.topCategories(summary, categoryRows)) {
             Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp)) {
                 Text(c.name, style = TextStyle(color = text, fontSize = 13.sp), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
                 Text(
@@ -251,7 +297,7 @@ private fun BudgetPage(context: Context, summary: Summary?) {
             }
         }
     }
-    val recent = if (layout.recentCount > 0) WidgetModel.recentPayments(summary, layout.recentCount) else emptyList()
+    val recent = if (recentRows > 0) WidgetModel.recentPayments(summary, recentRows) else emptyList()
     if (recent.isNotEmpty()) {
         Spacer(GlanceModifier.height(6.dp))
         Column(modifier = GlanceModifier.fillMaxWidth()) {
@@ -270,6 +316,49 @@ private fun BudgetPage(context: Context, summary: Summary?) {
                         maxLines = 1,
                     )
                     Text((if (t.flow == "in") "+" else "") + Money.won(t.amount), style = TextStyle(color = sub, fontSize = 12.sp))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 고를 거래 한 칸: 가게 · 금액(남은 수), 그 아래 동그라미(분류) 줄. 앱 Modo의 CheckCircle과 같은 동그라미다
+ * (안 고름: 테두리, 고름: 채운 동그라미에 체크). 동그라미를 누르면 [PickCategoryAction].
+ */
+@Composable
+private fun PickCard(p: Pick, picking: Pair<Long, Long>?) {
+    Column(modifier = GlanceModifier.fillMaxWidth().cornerRadius(14.dp).background(PickBg).padding(horizontal = 10.dp, vertical = 6.dp)) {
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                p.merchant.ifBlank { "(이름 없음)" },
+                style = TextStyle(color = TextColor, fontSize = 13.sp, fontWeight = FontWeight.Bold),
+                modifier = GlanceModifier.defaultWeight(),
+                maxLines = 1,
+            )
+            Text(Money.won(p.amount), style = TextStyle(color = TextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium))
+            if (p.left > 1) Text("  ${p.left}건", style = TextStyle(color = SubColor, fontSize = 11.sp))
+        }
+        Spacer(GlanceModifier.height(4.dp))
+        Row(modifier = GlanceModifier.fillMaxWidth()) {
+            for (c in p.choices.take(4)) {
+                val on = picking?.first == p.id && picking.second == c.id
+                Column(
+                    modifier = GlanceModifier.defaultWeight()
+                        .clickable(actionRunCallback<PickCategoryAction>(actionParametersOf(PickTxParam to p.id, PickCatParam to c.id))),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Image(
+                        provider = ImageProvider(if (on) R.drawable.widget_circle_on else R.drawable.widget_circle_off),
+                        contentDescription = "${c.name}로 고르기",
+                        modifier = GlanceModifier.size(20.dp),
+                    )
+                    Spacer(GlanceModifier.height(2.dp))
+                    Text(
+                        c.name,
+                        style = TextStyle(color = if (on) TextColor else SubColor, fontSize = 11.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal),
+                        maxLines = 1,
+                    )
                 }
             }
         }

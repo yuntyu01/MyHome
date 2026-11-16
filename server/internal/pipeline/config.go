@@ -29,6 +29,10 @@ type Config struct {
 	ReviewMerchantPatterns []string
 	// AIMemo는 AI 분류가 모든 가맹점에 먼저 적용할 사용자 공통 메모다(분류마다 다는 설명과 따로, 2026-11-10)
 	AIMemo string
+	// AmbiguousMerchants는 살 때마다 분류가 다른 가게다(쿠팡, 편의점). 규칙·AI로 넣지 않고 확인 필요(ambiguous)로 보내
+	// 위젯에서 한 번 눌러 고른다(사용자 요청, 2026-11-16). 사용자가 만든 규칙이 있으면 그 규칙이 먼저고,
+	// 더 긴 규칙(쿠팡이츠 → 식비)이 맞으면 그 규칙을 쓴다. 짧은 영문(GS25, CU)은 이름 앞에서만 맞춘다(CUBE는 아님).
+	AmbiguousMerchants []string
 }
 
 // DefaultConfig는 settings에 값이 없을 때 쓰는 기본값이다(마이그레이션 seed와 같다).
@@ -40,6 +44,7 @@ func DefaultConfig() Config {
 		CardPaymentKeywords:    []string{"카드대금", "카드 대금", "결제대금", "카드값"},
 		CardCompanyNames:       []string{"KB국민카드", "국민카드", "삼성카드", "신한카드", "현대카드", "롯데카드", "하나카드", "우리카드", "BC카드", "비씨카드", "NH카드", "농협카드"},
 		PrepaidKeywords:        []string{"카카오페이머니", "페이머니", "쿠팡캐시", "쿠페이머니", "토스머니", "네이버페이머니", "네이버페이 포인트"},
+		AmbiguousMerchants:     []string{"쿠팡", "GS25", "지에스25", "CU", "씨유", "세븐일레븐", "이마트24", "미니스톱"},
 		ReviewMerchantPatterns: []string{"KG이니시스", "이니시스", "토스페이먼츠", "NHN KCP", "KCP", "나이스페이", "나이스정보통신", "다날", "KICC", "한국정보통신", "스마트로", "페이레터", "카카오페이", "네이버페이", "토스페이", "페이코", "PAYCO"},
 	}
 }
@@ -48,7 +53,7 @@ func DefaultConfig() Config {
 var SettingKeys = map[string]bool{
 	"budget_start_day": true, "dedupe_window_seconds": true, "own_accounts": true,
 	"card_payment_keywords": true, "card_company_names": true, "prepaid_keywords": true,
-	"review_merchant_patterns": true, "ai_classify_memo": true,
+	"review_merchant_patterns": true, "ai_classify_memo": true, "ambiguous_merchants": true,
 }
 
 // AIMemoMax는 AI 공통 메모 길이 상한(글자)이다. 분류 설명(300자)보다 넉넉하게.
@@ -86,6 +91,8 @@ func LoadConfig(ctx context.Context, q *dbq.Queries) (Config, error) {
 			unmarshalList(r.Value, &cfg.PrepaidKeywords)
 		case "review_merchant_patterns":
 			unmarshalList(r.Value, &cfg.ReviewMerchantPatterns)
+		case "ambiguous_merchants":
+			unmarshalList(r.Value, &cfg.AmbiguousMerchants)
 		case "ai_classify_memo":
 			var v string
 			if json.Unmarshal(r.Value, &v) == nil {
@@ -123,7 +130,7 @@ func ValidateSetting(key string, raw json.RawMessage) bool {
 			}
 		}
 		return true
-	case "card_payment_keywords", "card_company_names", "prepaid_keywords", "review_merchant_patterns":
+	case "card_payment_keywords", "card_company_names", "prepaid_keywords", "review_merchant_patterns", "ambiguous_merchants":
 		var v []string
 		return json.Unmarshal(raw, &v) == nil
 	case "ai_classify_memo":
