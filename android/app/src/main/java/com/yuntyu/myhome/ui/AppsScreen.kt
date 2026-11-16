@@ -141,10 +141,20 @@ fun AppsScreen(modifier: Modifier, onDone: () -> Unit) {
                 val chosen = all.filter { it.pkg in selected }
                 items(chosen, key = { "check-" + it.pkg }) { a ->
                     val n = counts[a.pkg] ?: 0
+                    // 쇼핑·배달 앱 알림은 주문·배달 진행이라 금액이 없다(2026-11-16 쿠팡 15건 모두 금액 없음). 돈은 결제 수단 앱에서 온다
+                    val shop = AppOrder.group(a.label).let { it == AppOrder.Group.DELIVERY || it == AppOrder.Group.SHOP }
                     FlatRow(
                         a.label,
-                        sub = if (n > 0) "알림 ${n}건 받음" else "아직 알림 없음",
-                        help = if (n > 0) null else payAppHint(a.label),
+                        sub = when {
+                            n == 0 -> "아직 알림 없음"
+                            shop -> "알림 ${n}건 · 금액은 안 와요"
+                            else -> "알림 ${n}건 받음"
+                        },
+                        help = when {
+                            shop -> SHOP_HINT
+                            n > 0 -> null
+                            else -> payAppHint(a.label)
+                        },
                         subColor = if (n > 0) m.muted else m.over,
                         leading = { Dot(if (n > 0) m.faint else m.over) },
                         onClick = { openAppNotificationSettings(ctx, a.pkg) },
@@ -343,11 +353,14 @@ private fun AppRow(a: AppEntry, checked: Boolean, notified: Int, onClick: () -> 
  * 앱 안에서 결제 알림을 켜는 곳 안내. 메뉴 이름은 앱 업데이트마다 바뀌어서 "앱 안 설정 → 알림" 정도로만 적는다.
  * docs/DECISIONS.md 「분류 폴더」 옆 「알림 읽을 앱 안내」
  */
+/** 쇼핑·배달 앱을 골랐을 때 "?" 설명 */
+private const val SHOP_HINT = "주문·배달 알림엔 금액이 없어서 가계부에 안 적혀요. 돈은 결제한 곳 알림으로 잡혀요. " +
+    "쿠페이·배민페이를 계좌로 내면 그 은행 앱(토스 등), 카드로 내면 카드 앱(KB Pay 등)을 골라 주세요. 삼성페이 알림은 매장에서 낸 것만 와요."
+
 private fun payAppHint(label: String): String {
     val l = label.lowercase()
     return when {
         "kb" in l || "국민" in l -> "앱 안 설정의 알림에서 결제(승인) 푸시 알림을 켜 주세요. 승인 문자(SMS)만 받고 있으면 읽을 수 없어요"
-        "쿠팡" in l || "coupang" in l -> "쿠팡에서 국민카드로 결제하면 승인 알림은 KB Pay에서 와요. KB Pay도 골라 주세요"
         "토스" in l || "toss" in l -> "토스 앱 안 설정의 알림에서 결제·입출금 알림을 켜 주세요"
         "카카오" in l || "kakao" in l -> "앱 안 설정의 알림에서 결제 알림을 켜 주세요"
         "네이버" in l || "naver" in l -> "앱 안 설정의 알림에서 페이 결제 알림을 켜 주세요"

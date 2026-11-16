@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -71,5 +72,10 @@ func (r *Registry) Parse(ev Event) (Result, error) {
 	if reason, ok := r.ignore.Match(ev); ok {
 		return Result{}, &IgnoredError{Reason: reason}
 	}
-	return r.For(ev).Parse(ev)
+	res, err := r.For(ev).Parse(ev)
+	// 금액 표시도 돈 말도 없으면 결제가 아니라 주문·배달 진행 같은 안내다(ignore.go moneyWord)
+	if b := ev.Body(); errors.Is(err, ErrNoAmount) && res.Foreign == "" && !amountRe.MatchString(b) && !moneyWord.MatchString(b) {
+		return Result{}, &IgnoredError{Reason: IgnoreNotice}
+	}
+	return res, err
 }

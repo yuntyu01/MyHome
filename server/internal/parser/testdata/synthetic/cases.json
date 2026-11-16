@@ -297,6 +297,41 @@
       "want": {"source": "generic", "kind": "cancel", "amount": 4500, "merchant": "합성커피 시험점"}
     },
     {
+      "name": "배달 앱 주문 진행(금액·돈 말 없음) → 무시",
+      "package": "test.shop", "title": "[합성배달] 주문이 수락되었습니다.",
+      "text": "매장에서 음식 준비를 시작합니다.",
+      "posted_at": "2026-11-13T17:45:21+09:00",
+      "want": {"ignored": "notice"}
+    },
+    {
+      "name": "배달 완료(배달원, 몇 분 만에 완료) → 무시",
+      "package": "test.shop", "title": "[합성배달] 배달이 20분 만에 완료됐습니다.",
+      "text": "배달원이 음식을 전달했어요.",
+      "posted_at": "2026-11-13T17:57:44+09:00",
+      "want": {"ignored": "notice"}
+    },
+    {
+      "name": "쇼핑 앱 문의 답변 → 무시",
+      "package": "test.shop", "title": "상품문의 답변 완료",
+      "text": "문의하신 내용에 답변이 등록되었습니다.",
+      "posted_at": "2026-11-10T22:34:10+09:00",
+      "want": {"ignored": "notice"}
+    },
+    {
+      "name": "결제 실패로 주문 취소 → 무시",
+      "package": "test.shop", "title": "주문취소 안내",
+      "text": "결제 실패로 주문이 취소되었습니다. 결제 수단을 확인해 주세요.",
+      "posted_at": "2026-11-15T07:10:16+09:00",
+      "want": {"ignored": "notice"}
+    },
+    {
+      "name": "금액 없는 환불 완료 → 해석 실패(읽지 못한 알림에 남김)",
+      "package": "test.shop", "title": "주문 취소",
+      "text": "환불요청이 승인되었습니다. 합성페이 계좌로 환불 완료되었습니다.",
+      "posted_at": "2026-11-15T09:14:21+09:00",
+      "want": {"error": true}
+    },
+    {
       "name": "쇼핑 앱 배송 안내 → 무시",
       "package": "test.shop", "title": "배송중",
       "text": "주문하신 상품 합성상품 .. 이 배송중입니다. 송장 번호로 배송 상태를 확인할 수 있습니다.",
