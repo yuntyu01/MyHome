@@ -149,7 +149,7 @@ func TestWonSignPaymentWithFormalCafeName(t *testing.T) {
 func TestSeedPrefixRules(t *testing.T) {
 	h := newHarness(t)
 	for i, c := range []struct{ merchant, category string }{
-		{"KT 강남대리점", "주거·통신"}, {"SKT 대리점", "주거·통신"}, {"KTX 서울역", "교통"},
+		{"CU 선릉점", "생활"}, {"CU역삼점", "생활"}, {"KT 강남대리점", "주거·통신"}, {"SKT 대리점", "주거·통신"}, {"KTX 서울역", "교통"},
 	} {
 		tx, _ := h.event("test.kb", "KB국민카드", fmt.Sprintf("홍*동님 %d,000원 일시불 %s", i+1, c.merchant), base.Add(time.Duration(i)*time.Hour))
 		h.wantStatus(*tx, "confirmed", c.category)
@@ -165,14 +165,26 @@ func TestAppTitleBecomesMerchant(t *testing.T) {
 	if tx.Merchant != "쿠팡" {
 		t.Errorf("가맹점 = %q, want 쿠팡", tx.Merchant)
 	}
-	h.wantStatus(*tx, "needs_review", "") // 쿠팡은 살 때마다 분류가 달라 위젯에서 고른다
+	h.wantStatus(*tx, "confirmed", "쇼핑")
 }
 
-// 살 때마다 분류가 다른 가게(쿠팡·편의점)는 규칙이 있어도 확인 필요(ambiguous)로 보내 위젯에서 고른다.
+// 살 때마다 분류가 다른 가게는 규칙이 있어도 확인 필요(ambiguous)로 보내 위젯에서 고른다: 사용자가 설정에 넣은 가게
+// (ambiguous_merchants, 기본은 비어 있음)와 AI가 여러 분류 가게라고 본 가게(merchant_suggestions.mixed).
 // 더 긴 규칙(쿠팡이츠 → 식비)과 사용자가 만든 규칙은 그대로 쓰고, 비슷한 다른 이름(CUBE)은 잡지 않는다.
 func TestAmbiguousMerchants(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
+	// 기본은 목록이 비어 있어서 기본 규칙대로 들어간다(하드코딩 없음)
+	if tx, _ := h.event("test.kb", "KB국민카드", "홍*동님 1,500원 일시불 GS25 처음점", base.Add(-time.Hour)); tx.Status != "confirmed" {
+		t.Errorf("기본 목록은 비어 있음: %+v", tx)
+	}
+	if err := h.q.UpsertSetting(ctx, dbq.UpsertSettingParams{Key: "ambiguous_merchants", Value: []byte(`["쿠팡","CU","GS25","지에스25"]`)}); err != nil {
+		t.Fatal(err)
+	}
+	// AI가 여러 분류 가게라고 본 가게(기본 규칙 세븐일레븐 → 생활이 있어도)
+	if err := h.q.UpsertMerchantSuggestion(ctx, dbq.UpsertMerchantSuggestionParams{MerchantKey: "세븐일레븐합성점", Confidence: 0.9, Model: "m", Mixed: true}); err != nil {
+		t.Fatal(err)
+	}
 	for i, m := range []string{"쿠팡", "CU 선릉점", "CU역삼점", "GS25 역삼점", "지에스25 합성점", "세븐일레븐 합성점"} {
 		tx, _ := h.event("test.kb", "KB국민카드", fmt.Sprintf("홍*동님 %d,100원 일시불 %s", i+1, m), base.Add(time.Duration(i)*time.Hour))
 		h.wantStatus(*tx, "needs_review", "")

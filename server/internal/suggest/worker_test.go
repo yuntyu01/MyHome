@@ -300,7 +300,8 @@ func TestWorkerSendsOnlyNoRuleExpenseMerchants(t *testing.T) {
 
 	f := &fake{answer: always("식비", 0.9)}
 	h.runOnce(h.worker(f))
-	if got := f.sent(); !reflect.DeepEqual(got, []string{"골목식당", "동네분식"}) {
+	// 기본 규칙으로 바로 들어간 가게(스타벅스)도 여러 분류 가게인지 한 번 묻는다(2026-11-16). 사람이 고친 가게는 안 묻는다
+	if got := f.sent(); !reflect.DeepEqual(got, []string{"골목식당", "동네분식", "스타벅스강남점"}) {
 		t.Fatalf("보낸 가맹점 %v", got)
 	}
 	// 같은 키라서 결제대행사 없이 온 같은 가게도 같은 추천을 쓴다
@@ -548,13 +549,15 @@ func TestIngestNotifiesWorker(t *testing.T) {
 	defer cancel()
 	go w.Run(ctx)
 
+	// 나간 돈 거래마다 깨운다: 규칙 없는 지출은 분류를, 규칙으로 들어간 지출도 여러 분류 가게인지 묻는다(2026-11-16)
 	h.kb("스타벅스강남점")
 	h.kb("KG이니시스")
-	if pokes.Load() != 0 {
-		t.Fatalf("확정·결제대행사도 깨움: %d", pokes.Load())
+	if pokes.Load() != 2 {
+		t.Fatalf("나간 돈마다 깨움: %d", pokes.Load())
 	}
+	h.event("test.toss", "토스", "박지성님이 30,000원을 보냈어요") // 들어온 돈은 안 깨움
 	h.kb("동네분식")
-	if pokes.Load() != 1 {
+	if pokes.Load() != 3 {
 		t.Fatalf("no_rule에서 깨우기: %d", pokes.Load())
 	}
 	deadline := time.Now().Add(10 * time.Second)

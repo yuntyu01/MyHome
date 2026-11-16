@@ -34,7 +34,8 @@ type Processor struct {
 	Pool     *pgxpool.Pool
 	Registry *parser.Registry
 	Logger   *slog.Logger
-	// OnNoRule은 규칙이 없어서(no_rule) 확인 필요가 된 거래를 커밋한 뒤 부른다(AI 분류 추천 작업 깨우기).
+	// OnNoRule은 나간 돈 거래를 만든 뒤 부른다(AI 분류 추천 작업 깨우기): 규칙 없는 지출은 분류를 묻고,
+	// 규칙으로 바로 들어간 지출도 여러 분류 가게(편의점 등)인지 묻는다.
 	// 수집 응답을 늦추지 않게 막지 않는 함수여야 한다(suggest.Worker.Notify). nil이면 부르지 않는다.
 	OnNoRule func()
 }
@@ -97,7 +98,7 @@ func (p *Processor) ProcessRawEvent(ctx context.Context, rawEventID int64) (any,
 	if err != nil {
 		return nil, err
 	}
-	if t := res.Transaction; p.OnNoRule != nil && t != nil && t.Status == "needs_review" && t.ReviewReason != nil && *t.ReviewReason == ReviewNoRule {
+	if t := res.Transaction; p.OnNoRule != nil && t != nil && t.Flow == "out" && t.MergedInto == nil {
 		p.OnNoRule()
 	}
 	return res, nil

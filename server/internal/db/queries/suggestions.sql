@@ -74,3 +74,46 @@ SET category_id   = @category_id,
 WHERE id = @id
   AND status = 'needs_review'
   AND review_reason = 'no_rule';
+
+-- name: ListRecentAutoMerchants :many
+-- 규칙(기본 규칙 포함)이나 AI로 바로 넣은 최근 지출의 가맹점. AI에 "여러 분류 가게(편의점·마트·쿠팡 등)인지"를 한 번 묻는다
+-- (사용자 요청, 2026-11-16 "하드코딩 말고 AI가 검사"). 가맹점 이름만 돌려준다.
+SELECT merchant, max(occurred_at)::timestamptz AS last_at
+FROM transactions
+WHERE status = 'confirmed'
+  AND NOT manually_edited
+  AND direction = 'expense'
+  AND flow = 'out'
+  AND raw_event_id IS NOT NULL
+  AND merged_into IS NULL
+  AND cancels_id IS NULL
+  AND btrim(merchant) <> ''
+  AND created_at >= @since
+GROUP BY merchant
+ORDER BY last_at DESC
+LIMIT @lim;
+
+-- name: ListRecentAutoConfirmed :many
+-- 사람이 손대지 않고 자동으로 확정된 최근 지출(AI가 여러 분류 가게라고 보면 위젯에서 고르게 돌린다).
+SELECT id, merchant
+FROM transactions
+WHERE status = 'confirmed'
+  AND NOT manually_edited
+  AND direction = 'expense'
+  AND flow = 'out'
+  AND raw_event_id IS NOT NULL
+  AND merged_into IS NULL
+  AND cancels_id IS NULL
+  AND created_at >= @since
+ORDER BY id;
+
+-- name: ReviewAsAmbiguous :execrows
+-- 자동 확정된 지출을 위젯에서 고르게(확인 필요, ambiguous) 돌린다. 그 사이 사람이 고쳤으면 건드리지 않는다.
+UPDATE transactions
+SET status        = 'needs_review',
+    review_reason = 'ambiguous',
+    category_id   = NULL,
+    updated_at    = now()
+WHERE id = @id
+  AND status = 'confirmed'
+  AND NOT manually_edited;

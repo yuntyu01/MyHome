@@ -68,4 +68,25 @@ class CategoryTreeTest {
         assertEquals(3, t.preorder().size)
         assertNull(t.parent(3))
     }
+
+    // 거래 목록 동그라미: 지금 분류 → 같은 폴더(폴더 자신과 안) → 남으면 다른 분류. 숨긴 분류·다른 종류는 빼고
+    @Test fun relatedChoices() {
+        val t = CategoryTree(listOf(
+            Category(5, "생활", "expense", sort = 50),
+            Category(1, "식비", "expense", sort = 10, parentId = 5),
+            Category(2, "카페·간식", "expense", sort = 20, parentId = 5),
+            Category(4, "쇼핑", "expense", sort = 40, parentId = 5),
+            Category(6, "주거·통신", "expense", sort = 60, archived = true),
+            Category(11, "기타", "expense", sort = 110),
+            Category(12, "월급", "income", sort = 200),
+            Category(13, "정산", "special", sort = 210),
+        ))
+        val out = setOf("expense")
+        assertEquals(listOf(2L, 5L, 1L, 4L), t.related(2, out, 4).map { it.id })
+        assertEquals(listOf(5L, 1L, 2L, 4L, 11L), t.related(5, out, 5).map { it.id })
+        assertEquals(listOf(11L, 5L, 1L, 2L), t.related(11, out, 4).map { it.id })
+        assertEquals(listOf(5L, 1L, 2L, 4L), t.related(null, out, 4).map { it.id })
+        assertEquals(listOf(5L, 1L, 2L), t.related(6, out, 3).map { it.id })
+        assertEquals(listOf(13L, 12L), t.related(13, setOf("income", "special"), 4).map { it.id })
+    }
 }

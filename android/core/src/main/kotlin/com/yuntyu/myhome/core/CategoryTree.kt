@@ -59,6 +59,25 @@ class CategoryTree(cats: List<Category>) {
     }
 
     /** 위에서 아래로 펼친 순서와 단계. keep이 false인 분류는 그 아래까지 뺀다. */
+    /**
+     * 거래 목록에서 펼치는 동그라미(사용자 요청, 2026-11-16 "누르면 밑에 칸 뜨고 원래 선택된 건 표시, 나머지로 바꾸기").
+     * first(지금 분류나 AI 추천)를 맨 앞에 두고 같은 폴더(그 폴더 자신과 바로 안)에서 폴더 순서대로, 남으면 다른 분류로 채운다.
+     * kinds에 든 종류(나간 돈은 expense, 들어온 돈은 income·special)이고 숨기지 않은 분류만. 위젯 동그라미(서버 PickChoices)와 같은 방식이다.
+     */
+    fun related(first: Long?, kinds: Set<String>, max: Int): List<Category> {
+        fun ok(c: Category?) = c != null && !c.archived && c.kind in kinds
+        val out = LinkedHashMap<Long, Category>()
+        fun add(cs: List<Category>) { for (c in cs) if (out.size < max && ok(c)) out.putIfAbsent(c.id, c) }
+        val start = first?.let { byId[it] }
+        if (ok(start)) {
+            add(listOf(start!!))
+            val folder = parent(start.id) ?: start.id.takeIf { children(it).isNotEmpty() }
+            add(if (folder != null) listOfNotNull(byId[folder]) + children(folder) else children(null))
+        }
+        add(preorder().map { it.first })
+        return out.values.toList()
+    }
+
     fun preorder(keep: (Category) -> Boolean = { true }): List<Pair<Category, Int>> {
         val out = mutableListOf<Pair<Category, Int>>()
         fun walk(parent: Long?, d: Int) {

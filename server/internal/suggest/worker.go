@@ -62,6 +62,7 @@ type Stats struct {
 	Unknown   int // 모름
 	Left      int // 호출 상한 때문에 다음 점검으로 넘긴 가맹점 수
 	Filed     int // AI 분류로 바로 확정한 거래 수(Auto)
+	Mixed     int // AI가 여러 분류 가게라고 봐서 위젯에서 고르게 돌린 거래 수(Auto)
 }
 
 func (w *Worker) init() { w.once.Do(func() { w.wake = make(chan struct{}, 1) }) }
@@ -119,8 +120,8 @@ func (w *Worker) Run(ctx context.Context) {
 				w.log().Warn("AI 분류 추천 실패, 나중에 다시 함", "err", err, "retry_in", backoff.String(), "asked", st.Asked, "calls", st.Calls)
 			default:
 				backoff, notBefore = 0, time.Time{}
-				if st.Calls > 0 || st.Filed > 0 {
-					w.log().Info("AI 분류 추천", "calls", st.Calls, "asked", st.Asked, "suggested", st.Suggested, "low", st.Low, "unknown", st.Unknown, "left", st.Left, "filed", st.Filed)
+				if st.Calls > 0 || st.Filed > 0 || st.Mixed > 0 {
+					w.log().Info("AI 분류 추천", "calls", st.Calls, "asked", st.Asked, "suggested", st.Suggested, "low", st.Low, "unknown", st.Unknown, "left", st.Left, "filed", st.Filed, "mixed", st.Mixed)
 				}
 			}
 		}
@@ -172,10 +173,22 @@ func (w *Worker) RunOnce(ctx context.Context) (Stats, error) {
 	if err != nil {
 		return st, err
 	}
+	// 규칙으로 바로 들어간 최근 가맹점도 한 번 묻는다: 여러 분류 가게(편의점 등)면 위젯에서 고르게 돌린다(pipeline.ReviewMixed)
+	recent, err := q.ListRecentAutoMerchants(ctx, dbq.ListRecentAutoMerchantsParams{Since: time.Now().Add(-pipeline.MixedLookback), Lim: candidateLimit})
+	if err != nil {
+		return st, err
+	}
+	merchants := make([]string, 0, len(rows)+len(recent))
+	for _, r := range rows {
+		merchants = append(merchants, r.Merchant)
+	}
+	for _, r := range recent {
+		merchants = append(merchants, r.Merchant)
+	}
 	var targets []target
 	seen := map[string]bool{}
-	for _, r := range rows {
-		name, key, ok := Target(r.Merchant, cfg.ReviewMerchantPatterns)
+	for _, m := range merchants {
+		name, key, ok := Target(m, cfg.ReviewMerchantPatterns)
 		if !ok || seen[key] {
 			continue
 		}
@@ -227,6 +240,9 @@ func (w *Worker) RunOnce(ctx context.Context) (Stats, error) {
 		n, err := w.file(ctx, q, cfg.ReviewMerchantPatterns)
 		st.Filed = n
 		if err != nil {
+			return st, err
+		}
+		if st.Mixed, err = pipeline.ReviewMixed(ctx, q, time.Now().Add(-pipeline.MixedLookback)); err != nil {
 			return st, err
 		}
 	}
@@ -350,11 +366,16 @@ func CatalogWith(choices []ai.CategoryChoice, memo string) string {
 	return Catalog(append(append([]ai.CategoryChoice(nil), choices...), ai.CategoryChoice{Name: "\x00공통 메모", Memo: strings.TrimSpace(memo)}))
 }
 
+// askVersion은 AI에 묻는 내용의 판이다. 묻는 것이 바뀌면 올려서 저장된 답을 한 번씩 다시 묻게 한다
+// (mixed-1: 여러 분류 가게인지도 묻기 시작, 2026-11-16).
+const askVersion = "mixed-1\x00"
+
 // Catalog는 분류 목록의 지문이다. 저장된 추천의 지문이 지금과 다르면 그 가맹점을 다시 묻는다.
 // 순서만 바꾼 것(앱에서 끌어서 옮기기)으로는 다시 묻지 않게 이름순으로 본다. 폴더를 옮기면 경로 이름이 바뀌어 다시 묻는다.
 func Catalog(choices []ai.CategoryChoice) string {
 	sorted := slices.SortedFunc(slices.Values(choices), func(a, b ai.CategoryChoice) int { return strings.Compare(a.Name, b.Name) })
 	h := sha256.New()
+	h.Write([]byte(askVersion))
 	for _, c := range sorted {
 		h.Write([]byte(c.Name + "\x00" + c.Memo + "\x00"))
 	}

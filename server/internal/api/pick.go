@@ -116,10 +116,12 @@ func (a *API) BuildPick(ctx context.Context, q *dbq.Queries, now time.Time) (*Pi
 	}
 	if len(hist) > 0 {
 		likely = hist[0]
-	} else if a.Suggestions {
-		in := []suggest.Input{{Status: tx.Status, ReviewReason: tx.ReviewReason, Direction: tx.Direction, Flow: tx.Flow, Merchant: tx.Merchant, CancelsID: tx.CancelsID}}
-		if s, err := suggest.Lookup(ctx, q, in); err == nil && s[0] != nil {
-			likely = s[0].CategoryID
+	} else if cfg, err := pipeline.LoadConfig(ctx, q); err == nil {
+		// AI 답은 사유와 상관없이 본다(여러 분류 가게도 가장 흔한 분류를 답한다)
+		if _, key, ok := suggest.Target(tx.Merchant, cfg.ReviewMerchantPatterns); ok {
+			if s, err := q.ListMerchantSuggestions(ctx, []string{key}); err == nil && len(s) == 1 && s[0].CategoryID != nil {
+				likely = *s[0].CategoryID // 숨긴 분류·수입 분류면 PickChoices가 첫 칸에 안 둔다
+			}
 		}
 	}
 	use, err := q.CategoryUsage(ctx, now.Add(-pickUsageLookback))

@@ -171,6 +171,95 @@ func (q *Queries) ListMixedMerchantKeys(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listRecentAutoConfirmed = `-- name: ListRecentAutoConfirmed :many
+SELECT id, merchant
+FROM transactions
+WHERE status = 'confirmed'
+  AND NOT manually_edited
+  AND direction = 'expense'
+  AND flow = 'out'
+  AND raw_event_id IS NOT NULL
+  AND merged_into IS NULL
+  AND cancels_id IS NULL
+  AND created_at >= $1
+ORDER BY id
+`
+
+type ListRecentAutoConfirmedRow struct {
+	ID       int64  `json:"id"`
+	Merchant string `json:"merchant"`
+}
+
+// 사람이 손대지 않고 자동으로 확정된 최근 지출(AI가 여러 분류 가게라고 보면 위젯에서 고르게 돌린다).
+func (q *Queries) ListRecentAutoConfirmed(ctx context.Context, since time.Time) ([]ListRecentAutoConfirmedRow, error) {
+	rows, err := q.db.Query(ctx, listRecentAutoConfirmed, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecentAutoConfirmedRow{}
+	for rows.Next() {
+		var i ListRecentAutoConfirmedRow
+		if err := rows.Scan(&i.ID, &i.Merchant); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentAutoMerchants = `-- name: ListRecentAutoMerchants :many
+SELECT merchant, max(occurred_at)::timestamptz AS last_at
+FROM transactions
+WHERE status = 'confirmed'
+  AND NOT manually_edited
+  AND direction = 'expense'
+  AND flow = 'out'
+  AND raw_event_id IS NOT NULL
+  AND merged_into IS NULL
+  AND cancels_id IS NULL
+  AND btrim(merchant) <> ''
+  AND created_at >= $1
+GROUP BY merchant
+ORDER BY last_at DESC
+LIMIT $2
+`
+
+type ListRecentAutoMerchantsParams struct {
+	Since time.Time `json:"since"`
+	Lim   int32     `json:"lim"`
+}
+
+type ListRecentAutoMerchantsRow struct {
+	Merchant string    `json:"merchant"`
+	LastAt   time.Time `json:"last_at"`
+}
+
+// 규칙(기본 규칙 포함)이나 AI로 바로 넣은 최근 지출의 가맹점. AI에 "여러 분류 가게(편의점·마트·쿠팡 등)인지"를 한 번 묻는다
+// (사용자 요청, 2026-11-16 "하드코딩 말고 AI가 검사"). 가맹점 이름만 돌려준다.
+func (q *Queries) ListRecentAutoMerchants(ctx context.Context, arg ListRecentAutoMerchantsParams) ([]ListRecentAutoMerchantsRow, error) {
+	rows, err := q.db.Query(ctx, listRecentAutoMerchants, arg.Since, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecentAutoMerchantsRow{}
+	for rows.Next() {
+		var i ListRecentAutoMerchantsRow
+		if err := rows.Scan(&i.Merchant, &i.LastAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSuggestionMerchants = `-- name: ListSuggestionMerchants :many
 SELECT merchant, max(occurred_at)::timestamptz AS last_at
 FROM transactions
@@ -210,6 +299,26 @@ func (q *Queries) ListSuggestionMerchants(ctx context.Context, lim int32) ([]Lis
 		return nil, err
 	}
 	return items, nil
+}
+
+const reviewAsAmbiguous = `-- name: ReviewAsAmbiguous :execrows
+UPDATE transactions
+SET status        = 'needs_review',
+    review_reason = 'ambiguous',
+    category_id   = NULL,
+    updated_at    = now()
+WHERE id = $1
+  AND status = 'confirmed'
+  AND NOT manually_edited
+`
+
+// 자동 확정된 지출을 위젯에서 고르게(확인 필요, ambiguous) 돌린다. 그 사이 사람이 고쳤으면 건드리지 않는다.
+func (q *Queries) ReviewAsAmbiguous(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, reviewAsAmbiguous, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertMerchantSuggestion = `-- name: UpsertMerchantSuggestion :exec

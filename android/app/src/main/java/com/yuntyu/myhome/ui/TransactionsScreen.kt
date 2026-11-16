@@ -2,6 +2,7 @@ package com.yuntyu.myhome.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -113,6 +114,8 @@ fun TransactionsScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<TransactionDto?>(null) }
+    // 누른 거래 밑에 펼친 분류 동그라미(거래 id)
+    var expanded by remember { mutableStateOf<Long?>(null) }
     var cashOpen by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableIntStateOf(0) }
     // 검색: null이면 닫힘. 글자가 있으면 전체 기간에서 찾은 것(found)을 보여준다
@@ -157,6 +160,7 @@ fun TransactionsScreen(
                 val extra = if (r.value.alsoUpdated > 0) " 같은 가게 ${r.value.alsoUpdated}건도 같이 바꿨어요." else ""
                 Toast.makeText(ctx, "바꿨어요.$extra", Toast.LENGTH_SHORT).show()
                 selected = null
+                expanded = null
                 reloadTick++
                 WidgetRefresher.refresh(ctx)
                 // 분류를 정했으니 붙들어 둔 원래 알림을 지울 수 있다
@@ -232,8 +236,17 @@ fun TransactionsScreen(
                     else -> {
                         // 찾기·분류로 거른 때는 합계를 맨 위에(몇 건, 얼마)
                         if (searching || catName != null) item(key = "sum") { TotalsLine(list, if (searching) "전체 기간" else monthName, searching && list.size >= SEARCH_LIMIT) }
-                        // 전체 목록에는 AI 추천이 없어서 확인 목록의 같은 거래로 연다
-                        txDays(list, left) { t -> selected = review?.firstOrNull { r -> r.id == t.id } ?: t }
+                        // 누르면 밑에 분류 동그라미가 펼쳐진다(지금 분류에 체크, 다른 걸 누르면 바로 바뀜). 더보기는 전체 판.
+                        // 전체 목록에는 AI 추천이 없어서 확인 목록의 같은 거래로 본다
+                        fun full(t: TransactionDto) = review?.firstOrNull { r -> r.id == t.id } ?: t
+                        txDays(list, left, expanded, onOpen = { t -> expanded = if (expanded == t.id) null else t.id }) { t ->
+                            val ft = full(t)
+                            QuickCategoryPick(
+                                ft, tree,
+                                onPick = { c -> if (c.id == ft.categoryId && ft.status == "confirmed") expanded = null else submit(ft, TransactionEdit(categoryId = c.id)) },
+                                onMore = { selected = ft },
+                            )
+                        }
                     }
                 }
                 // 현금 지출은 목록 끝에(떠 있는 버튼 대신)
@@ -303,15 +316,67 @@ internal fun TxMonthRow(label: String, total: String?, atCurrent: Boolean, onPre
     }
 }
 
-/** 날짜별 묶음: 날짜 머리(날짜 사이에 선) + 그날 결제들 */
-internal fun androidx.compose.foundation.lazy.LazyListScope.txDays(list: List<TransactionDto>, left: Map<Long, Long>, onOpen: (TransactionDto) -> Unit) {
+/** 날짜별 묶음: 날짜 머리(날짜 사이에 선) + 그날 결제들. expandedId인 거래 밑에는 below를 펼친다 */
+internal fun androidx.compose.foundation.lazy.LazyListScope.txDays(
+    list: List<TransactionDto>,
+    left: Map<Long, Long>,
+    expandedId: Long? = null,
+    onOpen: (TransactionDto) -> Unit,
+    below: @Composable (TransactionDto) -> Unit = {},
+) {
     val groups = list.groupBy { kstDate(it.occurredAt) }
     groups.entries.forEachIndexed { i, (day, txs) ->
         item(key = "d$day") {
             if (i > 0) Hairline(Modifier.padding(start = Gutter, end = Gutter, top = 10.dp))
             DayHeader(day, txs)
         }
-        items(txs, key = { it.id }) { t -> TxRow(t, withDay = false, remaining = left[t.id]) { onOpen(t) } }
+        items(txs, key = { it.id }) { t ->
+            Column {
+                TxRow(t, withDay = false, remaining = left[t.id]) { onOpen(t) }
+                if (expandedId == t.id) below(t)
+            }
+        }
+    }
+}
+
+/** 한 줄에 놓는 분류 동그라미 수(그 뒤에 "더보기") */
+private const val QUICK_CHOICES = 4
+
+/**
+ * 거래 밑에 펼치는 분류 동그라미(사용자 요청, 2026-11-16 "누르면 밑에 칸 뜨고 원래 선택된 거는 표시, 나머지로 바꾸기").
+ * 지금 분류(없으면 AI 추천)를 맨 앞에 두고 같은 폴더 분류를 늘어놓는다. 지금 분류에 체크가 있고, 다른 걸 누르면 바로 바뀐다
+ * (규칙은 만들지 않는다). 더보기는 전체 분류·메모·빼기가 있는 판을 연다. 동그라미는 Modo CheckCircle, 칸 바탕은 composer.
+ */
+@Composable
+internal fun QuickCategoryPick(t: TransactionDto, tree: CategoryTree, onPick: (Category) -> Unit, onMore: () -> Unit) {
+    val m = LocalModo.current
+    val kinds = if (t.flow == "in") setOf("income", "special") else setOf("expense")
+    val checked = t.categoryId?.takeIf { t.status != "needs_review" }
+    val choices = remember(t.id, t.categoryId, t.suggestion, tree) { tree.related(t.categoryId ?: t.suggestion?.categoryId, kinds, QUICK_CHOICES) }
+    Row(
+        Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, bottom = 10.dp)
+            .clip(RoundedCornerShape(14.dp)).background(m.composer).padding(vertical = 10.dp),
+    ) {
+        for (c in choices) {
+            Column(
+                Modifier.weight(1f).tap(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "${c.name}로 바꾸기") { onPick(c) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                CheckCircle(c.id == checked)
+                Text(c.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    fontWeight = if (c.id == checked) FontWeight.Bold else FontWeight.Normal,
+                    color = if (c.id == checked) MaterialTheme.colorScheme.onBackground else m.muted)
+            }
+        }
+        Column(
+            Modifier.weight(1f).tap(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "분류 전체 보기", onClick = onMore),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Text("⋯", fontSize = 18.sp, color = m.muted) }
+            Text("더보기", fontSize = 13.sp, color = m.muted, maxLines = 1)
+        }
     }
 }
 

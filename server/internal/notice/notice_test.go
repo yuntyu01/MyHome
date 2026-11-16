@@ -187,10 +187,21 @@ func TestMixedMerchantGoesToWidget(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	first, res := h.event("test.kb", "KB국민카드", "홍*동님 3,300원 일시불 합성편의점", base)
-	w := &suggest.Worker{Pool: h.pool, Classifier: guesses{"합성편의점": {Category: "식비", Confidence: 0.95, Mixed: true}}, Auto: true,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	if _, err := w.RunOnce(ctx); err != nil {
+	// 기본 규칙(CU → 생활)으로 바로 들어간 결제도 AI가 여러 분류 가게라고 보면 위젯에서 고르게 돌린다
+	_, seeded := h.event("test.kb", "KB국민카드", "홍*동님 1,800원 일시불 CU 합성점", base.Add(-time.Hour))
+	if seeded.Transaction.Status != "confirmed" {
+		t.Fatalf("기본 규칙으로 확정: %+v", seeded.Transaction)
+	}
+	w := &suggest.Worker{Pool: h.pool, Classifier: guesses{
+		"합성편의점":  {Category: "식비", Confidence: 0.95, Mixed: true},
+		"CU 합성점": {Category: "식비", Confidence: 0.9, Mixed: true},
+	}, Auto: true, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	st, err := w.RunOnce(ctx)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if back, _ := h.q.GetTransaction(ctx, seeded.Transaction.ID); back.Status != "needs_review" || back.ReviewReason == nil || *back.ReviewReason != pipeline.ReviewAmbiguous || st.Mixed != 1 {
+		t.Errorf("기본 규칙 결제를 위젯으로 돌림: %+v (mixed %d)", back, st.Mixed)
 	}
 	tx, err := h.q.GetTransaction(ctx, res.Transaction.ID)
 	if err != nil {
