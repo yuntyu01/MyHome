@@ -301,6 +301,26 @@ func TestDuplicate_CheckCardApprovalAndBankWithdrawal(t *testing.T) {
 	}
 }
 
+// 토스가 한 결제를 페이스페이 알림과 토스뱅크 체크카드 알림으로 두 번 알리면 한 건이다(2026-11-16 실사용, 문구는 합성).
+// 같은 앱이 같은 모양으로 같은 금액을 또 알리면 같은 가게에서 두 번 낸 것이라 따로다. 다른 가게도 따로다.
+func TestDuplicate_SameAppDifferentNotices(t *testing.T) {
+	h := newHarness(t)
+	face, _ := h.event("test.toss", "33,000원 결제", "페이스페이 (토스뱅크 합성 체크카드, 일시불) · 합성헬스 역삼점", base)
+	card, _ := h.event("test.toss", "33,000원 결제", "토스뱅크 체크카드 | 합성헬스_문화비\n잔액 500,000원", base.Add(100*time.Millisecond))
+	if card.MergedInto == nil || *card.MergedInto != face.ID {
+		t.Errorf("토스뱅크 알림이 페이스페이 알림에 합쳐져야 함: %+v", card)
+	}
+	a, _ := h.event("test.toss", "2,500원 결제", "토스뱅크 체크카드 | 합성커피\n잔액 497,500원", base.Add(time.Hour))
+	b, _ := h.event("test.toss", "2,500원 결제", "토스뱅크 체크카드 | 합성커피\n잔액 495,000원", base.Add(time.Hour+20*time.Second))
+	if b.MergedInto != nil {
+		t.Errorf("같은 모양 두 번은 따로 낸 결제: %+v (앞 #%d)", b, a.ID)
+	}
+	c, _ := h.event("test.toss", "2,500원 결제", "페이스페이 (토스뱅크 합성 체크카드, 일시불) · 다른합성가게", base.Add(time.Hour+30*time.Second))
+	if c.MergedInto != nil {
+		t.Errorf("다른 가게는 따로: %+v", c)
+	}
+}
+
 // 같은 금액의 송금과 카드 승인은 따로다.
 func TestDuplicateOnlySameKind(t *testing.T) {
 	h := newHarness(t)

@@ -179,23 +179,25 @@ func atoi(s string) int {
 // ---- 가맹점 ----
 
 var (
-	labeledRe     = regexp.MustCompile(`(?:가맹점|사용처|결제처|받는\s?분|보낸\s?분|입금자|상대방?)\s*[:：]?\s*([^\n|·]+)`)
-	atPlaceRe     = regexp.MustCompile(`(?m)(?:^|[|·])\s*([^\n|·]+?)에서\s`)
-	toPersonRe    = regexp.MustCompile(`([^\s\n|·]+?)\s?님?에게`)
-	fromPersonRe  = regexp.MustCompile(`([^\s\n|·]+?)\s?님(?:이|으로부터|께서)\s`)
-	toAccountRe   = regexp.MustCompile(`([^\s\n|·]+?)(?:으로|로)\s+(?:[0-9,]+원[을를]?\s*)?(?:송금|이체|출금|보냈|옮겼)`)
-	bracketTagRe  = regexp.MustCompile(`\[[^\]]*\]|\((?:Web발신|광고)\)`)
-	maskedNameRe  = regexp.MustCompile(`[가-힣A-Za-z]*\*[가-힣A-Za-z*]*\s?님?`)
-	cardNumRe     = regexp.MustCompile(`[0-9]{2,4}[*]+[0-9*]*|\([0-9*]{2,6}\)`)
-	dateTimeRe    = regexp.MustCompile(`(20[0-9]{2}[./-])?[0-9]{1,2}[/.-][0-9]{1,2}\.?|[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?`)
-	installTokRe  = regexp.MustCompile(`일시불|할부\s*\(?\s*[0-9]{0,2}\s*개월\)?|[0-9]{1,2}\s*개월`)
+	labeledRe    = regexp.MustCompile(`(?:가맹점|사용처|결제처|받는\s?분|보낸\s?분|입금자|상대방?)\s*[:：]?\s*([^\n|·]+)`)
+	atPlaceRe    = regexp.MustCompile(`(?m)(?:^|[|·])\s*([^\n|·]+?)에서\s`)
+	toPersonRe   = regexp.MustCompile(`([^\s\n|·]+?)\s?님?에게`)
+	fromPersonRe = regexp.MustCompile(`([^\s\n|·]+?)\s?님(?:이|으로부터|께서)\s`)
+	toAccountRe  = regexp.MustCompile(`([^\s\n|·]+?)(?:으로|로)\s+(?:[0-9,]+원[을를]?\s*)?(?:송금|이체|출금|보냈|옮겼)`)
+	bracketTagRe = regexp.MustCompile(`\[[^\]]*\]|\((?:Web발신|광고)\)`)
+	maskedNameRe = regexp.MustCompile(`[가-힣A-Za-z]*\*[가-힣A-Za-z*]*\s?님?`)
+	cardNumRe    = regexp.MustCompile(`[0-9]{2,4}[*]+[0-9*]*|\([0-9*]{2,6}\)`)
+	dateTimeRe   = regexp.MustCompile(`(20[0-9]{2}[./-])?[0-9]{1,2}[/.-][0-9]{1,2}\.?|[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?`)
+	installTokRe = regexp.MustCompile(`일시불|할부\s*\(?\s*[0-9]{0,2}\s*개월\)?|[0-9]{1,2}\s*개월`)
+	// 괄호 안 결제 수단 설명: "(토스뱅크 ○○ 체크카드, 일시불)"
+	payInfoRe     = regexp.MustCompile(`\([^()]*(?:카드|일시불|할부)[^()]*\)`)
 	labelAmountRe = regexp.MustCompile(`(잔액|잔고|누적|한도|포인트|적립|남은|이용가능|합계)\s*[:：]?\s*(?:[₩￦]\s?)?[0-9,]+\s*원?`)
 	spacesRe      = regexp.MustCompile(`\s+`)
 )
 
 // 가맹점 후보에서 지울 일반 단어. 길이가 긴 것부터 지운다.
 var noiseWords = []string{
-	"KB국민카드", "KB국민", "국민카드", "KB Pay", "KB페이", "토스뱅크", "토스페이로", "체크카드", "신용카드",
+	"KB국민카드", "KB국민", "국민카드", "KB Pay", "KB페이", "토스뱅크", "토스페이로", "페이스페이", "체크카드", "신용카드",
 	"결제했어요", "결제됐어요", "결제되었습니다", "승인되었습니다", "결제완료", "승인완료", "승인취소", "결제취소",
 	"입금됐어요", "입금되었습니다", "출금됐어요", "출금되었습니다", "보냈어요", "받았어요",
 	"승인", "결제", "취소", "완료", "사용", "입금", "출금", "이체", "송금", "충전", "알림", "금액", "국내", "해외",
@@ -285,6 +287,7 @@ func splitSegments(line string) []string {
 // cleanMerchant는 조각에서 잡음을 지운다. 남은 게 가맹점처럼 보이지 않으면 빈 문자열.
 func cleanMerchant(s string) string {
 	s = bracketTagRe.ReplaceAllString(s, " ")
+	s = payInfoRe.ReplaceAllString(s, " ")
 	s = labelAmountRe.ReplaceAllString(s, " ")
 	s = amountRe.ReplaceAllString(s, " ")
 	s = maskedNameRe.ReplaceAllString(s, " ")

@@ -63,6 +63,30 @@ WHERE t.id <> @exclude_id
 ORDER BY abs(extract(epoch FROM (t.occurred_at - @occurred_at::timestamptz))), t.id
 LIMIT 1;
 
+-- name: FindSameAppDuplicates :many
+-- 같은 앱이 같은 돈을 모양이 다른 알림으로 한 번 더 보낸 것(토스: 페이스페이 알림 + 토스뱅크 체크카드 알림) 후보. 가까운 것부터.
+-- 숫자를 뺀 제목·본문이 같으면 같은 가게에서 두 번 낸 것일 수 있어서 뺀다. 가맹점이 맞는지는 코드가 본다.
+SELECT t.*
+FROM transactions t
+         JOIN raw_events r ON r.id = t.raw_event_id
+         JOIN raw_events cur ON cur.id = @raw_event_id
+WHERE r.id <> cur.id
+  AND r.source_package = cur.source_package
+  AND t.flow = @flow
+  AND t.amount = @amount
+  AND t.kind = ANY (@kinds::text[])
+  AND t.occurred_at BETWEEN @window_from AND @window_to
+  AND t.merged_into IS NULL
+  AND t.exclusion_reason IS DISTINCT FROM 'duplicate'
+  AND regexp_replace(r.title || ' ' || r.text || ' ' || r.big_text, '[0-9]', '', 'g')
+    <> regexp_replace(cur.title || ' ' || cur.text || ' ' || cur.big_text, '[0-9]', '', 'g')
+  AND NOT EXISTS (SELECT 1
+                  FROM transactions d
+                           JOIN raw_events dr ON dr.id = d.raw_event_id
+                  WHERE d.merged_into = t.id
+                    AND dr.source_package = cur.source_package)
+ORDER BY abs(extract(epoch FROM (t.occurred_at - @occurred_at::timestamptz))), t.id;
+
 -- name: FindRepostOriginal :one
 -- 같은 앱이 같은 알림(제목·본문 동일)을 다시 올린 경우 앞서 처리된 원문의 거래. 가장 먼저 게시된 것 하나.
 SELECT t.*

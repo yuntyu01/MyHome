@@ -29,6 +29,10 @@ const repostWindow = 10 * time.Minute
 // cancelDupWindow 안에 다른 앱이 같은 금액의 취소를 알리면 같은 환불로 본다(KB·토스가 각각 알림).
 const cancelDupWindow = 24 * time.Hour
 
+// sameAppDupWindow 안에 같은 앱이 같은 금액·같은 가게를 모양이 다른 알림으로 또 알리면 같은 결제로 본다.
+// 토스는 페이스페이(토스페이) 알림과 토스뱅크 체크카드 알림을 거의 동시에 보낸다. 다른 앱끼리(DedupeWindow)보다 좁게 잡는다.
+const sameAppDupWindow = 60 * time.Second
+
 // Processor는 원문을 거래로 만든다.
 type Processor struct {
 	Pool     *pgxpool.Pool
@@ -332,13 +336,31 @@ func (p *Processor) findDuplicate(ctx context.Context, q *dbq.Queries, e *env, r
 		WindowTo:      t.OccurredAt.Add(e.cfg.DedupeWindow),
 		OccurredAt:    t.OccurredAt,
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return dbq.Transaction{}, false, nil
+	if err == nil {
+		return dup, true, nil
 	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return dbq.Transaction{}, false, err
+	}
+	// 같은 앱이 모양이 다른 알림을 두 개 보낸 것(토스 페이스페이 + 토스뱅크 체크카드, 2026-11-16 실사용)
+	cands, err := q.FindSameAppDuplicates(ctx, dbq.FindSameAppDuplicatesParams{
+		RawEventID: raw.ID,
+		Flow:       t.Flow,
+		Amount:     t.Amount,
+		Kinds:      dedupeKinds(parser.Kind(t.Kind)),
+		WindowFrom: t.OccurredAt.Add(-sameAppDupWindow),
+		WindowTo:   t.OccurredAt.Add(sameAppDupWindow),
+		OccurredAt: t.OccurredAt,
+	})
 	if err != nil {
 		return dbq.Transaction{}, false, err
 	}
-	return dup, true, nil
+	for _, c := range cands {
+		if compatibleMerchant(c.Merchant, t.Merchant, e.cfg.ReviewMerchantPatterns) {
+			return c, true, nil
+		}
+	}
+	return dbq.Transaction{}, false, nil
 }
 
 // mergeMerchant는 중복으로 합친 대표 거래의 가맹점명을 더 구체적인 쪽으로 바꾸고,

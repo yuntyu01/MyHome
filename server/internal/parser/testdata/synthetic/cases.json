@@ -16,6 +16,20 @@
       "want": {"source": "kb", "kind": "approval", "amount": 450000, "merchant": "하이마트", "installment": 3}
     },
     {
+      "name": "토스 페이스페이 (괄호 안 카드 설명)",
+      "package": "test.toss", "title": "33,000원 결제",
+      "text": "페이스페이 (토스뱅크 합성 체크카드, 일시불) · 합성헬스 역삼점",
+      "posted_at": "2026-11-03T19:50:00+09:00",
+      "want": {"source": "toss", "kind": "approval", "amount": 33000, "merchant": "합성헬스 역삼점"}
+    },
+    {
+      "name": "토스뱅크 체크카드 (문화비 꼬리표)",
+      "package": "test.toss", "title": "33,000원 결제",
+      "text": "토스뱅크 체크카드 | 합성헬스_문화비\n잔액 500,000원",
+      "posted_at": "2026-11-03T19:50:00+09:00",
+      "want": {"source": "toss", "kind": "approval", "amount": 33000, "merchant": "합성헬스", "balance": 500000}
+    },
+    {
       "name": "KB Pay 푸시 (파이프 구분)",
       "package": "test.kbpay", "title": "KB Pay",
       "text": "결제 12,000원 | 투썸플레이스 역삼점",

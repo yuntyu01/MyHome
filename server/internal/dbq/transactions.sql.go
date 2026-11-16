@@ -517,6 +517,92 @@ func (q *Queries) FindRepostOriginal(ctx context.Context, arg FindRepostOriginal
 	return i, err
 }
 
+const findSameAppDuplicates = `-- name: FindSameAppDuplicates :many
+SELECT t.id, t.raw_event_id, t.occurred_at, t.amount, t.flow, t.merchant, t.memo, t.direction, t.category_id, t.settle_category_id, t.status, t.exclusion_reason, t.review_reason, t.merged_into, t.cancels_id, t.source, t.kind, t.installment_months, t.balance, t.manually_edited, t.created_at, t.updated_at
+FROM transactions t
+         JOIN raw_events r ON r.id = t.raw_event_id
+         JOIN raw_events cur ON cur.id = $1
+WHERE r.id <> cur.id
+  AND r.source_package = cur.source_package
+  AND t.flow = $2
+  AND t.amount = $3
+  AND t.kind = ANY ($4::text[])
+  AND t.occurred_at BETWEEN $5 AND $6
+  AND t.merged_into IS NULL
+  AND t.exclusion_reason IS DISTINCT FROM 'duplicate'
+  AND regexp_replace(r.title || ' ' || r.text || ' ' || r.big_text, '[0-9]', '', 'g')
+    <> regexp_replace(cur.title || ' ' || cur.text || ' ' || cur.big_text, '[0-9]', '', 'g')
+  AND NOT EXISTS (SELECT 1
+                  FROM transactions d
+                           JOIN raw_events dr ON dr.id = d.raw_event_id
+                  WHERE d.merged_into = t.id
+                    AND dr.source_package = cur.source_package)
+ORDER BY abs(extract(epoch FROM (t.occurred_at - $7::timestamptz))), t.id
+`
+
+type FindSameAppDuplicatesParams struct {
+	RawEventID int64     `json:"raw_event_id"`
+	Flow       string    `json:"flow"`
+	Amount     int64     `json:"amount"`
+	Kinds      []string  `json:"kinds"`
+	WindowFrom time.Time `json:"window_from"`
+	WindowTo   time.Time `json:"window_to"`
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// 같은 앱이 같은 돈을 모양이 다른 알림으로 한 번 더 보낸 것(토스: 페이스페이 알림 + 토스뱅크 체크카드 알림) 후보. 가까운 것부터.
+// 숫자를 뺀 제목·본문이 같으면 같은 가게에서 두 번 낸 것일 수 있어서 뺀다. 가맹점이 맞는지는 코드가 본다.
+func (q *Queries) FindSameAppDuplicates(ctx context.Context, arg FindSameAppDuplicatesParams) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, findSameAppDuplicates,
+		arg.RawEventID,
+		arg.Flow,
+		arg.Amount,
+		arg.Kinds,
+		arg.WindowFrom,
+		arg.WindowTo,
+		arg.OccurredAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Transaction{}
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.RawEventID,
+			&i.OccurredAt,
+			&i.Amount,
+			&i.Flow,
+			&i.Merchant,
+			&i.Memo,
+			&i.Direction,
+			&i.CategoryID,
+			&i.SettleCategoryID,
+			&i.Status,
+			&i.ExclusionReason,
+			&i.ReviewReason,
+			&i.MergedInto,
+			&i.CancelsID,
+			&i.Source,
+			&i.Kind,
+			&i.InstallmentMonths,
+			&i.Balance,
+			&i.ManuallyEdited,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTransaction = `-- name: GetTransaction :one
 SELECT id, raw_event_id, occurred_at, amount, flow, merchant, memo, direction, category_id, settle_category_id, status, exclusion_reason, review_reason, merged_into, cancels_id, source, kind, installment_months, balance, manually_edited, created_at, updated_at
 FROM transactions

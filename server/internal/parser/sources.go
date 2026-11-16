@@ -86,5 +86,7 @@ func (t Toss) Parse(ev Event) (Result, error) {
 	if res.Merchant == "토스" || res.Merchant == "토스페이" {
 		res.Merchant = ""
 	}
+	// 토스뱅크 체크카드는 문화비 소득공제 가게에 "_문화비"를 붙인다("가게_문화비"). 가게 이름만 남긴다.
+	res.Merchant = strings.TrimSuffix(res.Merchant, "_문화비")
 	return res, nil
 }
