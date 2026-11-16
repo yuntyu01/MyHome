@@ -626,3 +626,46 @@ func TestRunPendingProcessesLeftovers(t *testing.T) {
 		t.Errorf("거래 %d건", len(txs))
 	}
 }
+
+// 파서를 고친 뒤 읽지 못한 알림만 다시 보고, 이미 적힌 거래(다른 원문)는 지우거나 다시 만들지 않는다.
+func TestReprocessFailedOnly(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	paid, _ := h.event("test.kb", "KB국민카드", "홍*동님 9,000원 일시불 새로운식당", base)
+	// 예전 파서가 못 읽었던 배달 앱 안내(지금 파서는 안내로 무시한다)
+	req := ingest.Request{SourcePackage: "test.shop", Title: "[합성배달] 주문이 수락되었습니다.", Text: "매장에서 음식 준비를 시작합니다.", PostedAt: base.Add(time.Minute).UnixMilli()}
+	old, err := h.q.InsertRawEvent(ctx, dbq.InsertRawEventParams{SourcePackage: req.SourcePackage, Title: req.Title, Text: req.Text, PostedAt: base.Add(time.Minute), ContentHash: ingest.ContentHash(req)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := "금액을 찾지 못함"
+	if err := h.q.MarkRawEventProcessed(ctx, dbq.MarkRawEventProcessedParams{ID: old.ID, ParseError: &msg}); err != nil {
+		t.Fatal(err)
+	}
+	from, to := base.Add(-time.Hour), base.Add(time.Hour)
+	plan, err := h.p.ReprocessFailed(ctx, from, to, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RawEvents != 1 || plan.DeletedDerived != 0 {
+		t.Errorf("계획: %+v", plan)
+	}
+	rep, err := h.p.ReprocessFailed(ctx, from, to, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Applied || rep.Ignored != 1 || rep.ParseErrors != 0 {
+		t.Errorf("결과: %+v", rep)
+	}
+	if got := h.get(paid.ID); got.ID != paid.ID || got.Amount != 9000 {
+		t.Errorf("다른 거래는 그대로여야 함: %+v", got)
+	}
+	r, _ := h.q.GetRawEvent(ctx, old.ID)
+	if r.IgnoreReason == nil || *r.IgnoreReason != "notice" || r.ParseError != nil {
+		t.Errorf("안내로 무시돼야 함: ignore=%v err=%v", r.IgnoreReason, r.ParseError)
+	}
+	failed, _ := h.q.ListFailedRawEvents(ctx, 10)
+	if len(failed) != 0 {
+		t.Errorf("읽지 못한 알림 %d건", len(failed))
+	}
+}

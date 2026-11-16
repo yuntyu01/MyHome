@@ -105,6 +105,7 @@
 /myhome process-pending                                   # 처리 안 된 원문 처리(서버 시작 때도 자동)
 /myhome reprocess --from 2026-11-01 --to 2026-11-30       # 재처리 계획
 /myhome reprocess --from 2026-11-01 --to 2026-11-30 --apply
+/myhome reprocess --from 2026-11-01 --to 2026-11-30 --failed --apply   # 읽지 못한 알림만(이미 적힌 거래는 그대로)
 /myhome export-raw --from 2026-11-01 --to 2026-11-14 > raw.jsonl   # 익명화 내보내기
 ```
 

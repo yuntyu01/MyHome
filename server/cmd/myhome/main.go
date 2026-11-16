@@ -93,7 +93,7 @@ const usage = `사용법: myhome <명령> [옵션]
   token issue --name 이름        기기 토큰 발급(비상용)
   token list                    기기 목록
   token revoke --id N           기기 토큰 폐기
-  reprocess --from D --to D [--apply]   기간 원문 재처리 (기본은 계획만 출력)
+  reprocess --from D --to D [--failed] [--apply]   기간 원문 재처리 (기본은 계획만 출력, --failed는 읽지 못한 알림만)
   process-pending               처리 안 된 원문 처리
   export-raw --from D --to D [--out F] [--failed]  익명화한 원문 내보내기(JSONL)
   healthcheck                   /healthz 확인

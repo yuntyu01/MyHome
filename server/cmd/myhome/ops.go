@@ -50,6 +50,7 @@ func reprocessCmd(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 	from := fs.String("from", "", "시작일 YYYY-MM-DD (KST)")
 	to := fs.String("to", "", "종료일 YYYY-MM-DD (KST, 포함)")
 	apply := fs.Bool("apply", false, "실제로 적용 (없으면 계획만 출력)")
+	failed := fs.Bool("failed", false, "읽지 못한 알림(해석 실패)만 다시 처리 — 이미 적힌 거래는 그대로")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -66,7 +67,11 @@ func reprocessCmd(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 	if err != nil {
 		return err
 	}
-	rep, err := proc.Reprocess(ctx, f, t, *apply)
+	run := proc.Reprocess
+	if *failed {
+		run = proc.ReprocessFailed
+	}
+	rep, err := run(ctx, f, t, *apply)
 	if err != nil {
 		return err
 	}

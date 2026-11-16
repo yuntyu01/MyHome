@@ -28,6 +28,16 @@ type ReprocessReport struct {
 // 사용자가 고친 거래(manually_edited)는 보존하고 그 원문은 건너뛴다. 중복·취소로 연결된 거래는
 // 기간 밖이어도 함께 다시 처리해서 상태가 어긋나지 않게 한다. apply=false면 계획만 보여준다.
 func (p *Processor) Reprocess(ctx context.Context, from, to time.Time, apply bool) (ReprocessReport, error) {
+	return p.reprocess(ctx, from, to, apply, false)
+}
+
+// ReprocessFailed는 [from, to) 기간에서 읽지 못한 알림(해석 실패, 사용자가 아직 처리 안 함)만 다시 처리한다.
+// 파서를 고친 뒤 그 알림들만 다시 보고, 이미 잘 적힌 거래(규칙·AI로 분류된 것)는 건드리지 않는다.
+func (p *Processor) ReprocessFailed(ctx context.Context, from, to time.Time, apply bool) (ReprocessReport, error) {
+	return p.reprocess(ctx, from, to, apply, true)
+}
+
+func (p *Processor) reprocess(ctx context.Context, from, to time.Time, apply, onlyFailed bool) (ReprocessReport, error) {
 	var rep ReprocessReport
 	err := db.InTx(ctx, p.Pool, func(tx pgx.Tx) error {
 		q := dbq.New(tx)
@@ -40,6 +50,9 @@ func (p *Processor) Reprocess(ctx context.Context, from, to time.Time, apply boo
 		}
 		rawByID := map[int64]dbq.RawEvent{}
 		for _, r := range raws {
+			if onlyFailed && (r.ParseError == nil || r.IgnoreReason != nil) {
+				continue
+			}
 			rawByID[r.ID] = r
 		}
 
