@@ -244,7 +244,25 @@ func TestSameAppRepostIsDuplicate(t *testing.T) {
 	}
 }
 
-// 중복 합치기는 같은 종류끼리만 한다: 같은 금액의 송금과 카드 승인은 따로다.
+// 체크카드: 카드 승인(KB Pay)과 같은 돈의 계좌 출금(은행 앱)이 다른 앱에서 오면 한 건이다. 어느 쪽이 먼저 와도.
+func TestDuplicate_CheckCardApprovalAndBankWithdrawal(t *testing.T) {
+	h := newHarness(t)
+	pay, _ := h.event("test.kb", "KB국민카드", "홍*동님 12,000원 일시불 올리브영 강남점", base)
+	out, _ := h.event("test.bank", "합성은행", "출금 12,000원 체크카드 올리브영\n잔액 500,000원", base.Add(20*time.Second))
+	if out.MergedInto == nil || *out.MergedInto != pay.ID {
+		t.Errorf("출금이 승인에 합쳐져야 함: %+v", out)
+	}
+	out2, _ := h.event("test.bank", "합성은행", "출금 7,000원 체크카드 합성분식\n잔액 493,000원", base.Add(time.Hour))
+	pay2, _ := h.event("test.kb", "KB국민카드", "홍*동님 7,000원 일시불 합성분식", base.Add(time.Hour+30*time.Second))
+	if pay2.MergedInto == nil || *pay2.MergedInto != out2.ID {
+		t.Errorf("승인이 먼저 온 출금에 합쳐져야 함: %+v", pay2)
+	}
+	if got := h.summary(nil)["쇼핑"].Spent; got != 12000 {
+		t.Errorf("쇼핑 지출 = %d, 한 번만 세야 함", got)
+	}
+}
+
+// 같은 금액의 송금과 카드 승인은 따로다.
 func TestDuplicateOnlySameKind(t *testing.T) {
 	h := newHarness(t)
 	pay, _ := h.event("test.kb", "KB국민카드", "홍*동님 25,000원 일시불 올리브영 강남점", base)

@@ -264,7 +264,9 @@ func (p *Processor) findRepost(ctx context.Context, q *dbq.Queries, raw dbq.RawE
 	return orig, err == nil, err
 }
 
-// dedupeKinds는 중복으로 합칠 수 있는 종류다. 승인(충전)은 승인끼리, 송금·출금은 그끼리, 취소는 취소끼리 합친다.
+// dedupeKinds는 중복으로 합칠 수 있는 종류다. 승인(충전)은 승인·출금과, 송금은 송금·출금과, 취소는 취소끼리 합친다.
+// 승인과 출금: 체크카드·계좌 연결 페이는 카드 승인(KB Pay·삼성페이·토스페이)과 그 돈이 빠진 계좌 출금(스타뱅킹 등)이
+// 다른 앱에서 같이 온다(2026-11-16 사용자: 국민 체크카드). 송금과 승인은 여전히 따로다(같은 금액 송금은 흔하다).
 // 종류를 모르는 건(unknown)은 내용으로 가릴 수 없어서 같은 방향이면 합친다.
 func dedupeKinds(k parser.Kind) []string {
 	s := func(ks ...parser.Kind) []string {
@@ -276,8 +278,10 @@ func dedupeKinds(k parser.Kind) []string {
 	}
 	switch k {
 	case parser.KindApproval, parser.KindCharge:
-		return s(parser.KindApproval, parser.KindCharge)
-	case parser.KindTransferOut, parser.KindWithdrawal:
+		return s(parser.KindApproval, parser.KindCharge, parser.KindWithdrawal)
+	case parser.KindWithdrawal:
+		return s(parser.KindWithdrawal, parser.KindTransferOut, parser.KindApproval, parser.KindCharge)
+	case parser.KindTransferOut:
 		return s(parser.KindTransferOut, parser.KindWithdrawal)
 	case parser.KindCancel, parser.KindDeposit:
 		return s(k)
