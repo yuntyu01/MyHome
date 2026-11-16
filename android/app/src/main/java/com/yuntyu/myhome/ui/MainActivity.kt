@@ -76,6 +76,8 @@ enum class Screen(val title: String) {
     PERMISSIONS("절전 설정 안내"),
     APPS("알림 읽을 앱"),
     LOGS("보낸 기록"),
+    /** 폰에서 지운 결제 알림 기록(이 폰에만) */
+    DISMISSED("지운 알림"),
     BUDGETS("분류·폴더·예산"),
     INVEST_VALUE("평가"),
     INVEST_BACKTEST("백테스트 결과"),
@@ -287,6 +289,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                     },
                 )
                 Screen.LOGS -> LogScreen(mod)
+                Screen.DISMISSED -> DismissedScreen(mod)
                 Screen.BUDGETS -> BudgetsScreen(mod)
                 Screen.BODY -> BodyScreen(mod)
                 Screen.BALANCE -> BalanceScreen(mod)

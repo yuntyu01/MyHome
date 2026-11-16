@@ -10,6 +10,7 @@ import android.service.notification.StatusBarNotification
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.CaptureRules
 import com.yuntyu.myhome.core.DedupeKey
+import com.yuntyu.myhome.data.DismissedNotice
 import com.yuntyu.myhome.data.PendingEvent
 import com.yuntyu.myhome.work.WorkScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -91,6 +92,25 @@ class CaptureService : NotificationListenerService() {
         }
     }
 
+    /** 지운 알림 기록에 남긴다(앱·제목·내용, 이 폰에만). 기록이 안 돼도 지우기는 그대로 */
+    private fun recordDismissed(sbn: StatusBarNotification) {
+        val extras = sbn.notification?.extras ?: return
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val text = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.takeIf { it.isNotBlank() }
+            ?: extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+        val app = applicationContext as MyHomeApp
+        scope.launch {
+            runCatching {
+                app.db.dismissedNotices().add(
+                    DismissedNotice(
+                        packageName = sbn.packageName, appLabel = appLabel(sbn.packageName), title = title,
+                        text = text.take(DismissedNotice.MAX_TEXT), postedAt = sbn.postTime, dismissedAt = System.currentTimeMillis(),
+                    ),
+                )
+            }
+        }
+    }
+
     private fun appLabel(pkg: String): String = try {
         val pm = packageManager
         val info = if (Build.VERSION.SDK_INT >= 33) {
@@ -126,12 +146,16 @@ class CaptureService : NotificationListenerService() {
         /**
          * 알림을 지운다. 수집기가 연결돼 있지 않으면 false. 이미 사라졌거나 같은 자리(key)에 새 알림(postTime이 다름)이
          * 떠 있으면 지우지 않고 true(새 알림은 따로 보내서 따로 판단한다).
+         * 실제로 지운 알림은 "지운 알림" 기록에 남긴다(지우기 직전에 떠 있던 앱·제목·내용, 이 폰에만).
          */
         fun dismiss(key: String, postedAt: Long): Boolean {
             val svc = current ?: return false
             return try {
                 val now = svc.getActiveNotifications(arrayOf(key))?.firstOrNull()
-                if (now != null && now.postTime == postedAt) svc.cancelNotification(key)
+                if (now != null && now.postTime == postedAt) {
+                    svc.cancelNotification(key)
+                    svc.recordDismissed(now)
+                }
                 true
             } catch (e: SecurityException) {
                 false

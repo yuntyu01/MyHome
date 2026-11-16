@@ -91,6 +91,13 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
             help = "앱마다 고르는 방식이에요. 다 지움: 보낸 알림은 전부 치워요. 알아본 것만: 가계부가 알아본 결제와 위젯에서 고를 결제는 AI 판정 뒤에 치우고, 못 읽은 알림·송금은 직접 처리하면 치워요. 안 지움: 그대로 둬요.",
             onClick = { onNavigate(Screen.APPS) },
         )
+        val dismissed by remember { app.db.dismissedNotices().count() }.collectAsState(initial = 0)
+        FlatRow(
+            "지운 알림",
+            value = if (dismissed > 0) "${dismissed}건" else null,
+            help = "폰에서 치운 결제 알림의 앱·제목·내용을 최근 30일, 200건까지 이 폰에만 남겨요.",
+            onClick = { onNavigate(Screen.DISMISSED) },
+        )
 
         SectionLabel("건강")
         FlatRow("끼니 시간과 목표", onClick = { onNavigate(Screen.HEALTH_SETTINGS) })

@@ -151,7 +151,7 @@ fun BudgetsScreen(modifier: Modifier) {
     val list = cats
     val tree = remember(list) { CategoryTree(list.orEmpty()) }
 
-    // 꾹 눌러 끌어서 옮기기: 화면에 먼저 옮겨 보이고 서버에 보낸다(안 되면 되돌린다)
+    // 손잡이(≡)로 끌어서 옮기기: 화면에 먼저 옮겨 보이고 서버에 보낸다(안 되면 되돌린다)
     val scroll = rememberScrollState()
     val dragger = rememberCategoryDragger(scroll)
     val drop = dragger.target(tree)
@@ -185,7 +185,7 @@ fun BudgetsScreen(modifier: Modifier) {
             }
         }
 
-        // 누르면 고치기, 꾹 눌러 끌면 순서·폴더 옮기기(폴더는 안까지 통째로)
+        // 누르면 고치기, 오른쪽 손잡이(≡)를 잡고 끌면 순서·폴더 옮기기(폴더는 안까지 통째로)
         @Composable
         fun TreeRows(kind: String) {
             for ((c, depth) in tree.preorder { !it.archived }.filter { it.first.kind == kind }) key(c.id) {
@@ -200,7 +200,7 @@ fun BudgetsScreen(modifier: Modifier) {
                     eff > 0 -> "안 합계 ${Money.won(eff)}"
                     else -> "자유"
                 }
-                DragRow(dragger, tree, c, onTap = { editing = EditTarget(c, a) }, onDrop = ::moveTo) {
+                DragRow(dragger, tree, c, onTap = { editing = EditTarget(c, a) }, onDrop = ::moveTo) { handle ->
                     FlatRow(
                         c.name,
                         modifier = Modifier.treeGuides(tree, c.id, m.faint.copy(alpha = 0.45f)),
@@ -213,7 +213,8 @@ fun BudgetsScreen(modifier: Modifier) {
                             else -> m.faint // 예산 없음
                         },
                         leading = indentLead(depth),
-                        trailing = { Icon(ChevronRightIcon, contentDescription = null, tint = m.faint, modifier = Modifier.size(18.dp)) },
+                        // 끌기는 이 손잡이로만(글자 쪽은 누르면 고치기)
+                        trailing = handle,
                     )
                 }
             }
@@ -229,7 +230,7 @@ fun BudgetsScreen(modifier: Modifier) {
         Hairline(Modifier.padding(horizontal = Gutter))
         SectionLabel(
             "쓰는 돈",
-            help = "꾹 눌러 끌면 순서를 바꿔요. 다른 분류 가운데에 놓으면 그 안으로 들어가요(폴더, 3단계까지). 폴더는 안에 든 분류까지 같이 옮겨요.\n\n폴더 예산을 안 정하면 안에 있는 분류 예산을 더해요.",
+            help = "오른쪽 ≡를 잡고 끌면 순서를 바꿔요. 다른 분류 가운데에 놓으면 그 안으로 들어가요(폴더, 3단계까지). 폴더는 안에 든 분류까지 같이 옮겨요.\n\n폴더 예산을 안 정하면 안에 있는 분류 예산을 더해요.",
         )
         TreeRows("expense")
         AddRow("분류 추가") { editing = EditTarget(null, 0) }

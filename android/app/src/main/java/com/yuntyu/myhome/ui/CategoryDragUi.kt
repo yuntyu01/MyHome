@@ -2,18 +2,18 @@ package com.yuntyu.myhome.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
-import androidx.compose.foundation.indication
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,7 +35,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -44,8 +43,6 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -80,17 +77,17 @@ internal class CategoryDragger(val scroll: ScrollState) {
 
     private fun live(id: Long): LayoutCoordinates? = rows[id]?.takeIf { it.isAttached }
 
-    fun start(tree: CategoryTree, c: Category, local: Offset): Boolean {
+    /** 손잡이를 잡은 손가락(창 기준 y)으로 끌기를 시작한다 */
+    fun start(tree: CategoryTree, c: Category, fingerWin: Float): Boolean {
         val co = live(c.id) ?: return false
-        drag = Dragging(c.id, c.kind, setOf(c.id) + tree.descendants(c.id), co.positionInParent().y + local.y)
-            .also { it.fingerWin = co.positionInWindow().y + local.y }
+        drag = Dragging(c.id, c.kind, setOf(c.id) + tree.descendants(c.id), co.positionInParent().y + fingerWin - co.positionInWindow().y)
+            .also { it.fingerWin = fingerWin }
         return true
     }
 
-    fun move(local: Offset) {
+    fun move(fingerWin: Float) {
         val d = drag ?: return
-        val co = live(d.id) ?: return
-        d.fingerWin = co.positionInWindow().y + local.y
+        d.fingerWin = fingerWin
         sync()
     }
 
@@ -186,8 +183,9 @@ internal fun Modifier.dropMarks(d: CategoryDragger, drop: CategoryDrag.Drop?, co
 }
 
 /**
- * 끌 수 있는 분류 줄: 누르면 onTap, 꾹 누르면 들려서(진동) 손가락을 따라오고, 놓으면 onDrop(자리가 바뀔 때만).
- * 폴더면 안의 줄도 같이 들린다(그 줄들도 이 함수로 그려야 한다).
+ * 끌 수 있는 분류 줄: 줄을 누르면 onTap, 오른쪽 손잡이(≡)를 잡으면 바로 들려서(진동) 손가락을 따라오고, 놓으면 onDrop(자리가 바뀔 때만).
+ * 글자 쪽은 꾹 눌러도 끌리지 않는다(사용자 요청, 2026-11-16 "글자 쪽 누르면 드래그되는 거 고쳐"). 손잡이는 content가 받은 handle을
+ * 줄 오른쪽에 그린다. 폴더면 안의 줄도 같이 들린다(그 줄들도 이 함수로 그려야 한다).
  */
 @Composable
 internal fun DragRow(
@@ -196,63 +194,52 @@ internal fun DragRow(
     c: Category,
     onTap: () -> Unit,
     onDrop: (Long, DropPlace) -> Unit,
-    content: @Composable () -> Unit,
+    content: @Composable (handle: @Composable () -> Unit) -> Unit,
 ) {
     val m = LocalModo.current
     val haptic = LocalHapticFeedback.current
-    val source = remember { MutableInteractionSource() }
-    val tap by rememberUpdatedState(onTap)
     val drop by rememberUpdatedState(onDrop)
     val treeNow by rememberUpdatedState(tree)
     val cat by rememberUpdatedState(c)
     val held = d.drag?.block?.contains(c.id) == true
+    // 손잡이 좌표: 줄이 손가락을 따라 움직여도(graphicsLayer) 창 기준으로 바꿔 쓰면 맞는다
+    var handleAt by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val handle: @Composable () -> Unit = {
+        Box(
+            Modifier
+                // 줄 높이(56dp)를 늘리지 않게 높이는 32dp, 손가락이 닿기 쉽게 폭은 넓게
+                .size(width = 44.dp, height = 32.dp)
+                .onGloballyPositioned { handleAt = it }
+                .pointerInput(c.id) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val at = handleAt?.takeIf { it.isAttached } ?: return@awaitEachGesture
+                        if (!d.start(treeNow, cat, at.localToWindow(down.position).y)) return@awaitEachGesture
+                        down.consume()
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        try {
+                            val finished = drag(down.id) { ch ->
+                                handleAt?.takeIf { it.isAttached }?.let { co -> d.move(co.localToWindow(ch.position).y) }
+                                ch.consume()
+                            }
+                            if (finished) {
+                                val target = d.target(treeNow)
+                                if (target != null && !CategoryDrag.same(treeNow, cat.id, target.place)) drop(cat.id, target.place)
+                            }
+                        } finally {
+                            d.stop()
+                        }
+                    }
+                }
+                .semantics { contentDescription = "${c.name} 끌어서 옮기기" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(HandleIcon, contentDescription = null, tint = if (held) MaterialTheme.colorScheme.onBackground else m.faint, modifier = Modifier.size(20.dp))
+        }
+    }
     Box(
         Modifier
             .onGloballyPositioned { d.rows[c.id] = it }
-            .semantics(mergeDescendants = true) {
-                role = Role.Button
-                onClick(label = "${c.name} 고치기") { tap(); true }
-            }
-            .pointerInput(c.id) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val press = PressInteraction.Press(down.position)
-                    source.tryEmit(press)
-                    var long = false
-                    val up = try {
-                        withTimeout(viewConfiguration.longPressTimeoutMillis) { waitForUpOrCancellation() }
-                    } catch (_: PointerEventTimeoutCancellationException) {
-                        long = true
-                        null
-                    }
-                    if (!long) {
-                        if (up != null) {
-                            source.tryEmit(PressInteraction.Release(press))
-                            up.consume()
-                            tap()
-                        } else {
-                            source.tryEmit(PressInteraction.Cancel(press)) // 스크롤로 넘어감
-                        }
-                        return@awaitEachGesture
-                    }
-                    source.tryEmit(PressInteraction.Cancel(press))
-                    if (!d.start(treeNow, cat, down.position)) return@awaitEachGesture
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    var finished = false
-                    try {
-                        finished = drag(down.id) { ch ->
-                            d.move(ch.position)
-                            ch.consume()
-                        }
-                        if (finished) {
-                            val target = d.target(treeNow)
-                            if (target != null && !CategoryDrag.same(treeNow, cat.id, target.place)) drop(cat.id, target.place)
-                        }
-                    } finally {
-                        d.stop()
-                    }
-                }
-            }
             .zIndex(if (held) 1f else 0f)
             .graphicsLayer {
                 translationY = d.lift(c.id)
@@ -265,6 +252,6 @@ internal fun DragRow(
                 }
             }
             .background(if (held) m.raised else Color.Transparent)
-            .indication(source, LocalIndication.current),
-    ) { content() }
+            .tap(onClickLabel = "${c.name} 고치기", role = Role.Button, onClick = onTap),
+    ) { content(handle) }
 }

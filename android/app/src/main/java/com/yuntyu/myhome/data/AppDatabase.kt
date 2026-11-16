@@ -8,14 +8,15 @@ import androidx.room.RoomDatabase
 
 // 2: 집중 타이머(과목·기록·머묾) 표를 더했다. 표만 늘어서 Room이 스키마(app/schemas)를 보고 옮긴다
 // 3: 지우지 않고 붙든 결제 알림(held_notices) 표를 더했다
+// 4: 폰에서 지운 결제 알림 기록(dismissed_notices) 표를 더했다
 @Database(
     entities = [
         PendingEvent::class, SendLogEntry::class, RecentApp::class, FocusSubject::class, FocusSession::class, FocusStay::class,
-        HeldNotice::class,
+        HeldNotice::class, DismissedNotice::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun pendingEvents(): PendingEventDao
@@ -23,6 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun recentApps(): RecentAppDao
     abstract fun focus(): FocusDao
     abstract fun heldNotices(): HeldNoticeDao
+    abstract fun dismissedNotices(): DismissedNoticeDao
 
     companion object {
         fun create(context: Context): AppDatabase =

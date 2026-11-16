@@ -62,3 +62,25 @@ data class RecentApp(
     val lastSeenAt: Long,
     val count: Int,
 )
+
+/**
+ * 폰에서 지운 결제 알림 기록(사용자 요청, 2026-11-16 "알림 지운 거 따로 기록해 놔"). 지운 순간 떠 있던 알림의 앱·제목·내용을 남긴다.
+ * 이 폰에만 저장한다(백업 꺼짐). 최근 [KEEP_DAYS]일·[KEEP]건까지.
+ */
+@Entity(tableName = "dismissed_notices")
+data class DismissedNotice(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val packageName: String,
+    val appLabel: String,
+    val title: String,
+    val text: String,
+    /** 원래 알림이 뜬 때(Unix ms) */
+    val postedAt: Long,
+    val dismissedAt: Long,
+) {
+    companion object {
+        const val KEEP = 200
+        const val KEEP_DAYS = 30
+        const val MAX_TEXT = 500
+    }
+}

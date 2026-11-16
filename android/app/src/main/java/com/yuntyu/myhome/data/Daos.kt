@@ -111,3 +111,24 @@ interface HeldNoticeDao {
     @Query("DELETE FROM held_notices")
     suspend fun clear()
 }
+
+@Dao
+abstract class DismissedNoticeDao {
+    @Insert
+    protected abstract suspend fun insertRaw(n: DismissedNotice)
+
+    @Query("DELETE FROM dismissed_notices WHERE dismissedAt < :before OR id NOT IN (SELECT id FROM dismissed_notices ORDER BY id DESC LIMIT :keep)")
+    protected abstract suspend fun trim(before: Long, keep: Int)
+
+    @Transaction
+    open suspend fun add(n: DismissedNotice) {
+        insertRaw(n)
+        trim(n.dismissedAt - DismissedNotice.KEEP_DAYS * 24L * 60 * 60 * 1000, DismissedNotice.KEEP)
+    }
+
+    @Query("SELECT * FROM dismissed_notices ORDER BY dismissedAt DESC, id DESC")
+    abstract fun recent(): Flow<List<DismissedNotice>>
+
+    @Query("SELECT COUNT(*) FROM dismissed_notices")
+    abstract fun count(): Flow<Int>
+}

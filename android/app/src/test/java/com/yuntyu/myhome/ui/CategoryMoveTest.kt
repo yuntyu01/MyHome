@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -35,7 +36,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** 분류 꾹 눌러 끌기(분류·폴더·예산 화면)와 홈 폴더 격자 (합성 분류) */
+/** 분류 손잡이(≡)로 끌기(분류·폴더·예산 화면, 글자 쪽은 끌리지 않음)와 홈 폴더 격자 (합성 분류) */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [27], application = android.app.Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -63,44 +64,51 @@ class CategoryMoveTest {
         rowPx = with(LocalDensity.current) { 56.dp.toPx() }
         Column(Modifier.fillMaxSize().dragViewport(d).verticalScroll(scroll).dropMarks(d, d.target(tree), Color.Red)) {
             for ((c, depth) in tree.preorder()) key(c.id) {
-                DragRow(d, tree, c, onTap = { taps += c.id }, onDrop = { id, p -> drops += id to p }) {
-                    FlatRow(c.name, leading = indentLead(depth))
+                DragRow(d, tree, c, onTap = { taps += c.id }, onDrop = { id, p -> drops += id to p }) { handle ->
+                    FlatRow(c.name, leading = indentLead(depth), trailing = handle)
                 }
             }
         }
     }
 
-    /** name 줄 가운데를 꾹 누르고 dy(줄 높이 배수)만큼 끌어서 놓는다 */
-    private fun longDrag(name: String, rows: Float) {
-        rule.onNodeWithText(name).performTouchInput { down(center) }
-        rule.mainClock.advanceTimeBy(1_000)
-        rule.onNodeWithText(name).performTouchInput {
+    /** name 줄의 손잡이를 잡고 rows(줄 높이 배수)만큼 끌어서 놓는다(기다리지 않고 바로 끌린다) */
+    private fun handleDrag(name: String, rows: Float) {
+        rule.onNodeWithContentDescription("$name 끌어서 옮기기", useUnmergedTree = true).performTouchInput {
+            down(center)
             repeat(8) { moveBy(Offset(0f, rows * rowPx / 8)) }
             up()
         }
         rule.waitForIdle()
     }
 
-    @Test fun tapOpensLongPressDragMoves() {
+    @Test fun tapOpensHandleDragMoves() {
         rule.setContent { MyHomeTheme { Harness() } }
         rule.onNodeWithText("교통").performClick()
         rule.waitForIdle()
         assertEquals(listOf(4L), taps)
 
         // 쇼핑을 한 줄 위(고정비 가운데)에 놓으면 고정비 안으로
-        longDrag("쇼핑", -1f)
+        handleDrag("쇼핑", -1f)
         assertEquals(6L to DropPlace(5), drops.last())
         // 쇼핑을 교통 위쪽(2.3줄 위)에 놓으면 생활비 안, 교통 앞
-        longDrag("쇼핑", -2.3f)
+        handleDrag("쇼핑", -2.3f)
         assertEquals(6L to DropPlace(1, before = 4), drops.last())
         // 생활비 폴더를 맨 아래로 끌면 안까지 통째로 맨 위 단계 맨 끝
-        longDrag("생활비", 6f)
+        handleDrag("생활비", 6f)
         assertEquals(1L to DropPlace(null), drops.last())
-        assertEquals("꾹 눌러 끌면 누르기는 안 된다", listOf(4L), taps)
+        assertEquals("손잡이로 끌면 누르기는 안 된다", listOf(4L), taps)
     }
 
-    @Test fun longPressWithoutMovingDoesNothing() {
+    // 글자 쪽은 꾹 눌러 끌어도 들리지 않는다(사용자 요청, 2026-11-16). 꾹 눌렀다 떼도 아무 일 없다
+    @Test fun textSideNeverDrags() {
         rule.setContent { MyHomeTheme { Harness() } }
+        rule.onNodeWithText("쇼핑").performTouchInput { down(center) }
+        rule.mainClock.advanceTimeBy(1_000)
+        rule.onNodeWithText("쇼핑").performTouchInput {
+            repeat(8) { moveBy(Offset(0f, -1f * rowPx / 8)) }
+            up()
+        }
+        rule.waitForIdle()
         rule.onNodeWithText("고정비").performTouchInput { down(center) }
         rule.mainClock.advanceTimeBy(1_000)
         rule.onNodeWithText("고정비").performTouchInput { up() }

@@ -68,6 +68,9 @@ val GearLineIcon: ImageVector by lazy {
     }
 }
 
+/** 끌어서 옮기는 손잡이(≡) */
+val HandleIcon: ImageVector by lazy { line("Handle") { moveTo(5f, 9f); lineTo(19f, 9f); moveTo(5f, 15f); lineTo(19f, 15f) } }
+
 val ChevronRightIcon: ImageVector by lazy { line("ChevronRight") { moveTo(9f, 6f); lineTo(15f, 12f); lineTo(9f, 18f) } }
 
 val ChevronLeftIcon: ImageVector by lazy { line("ChevronLeft") { moveTo(15f, 6f); lineTo(9f, 12f); lineTo(15f, 18f) } }
