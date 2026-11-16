@@ -35,6 +35,9 @@ type Edit struct {
 	Status *string `json:"status"`
 	// RememberRule이 true면 "이 가맹점은 항상 이 분류" 규칙을 저장하고, 같은 가맹점의 확인 필요 건도 함께 분류한다.
 	RememberRule bool `json:"remember_rule"`
+	// MergeInto: 이 거래를 그 거래의 중복으로 합친다(같은 방향·같은 금액만). 다른 필드와 같이 오면 합치기만 한다.
+	// 되돌리기는 Status "confirmed"(가계부에 다시 넣기) — 합친 연결도 끊는다.
+	MergeInto *int64 `json:"merge_into"`
 }
 
 // EditResult는 수정 결과다.
@@ -63,6 +66,11 @@ func (ed *Editor) EditTransaction(ctx context.Context, id int64, in Edit) (EditR
 		}
 		e, err := loadEnv(ctx, q)
 		if err != nil {
+			return err
+		}
+		if in.MergeInto != nil {
+			saved, err := mergeManually(ctx, q, cur, *in.MergeInto)
+			out.Transaction = saved
 			return err
 		}
 		upd := updateParamsFrom(cur)
@@ -119,7 +127,8 @@ func (ed *Editor) EditTransaction(ctx context.Context, id int64, in Edit) (EditR
 				if upd.CategoryID == nil {
 					return invalid("분류를 먼저 정해야 확정할 수 있습니다")
 				}
-				upd.Status, upd.ExclusionReason, upd.ReviewReason = "confirmed", nil, nil
+				// 자동·직접 합친 중복을 다시 넣으면 따로 센다(합친 연결도 끊는다)
+				upd.Status, upd.ExclusionReason, upd.ReviewReason, upd.MergedInto = "confirmed", nil, nil, nil
 			default:
 				return invalid("status는 excluded 또는 confirmed만 가능합니다")
 			}
@@ -153,6 +162,53 @@ func (ed *Editor) EditTransaction(ctx context.Context, id int64, in Edit) (EditR
 		return nil
 	})
 	return out, err
+}
+
+// mergeManually는 사용자가 고른 대로 cur를 target의 중복으로 합친다(자동 중복 합치기를 놓친 경우, 2026-11-16 사용자 요청).
+// target이 이미 다른 거래에 합쳐졌으면 그 대표에 붙인다. cur에 붙어 있던 중복도 대표로 옮긴다.
+// 대표가 아직 분류 전이고 cur에 분류가 있으면 그 분류를 대표에 넘긴다(고른 분류를 잃지 않게).
+func mergeManually(ctx context.Context, q *dbq.Queries, cur dbq.Transaction, targetID int64) (dbq.Transaction, error) {
+	if targetID == cur.ID {
+		return cur, invalid("자기 자신과는 합칠 수 없어요")
+	}
+	root, err := q.GetTransactionForUpdate(ctx, targetID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return cur, invalid("합칠 결제가 없어요")
+	}
+	if err != nil {
+		return cur, err
+	}
+	if root.MergedInto != nil {
+		if root, err = q.GetTransactionForUpdate(ctx, *root.MergedInto); err != nil {
+			return cur, err
+		}
+		if root.ID == cur.ID {
+			return cur, invalid("이미 이 결제에 합쳐진 결제예요")
+		}
+	}
+	switch {
+	case root.Flow != cur.Flow || root.Amount != cur.Amount:
+		return cur, invalid("금액이 같은 결제끼리만 합칠 수 있어요")
+	case root.Status == "excluded":
+		return cur, invalid("가계부에서 뺀 결제와는 합칠 수 없어요")
+	case root.CancelsID != nil || cur.CancelsID != nil:
+		return cur, invalid("취소·환불 건은 합칠 수 없어요")
+	}
+	if root.Status == "needs_review" && cur.CategoryID != nil && cur.Status == "confirmed" {
+		up := updateParamsFrom(root)
+		up.CategoryID, up.Direction, up.Status, up.ReviewReason, up.ManuallyEdited = cur.CategoryID, cur.Direction, "confirmed", nil, true
+		if root, err = q.UpdateTransaction(ctx, up); err != nil {
+			return cur, err
+		}
+	}
+	if err := q.RepointDuplicates(ctx, dbq.RepointDuplicatesParams{FromID: &cur.ID, ToID: &root.ID}); err != nil {
+		return cur, err
+	}
+	upd := updateParamsFrom(cur)
+	rootID := root.ID
+	upd.Status, upd.ExclusionReason, upd.ReviewReason, upd.MergedInto = "excluded", reason(ExcludeDuplicate), nil, &rootID
+	upd.CategoryID, upd.Direction, upd.ManuallyEdited = root.CategoryID, root.Direction, true
+	return q.UpdateTransaction(ctx, upd)
 }
 
 // applyRuleToReviewQueue는 새 규칙을 같은 가맹점의 확인 필요 건에도 적용한다.

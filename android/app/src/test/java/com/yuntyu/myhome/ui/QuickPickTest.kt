@@ -69,4 +69,38 @@ class QuickPickTest {
         rule.onNodeWithText("더보기").performClick()
         assertEquals(1, more)
     }
+
+    /** 가까이에 같은 금액 결제가 있으면 "중복으로 합치기", 합쳐진 중복은 "따로 세기"(2026-11-16) */
+    @Test fun mergeAndSplit() {
+        var merge = 0
+        var split = 0
+        val dup = tx.copy(id = 8, status = "excluded", exclusionReason = "duplicate", mergedInto = 7, merchant = "합성편의점 본점")
+        rule.setContent {
+            MyHomeTheme {
+                ModoBackground {
+                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+                        Column {
+                            TxRow(tx, withDay = false) {}
+                            QuickCategoryPick(tx, tree, onPick = {}, onMore = {}, onMerge = { merge++ })
+                            TxRow(dup, withDay = false) {}
+                            DuplicatePanel { split++ }
+                        }
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        System.getenv("SHOTS_OUT")?.let { dir ->
+            val v = rule.activity.window.decorView
+            val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+            v.draw(Canvas(bmp))
+            File(dir).mkdirs()
+            File(dir, "거래-중복-합치기.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        rule.onNodeWithText("중복 · 12:00").assertExists()
+        rule.onNodeWithText("중복으로 합치기").performClick()
+        assertEquals(1, merge)
+        rule.onNodeWithText("따로 세기").performClick()
+        assertEquals(1, split)
+    }
 }

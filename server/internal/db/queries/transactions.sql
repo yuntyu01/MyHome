@@ -259,6 +259,13 @@ WHERE merged_into = ANY (@ids::bigint[])
    OR id IN (SELECT merged_into FROM transactions x WHERE x.id = ANY (@ids::bigint[]) AND x.merged_into IS NOT NULL)
    OR id IN (SELECT cancels_id FROM transactions y WHERE y.id = ANY (@ids::bigint[]) AND y.cancels_id IS NOT NULL);
 
+-- name: RepointDuplicates :exec
+-- 직접 합치기: 합쳐지는 거래에 붙어 있던 중복을 새 대표로 옮긴다(중복의 중복이 생기지 않게).
+UPDATE transactions
+SET merged_into = @to_id,
+    updated_at  = now()
+WHERE merged_into = @from_id;
+
 -- name: DetachLinks :exec
 UPDATE transactions
 SET merged_into = CASE WHEN merged_into = ANY (@ids::bigint[]) THEN NULL ELSE merged_into END,

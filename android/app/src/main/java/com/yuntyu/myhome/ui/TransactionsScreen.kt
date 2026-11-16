@@ -28,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +51,7 @@ import androidx.compose.ui.unit.sp
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.Money
 import com.yuntyu.myhome.core.TxMarks
+import com.yuntyu.myhome.core.TxDuplicates
 import com.yuntyu.myhome.core.RunningBudget
 import com.yuntyu.myhome.core.WidgetModel
 import com.yuntyu.myhome.core.api.ApiResult
@@ -116,6 +118,8 @@ fun TransactionsScreen(
     var selected by remember { mutableStateOf<TransactionDto?>(null) }
     // 누른 거래 밑에 펼친 분류 동그라미(거래 id)
     var expanded by remember { mutableStateOf<Long?>(null) }
+    // "중복으로 합치기"로 고르는 중인 거래
+    var mergeFor by remember { mutableStateOf<TransactionDto?>(null) }
     var cashOpen by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableIntStateOf(0) }
     // 검색: null이면 닫힘. 글자가 있으면 전체 기간에서 찾은 것(found)을 보여준다
@@ -158,9 +162,10 @@ fun TransactionsScreen(
             val r = withContext(Dispatchers.IO) { app.api.editTransaction(t.id, edit) }
             if (r is ApiResult.Ok) {
                 val extra = if (r.value.alsoUpdated > 0) " 같은 가게 ${r.value.alsoUpdated}건도 같이 바꿨어요." else ""
-                Toast.makeText(ctx, "바꿨어요.$extra", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, if (edit.mergeInto != null) "합쳤어요." else "바꿨어요.$extra", Toast.LENGTH_SHORT).show()
                 selected = null
                 expanded = null
+                mergeFor = null
                 reloadTick++
                 WidgetRefresher.refresh(ctx)
                 // 분류를 정했으니 붙들어 둔 원래 알림을 지울 수 있다
@@ -175,6 +180,8 @@ fun TransactionsScreen(
     val tree = remember(cats) { CategoryTree(cats) }
     val catIds = remember(tree, categoryFilter) { categoryFilter?.let { descendantsOf(tree, it) } }
     val catName = categoryFilter?.let { id -> cats.firstOrNull { it.id == id }?.name ?: "고른 분류" }
+    // 중복으로 합칠 후보: 받아 둔 목록(이번 달·찾기·미분류)에서 같은 금액·가까운 결제
+    fun dupsOf(t: TransactionDto) = TxDuplicates.candidates(t, items.orEmpty() + found.orEmpty() + review.orEmpty())
 
     Column(modifier.fillMaxSize()) {
         PageTitle("거래") {
@@ -241,11 +248,17 @@ fun TransactionsScreen(
                         fun full(t: TransactionDto) = review?.firstOrNull { r -> r.id == t.id } ?: t
                         txDays(list, left, expanded, onOpen = { t -> expanded = if (expanded == t.id) null else t.id }) { t ->
                             val ft = full(t)
-                            QuickCategoryPick(
-                                ft, tree,
-                                onPick = { c -> if (c.id == ft.categoryId && ft.status == "confirmed") expanded = null else submit(ft, TransactionEdit(categoryId = c.id)) },
-                                onMore = { selected = ft },
-                            )
+                            if (TxDuplicates.isDuplicate(ft)) {
+                                DuplicatePanel { submit(ft, TransactionEdit(status = "confirmed")) }
+                            } else {
+                                val dups = dupsOf(ft)
+                                QuickCategoryPick(
+                                    ft, tree,
+                                    onPick = { c -> if (c.id == ft.categoryId && ft.status == "confirmed") expanded = null else submit(ft, TransactionEdit(categoryId = c.id)) },
+                                    onMore = { selected = ft },
+                                    onMerge = if (dups.isEmpty()) null else ({ mergeFor = ft }),
+                                )
+                            }
                         }
                     }
                 }
@@ -257,11 +270,16 @@ fun TransactionsScreen(
     }
 
     selected?.let { t ->
+        val dups = dupsOf(t)
         ClassifySheet(
             t, cats,
             onDismiss = { selected = null },
             onSearch = { text -> selected = null; onTab(0); query = text },
+            onMerge = if (dups.isEmpty()) null else ({ selected = null; mergeFor = t }),
         ) { edit -> submit(t, edit) }
+    }
+    mergeFor?.let { t ->
+        MergeDialog(dupsOf(t), onDismiss = { mergeFor = null }) { c -> submit(t, TransactionEdit(mergeInto = c.id)) }
     }
     if (cashOpen) {
         CashSheet(cats, onDismiss = { cashOpen = false }) {
@@ -348,36 +366,90 @@ private const val QUICK_CHOICES = 4
  * (규칙은 만들지 않는다). 더보기는 전체 분류·메모·빼기가 있는 판을 연다. 동그라미는 Modo CheckCircle, 칸 바탕은 composer.
  */
 @Composable
-internal fun QuickCategoryPick(t: TransactionDto, tree: CategoryTree, onPick: (Category) -> Unit, onMore: () -> Unit) {
+internal fun QuickCategoryPick(t: TransactionDto, tree: CategoryTree, onPick: (Category) -> Unit, onMore: () -> Unit, onMerge: (() -> Unit)? = null) {
     val m = LocalModo.current
     val kinds = if (t.flow == "in") setOf("income", "special") else setOf("expense")
     val checked = t.categoryId?.takeIf { t.status != "needs_review" }
     val choices = remember(t.id, t.categoryId, t.suggestion, tree) { tree.related(t.categoryId ?: t.suggestion?.categoryId, kinds, QUICK_CHOICES) }
-    Row(
+    Column(
         Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, bottom = 10.dp)
-            .clip(RoundedCornerShape(14.dp)).background(m.composer).padding(vertical = 10.dp),
+            .clip(RoundedCornerShape(14.dp)).background(m.composer),
     ) {
-        for (c in choices) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+            for (c in choices) {
+                Column(
+                    Modifier.weight(1f).tap(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "${c.name}로 바꾸기") { onPick(c) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    CheckCircle(c.id == checked)
+                    Text(c.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontWeight = if (c.id == checked) FontWeight.Bold else FontWeight.Normal,
+                        color = if (c.id == checked) MaterialTheme.colorScheme.onBackground else m.muted)
+                }
+            }
             Column(
-                Modifier.weight(1f).tap(role = androidx.compose.ui.semantics.Role.RadioButton, onClickLabel = "${c.name}로 바꾸기") { onPick(c) },
+                Modifier.weight(1f).tap(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "분류 전체 보기", onClick = onMore),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                CheckCircle(c.id == checked)
-                Text(c.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    fontWeight = if (c.id == checked) FontWeight.Bold else FontWeight.Normal,
-                    color = if (c.id == checked) MaterialTheme.colorScheme.onBackground else m.muted)
+                Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Text("⋯", fontSize = 18.sp, color = m.muted) }
+                Text("더보기", fontSize = 13.sp, color = m.muted, maxLines = 1)
             }
         }
-        Column(
-            Modifier.weight(1f).tap(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "분류 전체 보기", onClick = onMore),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Text("⋯", fontSize = 18.sp, color = m.muted) }
-            Text("더보기", fontSize = 13.sp, color = m.muted, maxLines = 1)
+        // 가까이에 같은 금액 결제가 있으면(자동으로 못 합친 같은 결제일 수 있다)
+        if (onMerge != null) {
+            Hairline(Modifier.padding(horizontal = 12.dp))
+            Text(
+                "중복으로 합치기",
+                Modifier.fillMaxWidth().tap(role = androidx.compose.ui.semantics.Role.Button, onClick = onMerge).padding(vertical = 11.dp),
+                fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center,
+            )
         }
     }
+}
+
+/** 같은 결제로 합쳐진 중복 밑에 펼치는 칸: 잘못 합쳤으면 따로 센다 */
+@Composable
+internal fun DuplicatePanel(onSplit: () -> Unit) {
+    val m = LocalModo.current
+    Row(
+        Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, bottom = 10.dp)
+            .clip(RoundedCornerShape(14.dp)).background(m.composer).padding(start = 14.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("같은 결제로 합쳐서 한 번만 셌어요", Modifier.weight(1f), fontSize = 13.sp, color = m.muted)
+        TextButton(onClick = onSplit) { Text("따로 세기") }
+    }
+}
+
+/** 중복으로 합칠 결제 고르기. 고른 결제만 남고 이 결제는 중복이 된다 */
+@Composable
+private fun MergeDialog(cands: List<TransactionDto>, onDismiss: () -> Unit, onPick: (TransactionDto) -> Unit) {
+    val m = LocalModo.current
+    ModoAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("어느 결제와 같은가요?") },
+        text = {
+            Column {
+                Text("고른 결제 하나만 남아요", fontSize = 14.sp, color = m.muted)
+                for (c in cands) {
+                    Row(
+                        Modifier.fillMaxWidth().tap(role = androidx.compose.ui.semantics.Role.Button) { onPick(c) }.padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(c.merchant.ifBlank { "이름 없는 결제" }, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
+                            Text("${c.category.ifBlank { "분류 전" }} · ${txTime(c.occurredAt, withDay = true)}", fontSize = 13.sp, color = m.muted, maxLines = 1)
+                        }
+                        Text(Money.won(c.amount), fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
 }
 
 /** 목록 끝 "+ 현금 지출 기록"(가운데) */
@@ -481,6 +553,7 @@ fun TxRow(t: TransactionDto, withDay: Boolean, remaining: Long? = null, onClick:
     val time = txTime(t.occurredAt, withDay)
     val (sub, subColor) = when {
         review -> (t.suggestion?.let { "AI 추천 ${it.category}" } ?: "분류 고르기") + " · $time" to m.over
+        TxDuplicates.isDuplicate(t) -> "중복 · $time" to m.faint
         excluded -> "가계부에서 뺌 · $time" to m.faint
         else -> "${t.category.ifBlank { "분류 없음" }} · $time" to m.muted
     }.let { (text, color) -> (if (t.memo.isNotBlank()) "$text · ${t.memo}" else text) to color }
@@ -526,6 +599,8 @@ private fun ClassifySheet(
     onDismiss: () -> Unit,
     /** "이 가게 거래 모두 보기": 판을 닫고 가게 이름으로 찾는다 */
     onSearch: (String) -> Unit,
+    /** 가까이에 같은 금액 결제가 있을 때만: 중복으로 합칠 결제 고르기 */
+    onMerge: (() -> Unit)? = null,
     onSubmit: (TransactionEdit) -> Unit,
 ) {
     val m = LocalModo.current
@@ -584,8 +659,13 @@ private fun ClassifySheet(
                 )
             }
             Hairline(Modifier.padding(top = 8.dp))
+            if (onMerge != null) FlatRow("중복으로 합치기", sub = "같은 금액 결제가 가까이 있어요", chevron = false, onClick = onMerge)
             FlatRow(
-                if (excluded) "가계부에 다시 넣기" else "이 결제는 가계부에서 빼기",
+                when {
+                    TxDuplicates.isDuplicate(t) -> "중복 아님 · 따로 세기"
+                    excluded -> "가계부에 다시 넣기"
+                    else -> "이 결제는 가계부에서 빼기"
+                },
                 sub = if (excluded) null else "같은 결제가 두 번 적혔거나 내 돈이 아닐 때",
                 titleColor = m.muted,
                 chevron = false,

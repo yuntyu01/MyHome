@@ -128,6 +128,10 @@ data class TransactionDto(
     val category: String = "",
     val status: String = "",
     @SerialName("review_reason") val reviewReason: String? = null,
+    /** "duplicate"면 같은 결제로 합쳐진 중복(자동·직접) */
+    @SerialName("exclusion_reason") val exclusionReason: String? = null,
+    @SerialName("merged_into") val mergedInto: Long? = null,
+    @SerialName("cancels_id") val cancelsId: Long? = null,
     val source: String = "",
     /** 규칙에 없는 가맹점에 AI가 추천한 분류(서버가 확신이 낮으면 null). 확정은 사용자가 한 번 눌러서 한다. */
     val suggestion: Suggestion? = null,
@@ -173,6 +177,8 @@ data class TransactionEdit(
     val memo: String? = null,
     val merchant: String? = null,
     val amount: Long? = null,
+    /** 이 결제를 그 결제의 중복으로 합친다(같은 금액만). 되돌리기는 status "confirmed" */
+    @SerialName("merge_into") val mergeInto: Long? = null,
 )
 
 @Serializable

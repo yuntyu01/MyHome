@@ -1212,6 +1212,24 @@ func (q *Queries) RecentTransactions(ctx context.Context, limit int32) ([]Recent
 	return items, nil
 }
 
+const repointDuplicates = `-- name: RepointDuplicates :exec
+UPDATE transactions
+SET merged_into = $1,
+    updated_at  = now()
+WHERE merged_into = $2
+`
+
+type RepointDuplicatesParams struct {
+	ToID   *int64 `json:"to_id"`
+	FromID *int64 `json:"from_id"`
+}
+
+// 직접 합치기: 합쳐지는 거래에 붙어 있던 중복을 새 대표로 옮긴다(중복의 중복이 생기지 않게).
+func (q *Queries) RepointDuplicates(ctx context.Context, arg RepointDuplicatesParams) error {
+	_, err := q.db.Exec(ctx, repointDuplicates, arg.ToID, arg.FromID)
+	return err
+}
+
 const sourceFlowTotals = `-- name: SourceFlowTotals :many
 SELECT source,
        direction,

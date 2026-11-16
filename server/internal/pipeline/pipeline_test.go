@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -318,6 +319,53 @@ func TestDuplicate_SameAppDifferentNotices(t *testing.T) {
 	c, _ := h.event("test.toss", "2,500원 결제", "페이스페이 (토스뱅크 합성 체크카드, 일시불) · 다른합성가게", base.Add(time.Hour+30*time.Second))
 	if c.MergedInto != nil {
 		t.Errorf("다른 가게는 따로: %+v", c)
+	}
+}
+
+// 자동으로 못 합친 같은 결제를 사용자가 합친다(대표가 분류 전이면 고른 분류를 넘긴다). 잘못 합친 건 다시 넣으면 따로 센다.
+func TestManualMergeAndSplit(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	// 1시간 차이라 자동으로는 안 합쳐진 같은 결제(합성)
+	a, _ := h.event("test.kb", "KB국민카드", "홍*동님 9,900원 일시불 합성상점", base)
+	b, _ := h.event("test.toss", "토스", "9,900원 결제 | 합성상점 본점", base.Add(time.Hour))
+	if b.MergedInto != nil {
+		t.Fatalf("1시간 차이는 자동으로 안 합침: %+v", b)
+	}
+	food := h.cats["식비"]
+	if _, err := h.ed.EditTransaction(ctx, b.ID, pipeline.Edit{CategoryID: &food}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.ed.EditTransaction(ctx, b.ID, pipeline.Edit{MergeInto: &a.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := res.Transaction; m.Status != "excluded" || m.MergedInto == nil || *m.MergedInto != a.ID || deref(m.ExclusionReason) != pipeline.ExcludeDuplicate {
+		t.Errorf("중복으로 합쳐져야 함: %+v", m)
+	}
+	kept, _ := h.q.GetTransaction(ctx, a.ID)
+	h.wantStatus(kept, "confirmed", "식비")
+	if got := h.summary(nil)["식비"].Spent; got != 9900 {
+		t.Errorf("합친 뒤 식비 = %d, 한 번만", got)
+	}
+
+	back := "confirmed"
+	res, err = h.ed.EditTransaction(ctx, b.ID, pipeline.Edit{Status: &back})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := res.Transaction; m.Status != "confirmed" || m.MergedInto != nil {
+		t.Errorf("다시 넣으면 연결도 끊음: %+v", m)
+	}
+	if got := h.summary(nil)["식비"].Spent; got != 19800 {
+		t.Errorf("따로 센 뒤 식비 = %d", got)
+	}
+
+	c, _ := h.event("test.kb", "KB국민카드", "홍*동님 5,000원 일시불 합성상점", base.Add(2*time.Hour))
+	for name, target := range map[string]int64{"금액 다름": a.ID, "자기 자신": c.ID, "없는 결제": 999999} {
+		if _, err := h.ed.EditTransaction(ctx, c.ID, pipeline.Edit{MergeInto: &target}); !errors.Is(err, pipeline.ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
 
