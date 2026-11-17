@@ -1,5 +1,7 @@
 package com.yuntyu.myhome.ui
 
+import androidx.compose.runtime.mutableIntStateOf
+import com.yuntyu.myhome.core.api.FixedItem
 import android.Manifest
 import android.os.Build
 import android.widget.Toast
@@ -145,6 +147,18 @@ fun HomeScreen(
         val r = withContext(Dispatchers.IO) { app.api.summary(recent = 1, month = mo) }
         past = if (r is ApiResult.Ok) SummaryRepository.State(r.value, System.currentTimeMillis(), null) else SummaryRepository.State(null, 0, r.plain())
     }
+    // 고정비 박스: 화면에 들어올 때마다 목록을 받는다
+    var fixed by remember { mutableStateOf<List<FixedItem>?>(null) }
+    var fixedTick by remember { mutableIntStateOf(0) }
+    var fixedOpen by remember { mutableStateOf(app.settings.homeFixedOpen) }
+    LaunchedEffect(resumeTick, hasToken, fixedTick) {
+        if (!hasToken) return@LaunchedEffect
+        val r = withContext(Dispatchers.IO) { app.api.fixedItems() }
+        if (r is ApiResult.Ok) fixed = r.value.items
+    }
+    // 고정 항목을 바꾸면 목록과 쓸 수 있는 돈(요약·위젯)을 다시 받는다
+    suspend fun afterFixed(r: ApiResult<*>): String? =
+        if (r is ApiResult.Ok) { fixedTick++; WidgetRefresher.refresh(ctx); null } else r.plain()
     val current = state.summary?.period?.label
     InUseHome(
         modifier, if (month == null) state else past ?: SummaryRepository.State(null, 0, null), problems, onNavigate, onTransactions, onCategory, onOpenTx, settings.serverUrl,
@@ -157,6 +171,13 @@ fun HomeScreen(
         loadMonthTx = { mo ->
             withContext(Dispatchers.IO) { app.api.transactions(limit = 300, month = mo) }.let { if (it is ApiResult.Ok) it.value.transactions else null }
         },
+        fixed = fixed,
+        fixedOpen = fixedOpen,
+        onFixedOpen = { fixedOpen = it; app.settings.homeFixedOpen = it },
+        saveFixed = { cur, name, amount ->
+            afterFixed(withContext(Dispatchers.IO) { if (cur == null) app.api.createFixed(name, amount) else app.api.updateFixed(cur.id, name, amount) })
+        },
+        archiveFixed = { f -> afterFixed(withContext(Dispatchers.IO) { app.api.archiveFixed(f.id) }) },
     )
 }
 
@@ -261,6 +282,14 @@ internal fun InUseHome(
     loadMonthTx: suspend (String) -> List<TransactionDto>? = { null },
     /** 한 달 전체 예산 저장(기간, 금액 또는 null = 분류 합계). 실패하면 이유 */
     saveTotal: suspend (String, Long?) -> String? = { _, _ -> "저장할 수 없어요" },
+    /** 고정으로 빠지는 돈 목록(null = 아직 못 받음 → 박스를 안 보인다) */
+    fixed: List<FixedItem>? = null,
+    /** 고정비 박스를 펼쳐 두었는지(기억) */
+    fixedOpen: Boolean = true,
+    onFixedOpen: (Boolean) -> Unit = {},
+    /** 고정 항목 저장(고칠 항목 또는 null = 새로, 이름, 금액)·빼기. 실패하면 이유 */
+    saveFixed: suspend (FixedItem?, String, Long) -> String? = { _, _, _ -> "저장할 수 없어요" },
+    archiveFixed: suspend (FixedItem) -> String? = { "뺄 수 없어요" },
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -352,6 +381,29 @@ internal fun InUseHome(
                         onCategory = onCategory,
                         onOpenTx = onOpenTx,
                     )
+                }
+            }
+
+            // 고정비(사용자 요청, 2026-11-17 "고정비 나가는 것도 항목 만들어서 접기로 가릴 수 있게"): 고정으로 빠지는 돈 목록.
+            // 머리를 누르면 접고 펴며(기억), 접으면 합계만. 줄을 누르면 고치기, 맨 밑 줄로 추가
+            if (!pastMonth && fixed != null) {
+                var fixedEdit by remember { mutableStateOf<FixedItem?>(null) }
+                var fixedNew by remember { mutableStateOf(false) }
+                Spacer(Modifier.height(CardGap))
+                FixedBox(fixed, fixedOpen, onToggle = { onFixedOpen(!fixedOpen) }, onEdit = { fixedEdit = it }, onAdd = { fixedNew = true })
+                if (fixedNew || fixedEdit != null) {
+                    val cur = fixedEdit
+                    val close = { fixedNew = false; fixedEdit = null }
+                    FixedDialog(
+                        cur,
+                        onDismiss = close,
+                        onDelete = cur?.let { f -> { scope.launch { archiveFixed(f)?.let { Toast.makeText(ctx, it, Toast.LENGTH_LONG).show() }; close() } } },
+                    ) { name, amount ->
+                        scope.launch {
+                            val err = saveFixed(cur, name, amount)
+                            if (err == null) close() else Toast.makeText(ctx, err, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
             }
 
@@ -669,6 +721,34 @@ private fun CategoryBox(
                 Text("$focusName 거래 모두 보기", fontSize = 15.sp, color = m.muted)
                 Icon(ChevronRightIcon, contentDescription = null, tint = m.muted, modifier = Modifier.padding(start = 2.dp).size(16.dp))
             }
+        }
+    }
+}
+
+/** 홈 고정비 박스: 머리(굵은 "고정비" · "?" · 오른쪽 합계)를 누르면 접고 편다. 펴면 항목 줄과 추가 줄 */
+@Composable
+private fun FixedBox(items: List<FixedItem>, open: Boolean, onToggle: () -> Unit, onEdit: (FixedItem) -> Unit, onAdd: () -> Unit) {
+    val m = LocalModo.current
+    HomeCard {
+        Row(
+            Modifier.fillMaxWidth().tap(onClickLabel = if (open) "고정비 접기" else "고정비 펼치기", onClick = onToggle)
+                .padding(start = BoxPad, end = BoxPad, top = 20.dp, bottom = if (open) 8.dp else 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text("고정비", fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                HelpDot(FIXED_HELP, title = "고정비")
+            }
+            Text(
+                if (items.isEmpty()) "없음" else "-${Money.won(items.sumOf { it.amount })}",
+                fontSize = 17.sp, fontWeight = if (items.isEmpty()) FontWeight.Normal else FontWeight.Bold,
+                color = if (items.isEmpty()) m.muted else MaterialTheme.colorScheme.onBackground, maxLines = 1,
+            )
+        }
+        if (open) {
+            for (f in items) FlatRow(f.name, value = "-${Money.won(f.amount)}", onClick = { onEdit(f) })
+            AddRow("고정비 추가", onClick = onAdd)
+            Spacer(Modifier.height(8.dp))
         }
     }
 }

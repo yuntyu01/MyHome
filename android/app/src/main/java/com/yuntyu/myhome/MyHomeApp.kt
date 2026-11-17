@@ -29,6 +29,10 @@ open class MyHomeApp : Application() {
     lateinit var healthLocal: HealthLocal
         private set
 
+    /** 위젯 건강 칸이 그리는 오늘 식단 합계 */
+    lateinit var healthWidget: com.yuntyu.myhome.data.HealthWidgetCache
+        private set
+
     /** 화면이 닫혀도 끝까지 돌아야 하는 짧은 작업(사진 올리기 등) */
     val ioScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
@@ -42,6 +46,7 @@ open class MyHomeApp : Application() {
         api = MyHomeApi(baseUrl = { settings.serverUrl }, token = { tokenStore.read() })
         summaryRepo = SummaryRepository(this)
         healthLocal = HealthLocal(this)
+        healthWidget = com.yuntyu.myhome.data.HealthWidgetCache(this)
         Notifications.createChannels(this)
         startBackground()
         ClientErrors.flushCrash(this) // 지난번에 앱이 죽었으면 그 스택을 서버 로그로

@@ -174,6 +174,8 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
     var txCategory by rememberSaveable { mutableStateOf<Long?>(null) }
     // 지금 칸을 하단바에서 한 번 더 누르면 그 화면을 처음 상태로(맨 위로 + 새로 받기)
     var reselect by rememberSaveable { mutableIntStateOf(0) }
+    // 위젯의 "N일 남음"을 누르면 예산 화면의 시작일 고르기를 바로 연다
+    var askStartDay by rememberSaveable { mutableStateOf(false) }
     fun go(to: Screen) {
         if (to == screen) return
         if (to.topLevel) backStack.clear() else backStack.add(screen)
@@ -193,6 +195,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             "transactions" -> { txTab = 0; txCategory = null; screen = Screen.TRANSACTIONS }
             "settings" -> screen = Screen.SETTINGS
             "budgets" -> { screen = Screen.SETTINGS; go(Screen.BUDGETS) }
+            "budget_day" -> { screen = Screen.SETTINGS; askStartDay = true; go(Screen.BUDGETS) }
             "unread" -> { screen = Screen.HOME; go(Screen.UNREAD) }
             "apps" -> { screen = Screen.SETTINGS; go(Screen.APPS) }
             "health" -> screen = Screen.HEALTH
@@ -290,7 +293,7 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
                 )
                 Screen.LOGS -> LogScreen(mod)
                 Screen.DISMISSED -> DismissedScreen(mod)
-                Screen.BUDGETS -> BudgetsScreen(mod)
+                Screen.BUDGETS -> BudgetsScreen(mod, askStartDay = askStartDay, onStartDayAsked = { askStartDay = false })
                 Screen.BODY -> BodyScreen(mod)
                 Screen.BALANCE -> BalanceScreen(mod)
                 Screen.UNREAD -> UnreadScreen(mod)

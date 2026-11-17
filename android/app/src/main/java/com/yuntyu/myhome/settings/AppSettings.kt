@@ -103,12 +103,18 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_ONBOARDED, false)
         set(v) = prefs.edit { putBoolean(KEY_ONBOARDED, v) }
 
+    /** 홈 「고정비」 박스를 펼쳐 두었는지(접으면 합계만 보인다). 기본은 펼침 */
+    var homeFixedOpen: Boolean
+        get() = prefs.getBoolean(KEY_HOME_FIXED_OPEN, true)
+        set(v) = prefs.edit { putBoolean(KEY_HOME_FIXED_OPEN, v) }
+
     /** 마지막 인증 실패 메시지(토큰 폐기 등). 홈 화면 경고용. */
     var authProblem: String?
         get() = prefs.getString(KEY_AUTH_PROBLEM, null)
         set(v) = prefs.edit { if (v == null) remove(KEY_AUTH_PROBLEM) else putString(KEY_AUTH_PROBLEM, v) }
 
     private companion object {
+        const val KEY_HOME_FIXED_OPEN = "home_fixed_open"
         const val KEY_SERVER_URL = "server_url"
         const val KEY_PACKAGES = "selected_packages"
         const val KEY_AUTO_DELETE = "auto_delete"

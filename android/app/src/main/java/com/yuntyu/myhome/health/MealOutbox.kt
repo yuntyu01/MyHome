@@ -2,6 +2,7 @@ package com.yuntyu.myhome.health
 
 import android.content.Context
 import androidx.core.content.edit
+import androidx.glance.appwidget.updateAll
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -115,7 +116,11 @@ class MealOutboxWorker(context: Context, params: WorkerParameters) : CoroutineWo
                 }
             }
         }
-        if (sent) Reminders.reschedule(ctx)
+        if (sent) {
+            Reminders.reschedule(ctx)
+            // 위젯 건강 칸(오늘 칼로리·탄단지)을 새 끼니로
+            if (app.healthWidget.refresh(app)) com.yuntyu.myhome.widget.SummaryWidget().updateAll(ctx)
+        }
         Result.success()
     }
 }

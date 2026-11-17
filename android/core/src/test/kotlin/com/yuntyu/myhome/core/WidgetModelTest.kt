@@ -103,13 +103,50 @@ class WidgetModelTest {
         assertEquals("이상한값", WidgetModel.monthName("이상한값", 2026))
     }
 
-    // 고를 거래가 있으면 고르기 칸 자리를 비우고, 작은 위젯은 고르기를 안 보인다
-    @Test fun pickTakesRowsExceptSmall() {
+    // 고를 거래가 있으면 고르기 칸이 아래(분류·최근 결제)를 가리고, 작은 위젯은 고르기를 안 보인다
+    @Test fun pickCoversRowsExceptSmall() {
         assertEquals(WidgetLayout.MEDIUM.categoryCount to WidgetLayout.MEDIUM.recentCount, WidgetModel.rows(WidgetLayout.MEDIUM, false))
         assertEquals(0 to 0, WidgetModel.rows(WidgetLayout.MEDIUM, true))
-        assertEquals(3 to 1, WidgetModel.rows(WidgetLayout.LARGE, true))
+        assertEquals(0 to 0, WidgetModel.rows(WidgetLayout.LARGE, true))
         assertEquals(WidgetLayout.SMALL.categoryCount to 0, WidgetModel.rows(WidgetLayout.SMALL, true))
         assertEquals(false, WidgetModel.showPick(WidgetLayout.SMALL, true))
+        assertEquals(false, WidgetModel.headWhilePicking(WidgetLayout.MEDIUM))
+        assertEquals(true, WidgetModel.headWhilePicking(WidgetLayout.LARGE))
+    }
+
+    // 남은 날은 오늘과 마지막 날을 모두 센다. 5일 시작이면 11/17 → 12/04까지 18일
+    @Test fun daysLeftCountsTodayAndLastDay() {
+        val d = java.time.LocalDate.of(2026, 11, 17)
+        assertEquals(18, WidgetModel.daysLeft("2026-12-04", d))
+        assertEquals(1, WidgetModel.daysLeft("2026-11-17", d))
+        assertEquals(1, WidgetModel.daysLeft("2026-11-10", d)) // 지난 기간이어도 0으로 나누지 않게
+        assertEquals(1, WidgetModel.daysLeft("이상한값", d))
+    }
+
+    @Test fun pickShowsWhenPaid() {
+        val d = java.time.LocalDate.of(2026, 11, 17)
+        assertEquals("오늘 09:05", WidgetModel.whenText("2026-11-17T09:05:00+09:00", d))
+        assertEquals("어제 19:56", WidgetModel.whenText("2026-11-16T19:56:00+09:00", d))
+        assertEquals("11/3 23:10", WidgetModel.whenText("2026-11-03T23:10:00+09:00", d))
+        assertEquals("", WidgetModel.whenText("", d))
+        assertEquals(3, WidgetModel.pickChoiceCount(WidgetLayout.MEDIUM))
+        assertEquals(4, WidgetModel.pickChoiceCount(WidgetLayout.LARGE))
+    }
+
+    @Test fun perDayAndUsed() {
+        assertEquals(39_650L, WidgetModel.perDay(713_700, 18))
+        assertEquals(0L, WidgetModel.perDay(-11_900, 18))
+        assertEquals(850_000L - 741_400L, WidgetModel.used(summary))
+    }
+
+    @Test fun usageTextShortensToManwon() {
+        val c = summary.categories.first { it.name == "식비" }
+        assertEquals("25만 / 30만", WidgetModel.usageText(c))
+        assertEquals("7,000 / 7만", WidgetModel.usageText(summary.categories.first { it.name == "교통" }))
+        assertEquals("7만 / 6만", WidgetModel.usageText(summary.categories.first { it.name == "카페·간식" }))
+        assertEquals("18.2만 / 29.9만", WidgetModel.usageText(c.copy(spent = 182_000, budget = 299_999)))
+        assertEquals("5,000", WidgetModel.usageText(summary.categories.first { it.name == "기타" })) // 예산 없으면 쓴 돈만
+        assertEquals("", WidgetModel.usageText(null))
     }
 
     @Test fun summaryWithPickDecodes() {

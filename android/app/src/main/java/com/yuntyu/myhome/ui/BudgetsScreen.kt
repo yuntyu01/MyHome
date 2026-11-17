@@ -2,6 +2,10 @@ package com.yuntyu.myhome.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -107,7 +111,12 @@ internal fun Modifier.treeGuides(tree: CategoryTree, id: Long, color: Color): Mo
  * 특수 분류(정산·내 계좌 이체·투자·저축)는 계산 규칙에 묶여 있어서 보여주지 않는다. docs/DECISIONS.md 「분류 폴더」
  */
 @Composable
-fun BudgetsScreen(modifier: Modifier) {
+fun BudgetsScreen(
+    modifier: Modifier,
+    /** 위젯의 "N일 남음"을 눌러 들어오면 예산 시작일 고르기를 바로 연다 */
+    askStartDay: Boolean = false,
+    onStartDayAsked: () -> Unit = {},
+) {
     val ctx = LocalContext.current
     val app = MyHomeApp.instance
     val scope = rememberCoroutineScope()
@@ -127,6 +136,9 @@ fun BudgetsScreen(modifier: Modifier) {
     var fixed by remember { mutableStateOf<List<FixedItem>?>(null) }
     var fixedEdit by remember { mutableStateOf<FixedItem?>(null) }
     var fixedNew by remember { mutableStateOf(false) }
+    LaunchedEffect(askStartDay) {
+        if (askStartDay) { dayDialog = true; onStartDayAsked() }
+    }
 
     LaunchedEffect(tick) {
         val c = withContext(Dispatchers.IO) { app.api.categories() }
@@ -257,10 +269,7 @@ fun BudgetsScreen(modifier: Modifier) {
         }
 
         // 고정으로 빠지는 돈: 매달 이번 달 쓸 수 있는 돈에서 미리 뺀다(사용자 요청, 2026-11-10)
-        SectionLabel(
-            "고정으로 빠지는 돈",
-            help = "주식 적립, 적금처럼 매달 정해서 빠지는 돈이에요. 이번 달 쓸 수 있는 돈에서 미리 빼요.\n\n카드로 내서 결제로 잡히는 돈(월세, 통신비 등)은 여기 넣지 말고 분류 예산으로 두세요. 두 번 빠져요.",
-        )
+        SectionLabel("고정으로 빠지는 돈", help = FIXED_HELP)
         fixed?.let { items ->
             for (f in items) FlatRow(f.name, value = "-${Money.won(f.amount)}", onClick = { fixedEdit = f })
             if (items.size > 1) FlatRow("합계", value = "-${Money.won(items.sumOf { it.amount })}", titleColor = m.muted, valueColor = m.muted, chevron = false)
@@ -365,35 +374,63 @@ fun BudgetsScreen(modifier: Modifier) {
         )
     }
     if (dayDialog) {
-        var text by remember { mutableStateOf(startDay?.toString() ?: "1") }
-        val n = text.toIntOrNull()
-        ModoAlertDialog(
-            onDismissRequest = { dayDialog = false },
-            title = { Text("예산 시작일") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("매달 며칠부터 한 달로 칠까요? 1~28일 중에서 골라 주세요.", fontSize = 14.sp, color = m.muted)
-                    LineField(text, { text = it.filter(Char::isDigit).take(2) }, "날짜", keyboardType = KeyboardType.Number)
+        StartDayDialog(startDay ?: 1, onDismiss = { dayDialog = false }) { day ->
+            scope.launch {
+                val r = withContext(Dispatchers.IO) { app.api.putBudgetStartDay(day) }
+                dayDialog = false
+                if (r is ApiResult.Ok) {
+                    changed("매달 ${day}일부터 한 달로 쳐요")
+                    // 기간이 바뀌므로 홈·위젯(남은 날)도 새로 받는다
+                    WidgetRefresher.refresh(ctx)
+                } else {
+                    Toast.makeText(ctx, r.plain(), Toast.LENGTH_LONG).show()
                 }
-            },
-            confirmButton = {
-                TextButton(enabled = n != null && n in 1..28, onClick = {
-                    val day = n ?: return@TextButton
-                    scope.launch {
-                        val r = withContext(Dispatchers.IO) { app.api.putBudgetStartDay(day) }
-                        dayDialog = false
-                        if (r is ApiResult.Ok) changed("매달 ${day}일부터 한 달로 쳐요") else Toast.makeText(ctx, r.plain(), Toast.LENGTH_LONG).show()
-                    }
-                }) { Text("저장") }
-            },
-            dismissButton = { TextButton(onClick = { dayDialog = false }) { Text("닫기") } },
-        )
+            }
+        }
     }
 }
 
-/** 고정으로 빠지는 돈 한 줄 고치기·추가: 이름, 금액(+버튼), 빼기 */
+/** 예산 시작일 고르기(사용자 요청, 2026-11-17 "매달 5일인데 수정하고 선택할 수 있게"): 1~28일 달력처럼 7칸씩, 누르고 저장 */
 @Composable
-private fun FixedDialog(item: FixedItem?, onDismiss: () -> Unit, onDelete: (() -> Unit)?, onSave: (String, Long) -> Unit) {
+internal fun StartDayDialog(current: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+    val m = LocalModo.current
+    var day by remember { mutableIntStateOf(current.coerceIn(1, 28)) }
+    ModoAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("예산 시작일") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("월급날로 고르면 그날부터 한 달로 쳐요", fontSize = 14.sp, color = m.muted, modifier = Modifier.padding(bottom = 8.dp))
+                for (week in (1..28).chunked(7)) {
+                    Row(Modifier.fillMaxWidth()) {
+                        for (d in week) {
+                            val on = d == day
+                            Box(
+                                Modifier.weight(1f).height(40.dp).padding(2.dp).clip(CircleShape)
+                                    .background(if (on) MaterialTheme.colorScheme.onBackground else androidx.compose.ui.graphics.Color.Transparent)
+                                    .tap(onClickLabel = "${d}일", role = Role.RadioButton) { day = d }
+                                    .semantics { selected = on },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "$d", fontSize = 15.sp,
+                                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (on) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(day) }) { Text("매달 ${day}일로") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
+    )
+}
+
+/** 고정으로 빠지는 돈 한 줄 고치기·추가: 이름, 금액(+버튼), 빼기. 홈 「고정비」 박스에서도 쓴다 */
+@Composable
+internal fun FixedDialog(item: FixedItem?, onDismiss: () -> Unit, onDelete: (() -> Unit)?, onSave: (String, Long) -> Unit) {
     var name by remember { mutableStateOf(item?.name.orEmpty()) }
     var amount by remember { mutableStateOf(item?.amount?.toString().orEmpty()) }
     val won = amount.toLongOrNull() ?: 0L
@@ -419,6 +456,11 @@ private fun FixedDialog(item: FixedItem?, onDismiss: () -> Unit, onDelete: (() -
         dismissButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
     )
 }
+
+/** 고정으로 빠지는 돈 "?" 설명(예산 화면·홈 고정비 박스 같이) */
+internal const val FIXED_HELP =
+    "주식 적립, 적금, 월세 이체처럼 매달 정해서 빠지는 돈이에요. 이번 달 쓸 수 있는 돈에서 미리 빼요.\n\n" +
+        "카드로 내서 결제로 잡히는 돈(통신비 등)은 여기 넣지 말고 분류 예산으로 두세요. 두 번 빠져요."
 
 /** AI 분류 공통 메모 길이 상한(서버 pipeline.AIMemoMax와 같다) */
 private const val AI_MEMO_MAX = 1000

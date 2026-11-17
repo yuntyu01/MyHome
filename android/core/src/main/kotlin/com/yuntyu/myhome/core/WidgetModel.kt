@@ -98,11 +98,66 @@ object WidgetModel {
      */
     fun rows(layout: WidgetLayout, picking: Boolean): Pair<Int, Int> = when {
         !showPick(layout, picking) -> layout.categoryCount to layout.recentCount
-        layout == WidgetLayout.MEDIUM -> 0 to 0 // 세로 2칸엔 남은 돈과 고르기 칸만 들어간다
-        else -> 3 to 1
+        else -> 0 to 0 // 고르기 칸이 아래를 가린다(사용자 요청, 2026-11-17 "밑에 내용 가리고 세로로 선택")
+    }
+
+    /** 고르기 중에 남은 돈 머리를 보일지: 중간(세로 2칸)은 동그라미 줄이 들어가게 머리를 가린다 */
+    fun headWhilePicking(layout: WidgetLayout): Boolean = layout == WidgetLayout.LARGE
+
+    /** 고르기 칸의 분류 동그라미 수(맨 밑 "없음" 줄은 따로): 중간은 세로 2칸에 들어가게 3, 크게는 4 */
+    fun pickChoiceCount(layout: WidgetLayout): Int = if (layout == WidgetLayout.LARGE) 4 else 3
+
+    /**
+     * 결제 시각 "2026-11-16T19:56:00+09:00"(서버가 KST로 준다) → 오늘이면 "오늘 19:56", 어제면 "어제 19:56", 그 전은 "11/14 19:56".
+     * 형식이 다르면 "".
+     */
+    fun whenText(iso: String, today: java.time.LocalDate): String {
+        val m = Regex("""^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})""").find(iso) ?: return ""
+        val (y, mo, d, h, mi) = m.destructured
+        val date = runCatching { java.time.LocalDate.of(y.toInt(), mo.toInt(), d.toInt()) }.getOrNull() ?: return ""
+        val day = when (date) {
+            today -> "오늘"
+            today.minusDays(1) -> "어제"
+            else -> "${mo.toInt()}/${d.toInt()}"
+        }
+        return "$day $h:$mi"
     }
 
     fun showPick(layout: WidgetLayout, picking: Boolean): Boolean = picking && layout != WidgetLayout.SMALL
+
+    /**
+     * 기간에 남은 날(오늘 포함). end는 기간 마지막 날(포함, 서버 PeriodDTO). 기간 밖이거나 형식이 다르면 1
+     * (나누기에 쓰므로 0이 되지 않게).
+     */
+    fun daysLeft(end: String, today: java.time.LocalDate): Int {
+        val last = runCatching { java.time.LocalDate.parse(end) }.getOrNull() ?: return 1
+        return (java.time.temporal.ChronoUnit.DAYS.between(today, last) + 1).toInt().coerceAtLeast(1)
+    }
+
+    /** 하루 쓸 수 있는 돈: 남은 돈을 남은 날로 나눔(원 단위 버림). 남은 돈이 없으면 0 */
+    fun perDay(remaining: Long, days: Int): Long = if (remaining <= 0) 0 else remaining / days.coerceAtLeast(1)
+
+    /** 쓴 돈(고정으로 빠지는 돈 포함, 정산은 뺌) = 예산 - 남은 돈. 쓴 돈 / 예산으로 보일 때 둘을 더하면 예산이 되게 */
+    fun used(s: Summary): Long = s.totals.budget - s.totals.remaining
+
+    /**
+     * 위젯 고르기 줄 오른쪽: 그 분류의 이번 기간 "쓴 돈 / 예산"(예산이 없으면 쓴 돈만). 좁아서 1만 이상은 만 단위 소수 한 자리
+     * (버림, 넘지 않았는데 예산과 같아 보이지 않게): "18.2만 / 30만", "3.2만 / 6만", 1만 아래는 그대로 "7,000".
+     */
+    fun usageText(c: CategoryBudget?): String {
+        if (c == null) return ""
+        val spent = c.spent - c.settled
+        return if (c.budget > 0) "${man(spent)} / ${man(c.budget)}" else man(spent)
+    }
+
+    /** 1만 이상은 "18.2만"(소수 한 자리 버림, .0은 뺌), 아래는 "7,000" */
+    private fun man(v: Long): String {
+        val abs = kotlin.math.abs(v)
+        if (abs < 10_000) return (if (v < 0) "-" else "") + Money.grouped(abs)
+        val tenth = abs / 1_000 // 0.1만 단위
+        val text = Money.grouped(tenth / 10) + (if (tenth % 10 != 0L) ".${tenth % 10}" else "") + "만"
+        return (if (v < 0) "-" else "") + text
+    }
 
     /** 최근 결제: 나간 돈(지출·송금 등) 위주, 확인 필요 건도 포함. */
     fun recentPayments(s: Summary, n: Int): List<TransactionDto> =

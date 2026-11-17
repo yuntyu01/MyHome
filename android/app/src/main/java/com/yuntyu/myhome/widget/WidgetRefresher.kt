@@ -28,6 +28,8 @@ object WidgetRefresher {
     suspend fun refresh(context: Context): Boolean {
         val app = context.applicationContext as MyHomeApp
         val r = app.summaryRepo.refresh()
+        // 건강 칸(오늘 칼로리·탄단지)도 같이 받는다. 실패하면 받아 둔 것으로 그린다
+        if (r is ApiResult.Ok) app.healthWidget.refresh(app)
         // 실패해도 캐시로 다시 그린다(로그인 직후 등 상태 변화 반영)
         SummaryWidget().updateAll(context)
         if (r is ApiResult.Ok) BudgetAlertNotifier.check(context, r.value)

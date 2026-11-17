@@ -47,6 +47,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.glance.appwidget.updateAll
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.HealthPlan
 import com.yuntyu.myhome.core.api.ApiResult
@@ -93,6 +94,9 @@ suspend fun loadHealthHome(): Result<HealthHome> = withContext(Dispatchers.IO) {
         is ApiResult.Ok -> r.value
         else -> return@withContext Result.failure(IllegalStateException(r.describe()))
     }
+    // 위젯 건강 칸도 같은 값으로(앱에서 끼니를 고치고 돌아오면 바로 맞는다)
+    app.healthWidget.set(today)
+    runCatching { com.yuntyu.myhome.widget.SummaryWidget().updateAll(app) }
     val weekly = (api.healthWeekly(day.toString()) as? ApiResult.Ok)?.value
     val card = (api.healthDay(day.toString()) as? ApiResult.Ok)?.value
     val outbox = MealOutbox.forDay(app, day.toString())
