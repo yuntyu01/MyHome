@@ -2,4 +2,13 @@
 <resources>
     <color name="window_bg">#151515</color>
     <color name="widget_text">#FFFFFF</color>
+    <color name="widget_bg">#222222</color>
+    <color name="widget_pill">#333333</color>
+    <color name="widget_track">#363636</color>
+    <color name="widget_bar_ok">#CFCFCF</color>
+    <color name="widget_bar_warn">#AFA5D4</color>
+    <color name="widget_bar_over">#D89777</color>
+    <color name="widget_cta">#EDEDED</color>
+    <color name="widget_on_cta">#151515</color>
+    <color name="widget_line">#303030</color>
 </resources>

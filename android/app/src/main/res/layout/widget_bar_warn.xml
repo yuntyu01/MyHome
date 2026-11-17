@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 위젯 진행 막대(warn). Glance 막대는 색·둥근 끝을 Android 12 아래에서 못 바꿔서 RemoteViews로 그린다(SummaryWidget Bar) -->
+<ProgressBar xmlns:android="http://schemas.android.com/apk/res/android"
+    style="?android:attr/progressBarStyleHorizontal"
+    android:id="@+id/bar"
+    android:layout_width="match_parent"
+    android:layout_height="5dp"
+    android:minHeight="5dp"
+    android:maxHeight="5dp"
+    android:max="1000"
+    android:progressDrawable="@drawable/widget_bar_warn" />

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 위젯 고른 탭·알림 배지 바탕(알약 모양) -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/widget_pill" />
+    <corners android:radius="100dp" />
+</shape>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 위젯 바탕 모서리. Android 12부터는 런처가 정한 값을 따른다(values-v31) -->
+    <dimen name="widget_radius">22dp</dimen>
+</resources>

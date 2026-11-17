@@ -65,7 +65,7 @@ class WidgetModelTest {
         assertEquals(WidgetLayout.SMALL, WidgetLayout.forSize(250f, 100f))
         assertEquals(WidgetLayout.MEDIUM, WidgetLayout.forSize(250f, 180f))
         assertEquals(WidgetLayout.LARGE, WidgetLayout.forSize(250f, 300f))
-        assertEquals(1, WidgetLayout.MEDIUM.recentCount)
+        assertEquals(0, WidgetLayout.MEDIUM.recentCount)
     }
 
     @Test fun shortTime() {
@@ -131,6 +131,24 @@ class WidgetModelTest {
         assertEquals("", WidgetModel.whenText("", d))
         assertEquals(3, WidgetModel.pickChoiceCount(WidgetLayout.MEDIUM))
         assertEquals(4, WidgetModel.pickChoiceCount(WidgetLayout.LARGE))
+    }
+
+    @Test fun barsAndRowText() {
+        assertEquals(0.5, WidgetModel.barRatio(50, 100), 0.0)
+        assertEquals(1.0, WidgetModel.barRatio(130, 100), 0.0)
+        assertEquals(0.0, WidgetModel.barRatio(30, 0), 0.0)
+        assertEquals(BudgetState.OK, WidgetModel.barState(79, 100))
+        assertEquals(BudgetState.WARN, WidgetModel.barState(80, 100))
+        assertEquals(BudgetState.WARN, WidgetModel.barState(100, 100))
+        assertEquals(BudgetState.OVER, WidgetModel.barState(101, 100))
+        assertEquals(BudgetState.NO_BUDGET, WidgetModel.barState(5, 0))
+        assertEquals("398,600원", WidgetModel.rowMoney(398_600))
+        assertEquals("-11,900원", WidgetModel.rowMoney(-11_900))
+        assertEquals("123.4만원", WidgetModel.rowMoney(1_234_567))
+        val d = java.time.LocalDate.of(2026, 11, 17)
+        assertEquals("08:42", WidgetModel.recentTime("2026-11-17T08:42:00+09:00", d))
+        assertEquals("11/16", WidgetModel.recentTime("2026-11-16T19:56:00+09:00", d))
+        assertEquals("", WidgetModel.recentTime("x", d))
     }
 
     @Test fun perDayAndUsed() {

@@ -7,7 +7,7 @@ import com.yuntyu.myhome.core.api.TransactionDto
 /** 위젯 크기별 레이아웃. 작은 크기는 총 남은 돈과 상위 분류 2~3개만 보여준다. */
 enum class WidgetLayout(val categoryCount: Int, val recentCount: Int) {
     SMALL(2, 0),
-    MEDIUM(3, 1), // 세로 2칸(기본 크기)에 잘리지 않고 들어가는 양. 글자를 키우며 최근 결제 2 → 1(2026-11-17)
+    MEDIUM(3, 0), // 세로 2칸(기본 크기)에 잘리지 않고 들어가는 양. 글자를 키우며 최근 결제 2 → 1(2026-11-17), 막대를 넣으며 0(늘 잘려 있었다)
     LARGE(5, 3),
     ;
 
@@ -157,6 +157,29 @@ object WidgetModel {
         val tenth = abs / 1_000 // 0.1만 단위
         val text = Money.grouped(tenth / 10) + (if (tenth % 10 != 0L) ".${tenth % 10}" else "") + "만"
         return (if (v < 0) "-" else "") + text
+    }
+
+    /** 위젯 분류 줄 오른쪽 금액(칸 너비가 정해져 있다): 100만 아래는 "398,600원", 그 위는 "123.4만원" */
+    fun rowMoney(v: Long): String = if (kotlin.math.abs(v) < 1_000_000) Money.won(v) else man(v) + "원"
+
+    /** 막대 채움 비율(0~1): 쓴 돈 / 예산. 예산이 없으면 0 */
+    fun barRatio(spent: Long, budget: Long): Double =
+        if (budget <= 0) 0.0 else (spent.toDouble() / budget).coerceIn(0.0, 1.0)
+
+    /** 막대 색 단계(앱 budgetColor와 같다): 넘으면 OVER, 80% 이상 WARN, 아니면 OK. 예산이 없으면 NO_BUDGET */
+    fun barState(spent: Long, budget: Long): BudgetState = when {
+        budget <= 0 -> BudgetState.NO_BUDGET
+        spent > budget -> BudgetState.OVER
+        spent * 10 >= budget * 8 -> BudgetState.WARN
+        else -> BudgetState.OK
+    }
+
+    /** 위젯 최근 결제 줄 앞 시각: 오늘이면 "19:56", 아니면 "11/16". 형식이 다르면 "" */
+    fun recentTime(iso: String, today: java.time.LocalDate): String {
+        val m = Regex("""^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})""").find(iso) ?: return ""
+        val (y, mo, d, h, mi) = m.destructured
+        val date = runCatching { java.time.LocalDate.of(y.toInt(), mo.toInt(), d.toInt()) }.getOrNull() ?: return ""
+        return if (date == today) "$h:$mi" else "${mo.toInt()}/${d.toInt()}"
     }
 
     /** 최근 결제: 나간 돈(지출·송금 등) 위주, 확인 필요 건도 포함. */
