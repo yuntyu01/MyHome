@@ -267,7 +267,7 @@ private fun WidgetFrame(context: Context, page: Int, trailing: (@Composable () -
             .clickable(actionStartActivity(openIntent(context, screen))),
     ) {
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            val gap = if (small) 6.dp else 2.dp
+            val gap = if (small) 6.dp else 14.dp
             PageTab("가계부", page == SummaryWidget.PAGE_BUDGET, SummaryWidget.PAGE_BUDGET, small)
             Spacer(GlanceModifier.width(gap))
             PageTab("집중", page == SummaryWidget.PAGE_FOCUS, SummaryWidget.PAGE_FOCUS, small)
@@ -284,22 +284,22 @@ private fun WidgetFrame(context: Context, page: Int, trailing: (@Composable () -
     }
 }
 
+/** 위의 탭: 고른 것은 본문색 굵게, 나머지는 보조색. 바탕(알약)은 깔지 않는다(사용자 의견, 2026-11-17 "박스 안에 박스가 별로") */
 @Composable
 private fun PageTab(label: String, selected: Boolean, page: Int, small: Boolean) {
-    val base = if (selected && !small) GlanceModifier.background(ImageProvider(R.drawable.widget_pill)) else GlanceModifier
     Text(
         label,
         style = TextStyle(color = if (selected) TextColor else SubColor, fontSize = if (small) 12.sp else 13.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal),
-        modifier = base.padding(horizontal = if (small) 0.dp else 10.dp, vertical = if (small) 1.dp else 2.dp)
+        modifier = GlanceModifier.padding(vertical = if (small) 1.dp else 2.dp)
             .clickable(actionRunCallback<SetWidgetPageAction>(actionParametersOf(PageParam to page))),
     )
 }
 
-/** 가계부 탭 줄 오른쪽 배지: 확인 필요 N(라벤더), 서버가 읽지 못한 알림 N(살구). 누르면 그 목록 */
+/** 가계부 탭 줄 오른쪽 글자 배지(바탕 없이 색 글자): 확인 필요 N(라벤더), 서버가 읽지 못한 알림 N(살구). 누르면 그 목록 */
 @Composable
 private fun BudgetBadges(context: Context, summary: Summary) {
     if (summary.needsReview > 0) Badge("확인 ${summary.needsReview}", WarnColor, openIntent(context, "review"))
-    if (summary.needsReview > 0 && summary.failedEvents > 0) Spacer(GlanceModifier.width(4.dp))
+    if (summary.needsReview > 0 && summary.failedEvents > 0) Spacer(GlanceModifier.width(8.dp))
     // 서버가 읽지 못한 알림(거래로 안 잡혔을 수 있음)
     if (summary.failedEvents > 0) Badge("실패 ${summary.failedEvents}", OverColor, openIntent(context, "unread"))
 }
@@ -309,8 +309,7 @@ private fun Badge(text: String, color: GlanceColor, intent: Intent) {
     Text(
         text,
         style = TextStyle(color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold),
-        modifier = GlanceModifier.background(ImageProvider(R.drawable.widget_pill)).padding(horizontal = 8.dp, vertical = 3.dp)
-            .clickable(actionStartActivity(intent)),
+        modifier = GlanceModifier.padding(vertical = 2.dp).clickable(actionStartActivity(intent)),
         maxLines = 1,
     )
 }
@@ -388,7 +387,8 @@ private fun BudgetPage(context: Context, summary: Summary?, picking: Pair<Long, 
         Spacer(GlanceModifier.height(6.dp))
     }
     if (showPick && pick != null) {
-        // 고르는 동안은 아래(분류·최근 결제)를 가린다(사용자 요청, 2026-11-17)
+        // 고르는 동안은 아래(분류·최근 결제)를 가린다(사용자 요청, 2026-11-17). 머리가 위에 있으면(크게) 머리 막대 아래를 조금 띄운다
+        if (WidgetModel.headWhilePicking(layout)) Spacer(GlanceModifier.height(6.dp))
         PickCard(context, pick, picking, summary, layout, today)
         return
     }
@@ -517,15 +517,16 @@ private fun BudgetHead(context: Context, summary: Summary, layout: WidgetLayout,
 @Composable
 private fun PickCard(context: Context, p: Pick, picking: Pair<Long, Long>?, summary: Summary, layout: WidgetLayout, today: LocalDate) {
     val byId = summary.categories.associateBy { it.id }
-    Column(modifier = GlanceModifier.fillMaxWidth().background(ImageProvider(R.drawable.widget_pick_bg)).padding(horizontal = 12.dp, vertical = 4.dp)) {
+    // 바탕 칸 없이 위젯 카드 위에 바로(사용자 의견, 2026-11-17 "박스 안에 박스가 별로")
+    Column(modifier = GlanceModifier.fillMaxWidth()) {
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 p.merchant.ifBlank { "(이름 없음)" },
-                style = TextStyle(color = TextColor, fontSize = 14.sp, fontWeight = FontWeight.Bold),
+                style = TextStyle(color = TextColor, fontSize = 15.sp, fontWeight = FontWeight.Bold),
                 modifier = GlanceModifier.defaultWeight(),
                 maxLines = 1,
             )
-            Text(Money.won(p.amount), style = TextStyle(color = TextColor, fontSize = 14.sp, fontWeight = FontWeight.Bold))
+            Text(Money.won(p.amount), style = TextStyle(color = TextColor, fontSize = 15.sp, fontWeight = FontWeight.Bold))
         }
         Text(
             listOf(WidgetModel.whenText(p.occurredAt, today), "${p.left}건 남음").filter { it.isNotEmpty() }.joinToString(" · "),
@@ -538,7 +539,7 @@ private fun PickCard(context: Context, p: Pick, picking: Pair<Long, Long>?, summ
                 val on = picking?.first == p.id && picking.second == c.id
                 val cat = byId[c.id]
                 Row(
-                    modifier = GlanceModifier.fillMaxWidth()
+                    modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp)
                         .clickable(actionRunCallback<PickCategoryAction>(actionParametersOf(PickTxParam to p.id, PickCatParam to c.id))),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -563,7 +564,7 @@ private fun PickCard(context: Context, p: Pick, picking: Pair<Long, Long>?, summ
             }
             // 없음: 위 분류가 다 아니면 앱에서 이 결제의 분류 고르기 판(다른 분류·가계부에서 빼기)
             Row(
-                modifier = GlanceModifier.fillMaxWidth()
+                modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp)
                     .clickable(actionStartActivity(openIntent(context, "review", p.id))),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

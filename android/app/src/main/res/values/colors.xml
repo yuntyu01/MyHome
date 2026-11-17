@@ -4,9 +4,8 @@
     <color name="window_bg">#F6F6F5</color>
     <!-- 위젯 집중 시계(Chronometer는 Glance 밖 RemoteViews라 낮·밤 색을 리소스로 준다). SummaryWidget의 TextColor와 같다 -->
     <color name="widget_text">#171717</color>
-    <!-- 위젯 모양(바탕·탭·막대·단추). 앱 modo 색과 같다. 둥근 모양을 드로어블로 그려서 Android 12 아래와 화면 찍기에서도 둥글게 -->
+    <!-- 위젯 모양(바탕·막대·단추). 앱 modo 색과 같다. 둥근 모양을 드로어블로 그려서 Android 12 아래와 화면 찍기에서도 둥글게 -->
     <color name="widget_bg">#FFFFFF</color>
-    <color name="widget_pill">#EEEEED</color>
     <color name="widget_track">#E8E8E7</color>
     <color name="widget_bar_ok">#5E5E5E</color>
     <color name="widget_bar_warn">#8F85B9</color>
