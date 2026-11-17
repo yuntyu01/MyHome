@@ -243,14 +243,17 @@ class ToggleFocusAction : ActionCallback {
 // 앱과 같은 색: 80% 이상·확인 필요 라벤더, 초과 살구, 카드 바탕, 본문·보조 글자. 평소 금액은 본문색(읽기 쉽게, 2026-11-17)
 private val WarnColor = ColorProvider(day = Color(0xFF6F6698), night = Color(0xFFAFA5D4))
 private val OverColor = ColorProvider(day = Color(0xFFA15A36), night = Color(0xFFD89777))
-private val TextColor = ColorProvider(day = Color(0xFF171717), night = Color(0xFFFFFFFF))
+// 글자색은 modo 위젯과 같은 계열(어둡게: #F5F5F7 · 보조 #A1A1A6)
+private val TextColor = ColorProvider(day = Color(0xFF171717), night = Color(0xFFF5F5F7))
 // 보조 글자(라벨·안 고른 탭·동그라미 이름): 카드·고르기 칸 바탕 위 대비 4.5:1 이상
-private val SubColor = ColorProvider(day = Color(0xFF666666), night = Color(0xFFA0A0A0))
+private val SubColor = ColorProvider(day = Color(0xFF5E5E62), night = Color(0xFFA1A1A6))
 // 구분선(앱 line), 진한 단추 위 아이콘(앱 onCta). 바탕·탭·막대·단추 모양은 드로어블(res/drawable/widget_*)이 둥글게 그린다
-private val LineColor = ColorProvider(day = Color(0xFFE4E4E2), night = Color(0xFF303030))
+// 바탕이 비쳐서 선은 반투명
+private val LineColor = ColorProvider(day = Color(0x1A000000), night = Color(0x26FFFFFF))
 private val OnCtaColor = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFF151515))
 // 아래 쪽 점(지금 페이지가 아닌 것)
-private val DotOffColor = ColorProvider(day = Color(0xFFC9C9C7), night = Color(0xFF5C5C5C))
+// 불투명이어야 한다(흰 점에 반투명 색을 입히면 SRC_ATOP이라 흰색 그대로 보인다)
+private val DotOffColor = ColorProvider(day = Color(0xFFB4B4B8), night = Color(0xFF6E6E73))
 
 private fun colorFor(s: BudgetState) = when (s) {
     BudgetState.OVER -> OverColor
@@ -286,11 +289,12 @@ private fun WidgetFrame(
         SummaryWidget.PAGE_HEALTH -> "health"
         else -> "home"
     }
-    val side = if (small) 12.dp else 16.dp
+    // 여백은 modo 위젯을 따른다(옆 22·위 9 + 머리 줄 36dp). 내용이 많아 옆은 20
+    val side = if (small) 14.dp else 20.dp
     Column(
         modifier = GlanceModifier.fillMaxSize().cornerRadius(R.dimen.widget_radius)
             .background(ImageProvider(R.drawable.widget_bg))
-            .padding(start = side, end = side, top = if (small) 10.dp else 14.dp, bottom = if (small) 2.dp else 6.dp)
+            .padding(start = side, end = side, top = if (small) 10.dp else 9.dp, bottom = if (small) 2.dp else 6.dp)
             .clickable(actionStartActivity(openIntent(context, screen))),
     ) {
         // Glance 컨테이너는 직접 자식을 10개까지만 그려서 페이지 내용을 한 Column으로 묶는다(넘으면 아래가 조용히 빠진다)
@@ -323,14 +327,14 @@ private fun PageDots(page: Int, start: (@Composable () -> Unit)?, end: (@Composa
     }
 }
 
-/** 굵은 제목과 오른쪽 덧말(시안의 "오늘의 식사 … 2/3끼 기록") */
+/** 굵은 제목과 오른쪽 덧말(시안의 "오늘의 식사 … 2/3끼 기록"). 높이 36dp·글자 16sp는 modo 위젯 머리 줄과 같게 */
 @Composable
 private fun TitleRow(title: String, onTitle: Action? = null, right: @Composable () -> Unit = {}) {
-    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = GlanceModifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.CenterVertically) {
         val m = GlanceModifier.defaultWeight()
         Text(
             title,
-            style = TextStyle(color = TextColor, fontSize = 17.sp, fontWeight = FontWeight.Bold),
+            style = TextStyle(color = TextColor, fontSize = 16.sp, fontWeight = FontWeight.Bold),
             modifier = if (onTitle != null) m.clickable(onTitle) else m,
             maxLines = 1,
         )
@@ -544,7 +548,6 @@ private fun BudgetHead(context: Context, summary: Summary, layout: WidgetLayout,
                 BudgetBadges(context, summary)
                 Text("${days}일 남음", style = TextStyle(color = SubColor, fontSize = 13.sp), modifier = GlanceModifier.clickable(pickDay), maxLines = 1)
             }
-            Spacer(GlanceModifier.height(4.dp))
             Row(modifier = GlanceModifier.fillMaxWidth().clickable(toggle), verticalAlignment = Alignment.Bottom) {
                 Text(Money.won(main), style = TextStyle(color = mainColor, fontSize = if (layout == WidgetLayout.LARGE) 26.sp else 24.sp, fontWeight = FontWeight.Bold), maxLines = 1)
                 if (rest != null) {
@@ -577,7 +580,6 @@ private fun ColumnScope.PickPage(context: Context, p: Pick, picking: Pair<Long, 
     TitleRow("분류할 결제") {
         Text("${p.left}건 남음", style = TextStyle(color = SubColor, fontSize = 13.sp), maxLines = 1)
     }
-    Spacer(GlanceModifier.height(10.dp))
     Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             p.merchant.ifBlank { "(이름 없음)" },
@@ -591,6 +593,7 @@ private fun ColumnScope.PickPage(context: Context, p: Pick, picking: Pair<Long, 
     if (whenText.isNotEmpty()) Text(whenText, style = TextStyle(color = SubColor, fontSize = 13.sp), maxLines = 1)
     Spacer(GlanceModifier.height(8.dp))
     Hairline()
+    Spacer(GlanceModifier.height(2.dp))
     // 서버가 주는 분류(최대 6) + 맨 밑 없음(null)을 밀어서 넘기는 목록으로
     ScrollList(p.choices + listOf(null), itemId = { it?.id ?: NONE_ITEM }) { c ->
         if (c == null) {
@@ -629,7 +632,7 @@ private fun <T> ColumnScope.ScrollList(rows: List<T>, itemId: (T) -> Long, row: 
 @Composable
 private fun ChoiceRow(name: String, side: String, sideColor: GlanceColor, on: Boolean, action: Action, label: String) {
     Row(
-        modifier = GlanceModifier.fillMaxWidth().padding(vertical = 7.dp).clickable(action),
+        modifier = GlanceModifier.fillMaxWidth().padding(vertical = 6.dp).clickable(action),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -638,12 +641,13 @@ private fun ChoiceRow(name: String, side: String, sideColor: GlanceColor, on: Bo
             modifier = GlanceModifier.defaultWeight(),
             maxLines = 1,
         )
-        if (side.isNotEmpty()) Text(side, style = TextStyle(color = sideColor, fontSize = 14.sp), maxLines = 1)
-        Spacer(GlanceModifier.width(14.dp))
+        if (side.isNotEmpty()) Text(side, style = TextStyle(color = sideColor, fontSize = 13.sp), maxLines = 1)
+        Spacer(GlanceModifier.width(12.dp))
+        // 동그라미는 modo 위젯처럼 크게(24dp)
         Image(
             provider = ImageProvider(if (on) R.drawable.widget_circle_on else R.drawable.widget_circle_off),
             contentDescription = label,
-            modifier = GlanceModifier.size(22.dp),
+            modifier = GlanceModifier.size(24.dp),
         )
     }
 }
@@ -695,7 +699,7 @@ private fun HealthPage(context: Context, health: HealthWidgetData?) {
         Text("앱의 건강 칸을 한 번 열어 주세요", style = TextStyle(color = SubColor, fontSize = 13.sp))
         return
     }
-    Spacer(GlanceModifier.height(6.dp))
+    Spacer(GlanceModifier.height(2.dp))
     // 네 칸: 먹은 양(목표를 넘으면 살구, 단백질은 넘어도 그대로) / 목표
     Row(modifier = GlanceModifier.fillMaxWidth()) {
         Stat("탄수화물", "${total.carbs}g", "${goal.carbs}g", over(total.carbs, goal.carbs))
@@ -829,7 +833,7 @@ private fun ColumnScope.FocusPage(context: Context, subjects: List<FocusSubject>
     // 지금 과목: 도는 것, 아니면 오늘 마지막에 한 것, 아니면 첫 과목
     val currentId = running?.subjectId ?: sessions.maxByOrNull { it.endedAt }?.subjectId ?: list.firstOrNull()?.id
     val current = list.firstOrNull { it.id == currentId }
-    Spacer(GlanceModifier.height(4.dp))
+    Spacer(GlanceModifier.height(6.dp))
     Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = GlanceModifier.defaultWeight()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -852,13 +856,11 @@ private fun ColumnScope.FocusPage(context: Context, subjects: List<FocusSubject>
         }
     }
     if (layout != WidgetLayout.LARGE) return
-    Spacer(GlanceModifier.height(12.dp))
+    Spacer(GlanceModifier.height(10.dp))
     Hairline()
     Spacer(GlanceModifier.height(8.dp))
-    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text("집중 항목", style = TextStyle(color = TextColor, fontSize = 14.sp, fontWeight = FontWeight.Medium), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
-        Text("+ 추가", style = TextStyle(color = TextColor, fontSize = 14.sp), modifier = GlanceModifier.clickable(actionStartActivity(openIntent(context, "focus"))), maxLines = 1)
-    }
+    // "+ 추가"는 뺐다(사용자 요청, 2026-11-18). 과목 추가는 앱 집중 화면에서
+    Text("집중 항목", style = TextStyle(color = SubColor, fontSize = 13.sp), maxLines = 1)
     // 과목이 많으면 밀어서 넘긴다
     ScrollList(list, itemId = { it.id.hashCode().toLong() }) { s ->
         val isRunning = running?.subjectId == s.id

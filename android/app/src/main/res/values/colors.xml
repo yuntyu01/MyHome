@@ -5,12 +5,13 @@
     <!-- 위젯 집중 시계(Chronometer는 Glance 밖 RemoteViews라 낮·밤 색을 리소스로 준다). SummaryWidget의 TextColor와 같다 -->
     <color name="widget_text">#171717</color>
     <!-- 위젯 모양(바탕·막대·단추). 앱 modo 색과 같다. 둥근 모양을 드로어블로 그려서 Android 12 아래와 화면 찍기에서도 둥글게 -->
-    <color name="widget_bg">#FFFFFF</color>
-    <color name="widget_track">#E8E8E7</color>
+    <!-- 바탕은 비치게(사용자 요청, 2026-11-18 "배경은 좀 투명하게"; modo 위젯처럼 카드색에 투명도) -->
+    <color name="widget_bg">#B3FFFFFF</color>
+    <color name="widget_track">#1F000000</color>
     <color name="widget_bar_ok">#5E5E5E</color>
     <color name="widget_bar_warn">#8F85B9</color>
     <color name="widget_bar_over">#C07B58</color>
     <color name="widget_cta">#1F1F1F</color>
     <color name="widget_on_cta">#FFFFFF</color>
-    <color name="widget_line">#E4E4E2</color>
+    <color name="widget_line">#1A000000</color>
 </resources>
