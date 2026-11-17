@@ -516,8 +516,8 @@ private fun BudgetHead(context: Context, summary: Summary, layout: WidgetLayout,
 
 /**
  * 고를 거래 칸(사용자 요청, 2026-11-17 "가로로 말고 밑에 내용 가리고 세로로, 우측에는 사용량/총량", "없음 항목도, 몇 시에 결제한
- * 알림인지도"): 위에 가게 · 금액, 그 아래 "오늘 19:56 · N건 남음", 분류 줄을 세로로(동그라미 · 이름 · 오른쪽에 그 분류의
- * 쓴 돈 / 예산), 맨 밑 "없음"(누르면 앱에서 이 결제의 분류 고르기 판 — 다른 분류·가계부에서 빼기). 동그라미는 앱 Modo의
+ * 알림인지도", 2026-11-18 "확인 원은 우측에"): 위에 가게 · 금액, 그 아래 "오늘 19:56 · N건 남음", 분류 줄을 세로로(이름 · 그 분류의
+ * 쓴 돈 / 예산 · 오른쪽 끝 동그라미), 맨 밑 "없음"(누르면 앱에서 이 결제의 분류 고르기 판 — 다른 분류·가계부에서 빼기). 동그라미는 앱 Modo의
  * CheckCircle과 같다(안 고름: 테두리, 고름: 채운 동그라미에 체크). 줄 어디를 눌러도 [PickCategoryAction].
  */
 @Composable
@@ -556,12 +556,6 @@ private fun PickCard(context: Context, p: Pick, picking: Pair<Long, Long>?, summ
                         .clickable(actionRunCallback<PickCategoryAction>(actionParametersOf(PickTxParam to p.id, PickCatParam to c.id))),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Image(
-                        provider = ImageProvider(if (on) R.drawable.widget_circle_on else R.drawable.widget_circle_off),
-                        contentDescription = "${c.name}로 고르기",
-                        modifier = GlanceModifier.size(circle),
-                    )
-                    Spacer(GlanceModifier.width(8.dp))
                     Text(
                         c.name,
                         style = TextStyle(color = TextColor, fontSize = nameSize, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal),
@@ -573,6 +567,13 @@ private fun PickCard(context: Context, p: Pick, picking: Pair<Long, Long>?, summ
                         style = TextStyle(color = cat?.let { colorFor(WidgetModel.stateOf(it)) } ?: TextColor, fontSize = sideSize),
                         maxLines = 1,
                     )
+                    // 동그라미는 오른쪽 끝(사용자 요청, 2026-11-18 "확인 원은 우측에")
+                    Spacer(GlanceModifier.width(10.dp))
+                    Image(
+                        provider = ImageProvider(if (on) R.drawable.widget_circle_on else R.drawable.widget_circle_off),
+                        contentDescription = "${c.name}로 고르기",
+                        modifier = GlanceModifier.size(circle),
+                    )
                 }
             }
             // 없음: 위 분류가 다 아니면 앱에서 이 결제의 분류 고르기 판(다른 분류·가계부에서 빼기)
@@ -581,10 +582,10 @@ private fun PickCard(context: Context, p: Pick, picking: Pair<Long, Long>?, summ
                     .clickable(actionStartActivity(openIntent(context, "review", p.id))),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Image(provider = ImageProvider(R.drawable.widget_circle_off), contentDescription = "없음, 앱에서 고르기", modifier = GlanceModifier.size(circle))
-                Spacer(GlanceModifier.width(8.dp))
                 Text("없음", style = TextStyle(color = TextColor, fontSize = nameSize), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
                 Text("앱에서 고르기", style = TextStyle(color = SubColor, fontSize = sideSize), maxLines = 1)
+                Spacer(GlanceModifier.width(10.dp))
+                Image(provider = ImageProvider(R.drawable.widget_circle_off), contentDescription = "없음, 앱에서 고르기", modifier = GlanceModifier.size(circle))
             }
         }
     }
