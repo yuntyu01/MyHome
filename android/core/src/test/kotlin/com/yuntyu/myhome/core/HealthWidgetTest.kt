@@ -44,6 +44,7 @@ class HealthWidgetTest {
         assertEquals("72.4kg · 지난번보다 −0.3kg", HealthWidget.bodyText(b))
         assertEquals("72kg · 지난번보다 +1kg", HealthWidget.bodyText(WidgetBody("x", 72.0, 1.0)))
         assertEquals("72kg", HealthWidget.bodyText(WidgetBody("x", 72.0)))
+        assertEquals("72.4kg (−0.3)", HealthWidget.bodyText(b, short = true))
     }
 
     @Test fun newDayClearsEatenButKeepsTargetsAndBody() {

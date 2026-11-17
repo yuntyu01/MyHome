@@ -61,10 +61,11 @@ object HealthWidget {
         return if (r % 1.0 == 0.0) r.toLong().toString() else r.toString()
     }
 
-    /** 몸무게 줄: "72.4kg · 지난번보다 −0.3kg"(차이가 없으면 몸무게만) */
-    fun bodyText(b: WidgetBody): String {
+    /** 몸무게 줄: "72.4kg · 지난번보다 −0.3kg", 좁으면(short) "72.4kg (−0.3)". 차이가 없으면 몸무게만 */
+    fun bodyText(b: WidgetBody, short: Boolean = false): String {
         val d = b.diffKg ?: return "${kg(b.weightKg)}kg"
         val sign = if (d > 0) "+" else if (d < 0) "−" else "±"
-        return "${kg(b.weightKg)}kg · 지난번보다 $sign${kg(kotlin.math.abs(d))}kg"
+        val diff = sign + kg(kotlin.math.abs(d))
+        return if (short) "${kg(b.weightKg)}kg ($diff)" else "${kg(b.weightKg)}kg · 지난번보다 ${diff}kg"
     }
 }

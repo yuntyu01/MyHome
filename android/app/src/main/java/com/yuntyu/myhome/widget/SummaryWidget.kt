@@ -624,7 +624,7 @@ private fun HealthPage(context: Context, health: HealthWidgetData?) {
             SmallMacro("단백질", total.protein, goal.protein, overIsBad = false)
             SmallMacro("지방", total.fat, goal.fat, overIsBad = true)
             Spacer(GlanceModifier.height(4.dp))
-            BodyLine(context, health.body, fontSize = 13)
+            BodyLine(context, health.body, fontSize = 13, short = true)
         }
         return
     }
@@ -736,16 +736,16 @@ private fun MealTableRow(label: String, time: String, cells: List<String>, color
     }
 }
 
-/** 몸무게 줄: "몸무게 72.4kg · 지난번보다 −0.3kg"(없으면 "몸무게 · 기록하기"). 누르면 앱의 몸 기록 */
+/** 몸무게 줄: "몸무게 72.4kg · 지난번보다 −0.3kg"(좁으면 "몸무게 72.4kg (−0.3)", 없으면 "몸무게 기록하기"). 누르면 앱의 몸 기록 */
 @Composable
-private fun BodyLine(context: Context, body: WidgetBody?, fontSize: Int) {
+private fun BodyLine(context: Context, body: WidgetBody?, fontSize: Int, short: Boolean = false) {
     Row(
         modifier = GlanceModifier.fillMaxWidth().clickable(actionStartActivity(openIntent(context, "body"))),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("몸무게 ", style = TextStyle(color = SubColor, fontSize = fontSize.sp), maxLines = 1)
         Text(
-            body?.let { HealthWidget.bodyText(it) } ?: "기록하기",
+            body?.let { HealthWidget.bodyText(it, short) } ?: "기록하기",
             style = TextStyle(color = if (body != null) TextColor else SubColor, fontSize = fontSize.sp),
             modifier = GlanceModifier.defaultWeight(),
             maxLines = 1,
