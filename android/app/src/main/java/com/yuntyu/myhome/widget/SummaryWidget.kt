@@ -184,21 +184,20 @@ class ToggleFocusAction : ActionCallback {
     }
 }
 
-// 앱과 같은 색: 평소 무채색, 80% 이상·확인 필요 라벤더, 초과 살구, 카드 바탕, 본문·보조 글자
-private val OkColor = ColorProvider(day = Color(0xFF5E5E5E), night = Color(0xFFCFCFCF))
+// 앱과 같은 색: 80% 이상·확인 필요 라벤더, 초과 살구, 카드 바탕, 본문·보조 글자. 평소 금액은 본문색(읽기 쉽게, 2026-11-17)
 private val WarnColor = ColorProvider(day = Color(0xFF6F6698), night = Color(0xFFAFA5D4))
 private val OverColor = ColorProvider(day = Color(0xFFA15A36), night = Color(0xFFD89777))
 private val WidgetBg = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFF222222))
 private val TextColor = ColorProvider(day = Color(0xFF171717), night = Color(0xFFFFFFFF))
-private val SubColor = ColorProvider(day = Color(0xFF777777), night = Color(0xFF949494))
-private val FaintColor = ColorProvider(day = Color(0xFFB0B0B0), night = Color(0xFF5A5A5A))
+// 보조 글자(라벨·안 고른 탭·동그라미 이름): 카드·고르기 칸 바탕 위 대비 4.5:1 이상
+private val SubColor = ColorProvider(day = Color(0xFF666666), night = Color(0xFFA0A0A0))
 // 고르기 칸 바탕: 앱 Modo의 composer(누르고 쓰는 칸 바탕)
 private val PickBg = ColorProvider(day = Color(0xFFEEEEED), night = Color(0xFF2A2A2A))
 
 private fun colorFor(s: BudgetState) = when (s) {
     BudgetState.OVER -> OverColor
     BudgetState.WARN -> WarnColor
-    else -> OkColor
+    else -> TextColor
 }
 
 /** 화면 열기 인텐트. 위젯 항목마다 PendingIntent가 섞이지 않게 data URI를 다르게 준다. */
@@ -231,7 +230,7 @@ private fun WidgetFrame(context: Context, page: Int, content: @Composable () -> 
 private fun PageTab(label: String, selected: Boolean, page: Int) {
     Text(
         label,
-        style = TextStyle(color = if (selected) TextColor else FaintColor, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal),
+        style = TextStyle(color = if (selected) TextColor else SubColor, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal),
         modifier = GlanceModifier.padding(vertical = 2.dp)
             .clickable(actionRunCallback<SetWidgetPageAction>(actionParametersOf(PageParam to page))),
     )
@@ -245,12 +244,12 @@ private fun BudgetPage(context: Context, summary: Summary?, picking: Pair<Long, 
     val sub = SubColor
 
     if (summary == null) {
-        Text("앱을 열어 로그인하면 남은 돈이 보여요", style = TextStyle(color = sub, fontSize = 12.sp))
+        Text("앱을 열어 로그인하면 남은 돈이 보여요", style = TextStyle(color = sub, fontSize = 13.sp))
         return
     }
     Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = GlanceModifier.defaultWeight()) {
-            Text("${WidgetModel.monthName(summary.period.label)} 남은 돈", style = TextStyle(color = sub, fontSize = 11.sp))
+            Text("${WidgetModel.monthName(summary.period.label)} 남은 돈", style = TextStyle(color = sub, fontSize = 12.sp))
             // 작은 위젯(120dp)은 "1,933,050원"이 두 줄로 깨져서 "193만원"처럼 줄여 쓴다
             Text(
                 if (layout == WidgetLayout.SMALL) Money.compact(summary.totals.remaining) + "원" else Money.won(summary.totals.remaining),
@@ -265,7 +264,7 @@ private fun BudgetPage(context: Context, summary: Summary?, picking: Pair<Long, 
         if (summary.needsReview > 0 && layout != WidgetLayout.SMALL) {
             Text(
                 "확인 ${summary.needsReview}",
-                style = TextStyle(color = WarnColor, fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                style = TextStyle(color = WarnColor, fontSize = 13.sp, fontWeight = FontWeight.Bold),
                 modifier = GlanceModifier.clickable(actionStartActivity(openIntent(context, "review"))),
             )
         }
@@ -273,7 +272,7 @@ private fun BudgetPage(context: Context, summary: Summary?, picking: Pair<Long, 
             // 서버가 읽지 못한 알림(거래로 안 잡혔을 수 있음)
             Text(
                 "실패 ${summary.failedEvents}",
-                style = TextStyle(color = OverColor, fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                style = TextStyle(color = OverColor, fontSize = 13.sp, fontWeight = FontWeight.Bold),
                 modifier = GlanceModifier.padding(start = 6.dp).clickable(actionStartActivity(openIntent(context, "unread"))),
             )
         }
@@ -289,10 +288,10 @@ private fun BudgetPage(context: Context, summary: Summary?, picking: Pair<Long, 
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         for (c in WidgetModel.topCategories(summary, categoryRows)) {
             Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp)) {
-                Text(c.name, style = TextStyle(color = text, fontSize = 13.sp), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
+                Text(c.name, style = TextStyle(color = text, fontSize = 15.sp), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
                 Text(
                     if (layout == WidgetLayout.SMALL) Money.compact(c.remaining) else Money.won(c.remaining),
-                    style = TextStyle(color = colorFor(WidgetModel.stateOf(c)), fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                    style = TextStyle(color = colorFor(WidgetModel.stateOf(c)), fontSize = 15.sp, fontWeight = FontWeight.Medium),
                 )
             }
         }
@@ -301,7 +300,7 @@ private fun BudgetPage(context: Context, summary: Summary?, picking: Pair<Long, 
     if (recent.isNotEmpty()) {
         Spacer(GlanceModifier.height(6.dp))
         Column(modifier = GlanceModifier.fillMaxWidth()) {
-            Text("최근 결제", style = TextStyle(color = sub, fontSize = 11.sp))
+            Text("최근 결제", style = TextStyle(color = sub, fontSize = 12.sp))
             for (t in recent) {
                 val review = t.status == "needs_review"
                 Row(
@@ -311,11 +310,11 @@ private fun BudgetPage(context: Context, summary: Summary?, picking: Pair<Long, 
                 ) {
                     Text(
                         (if (review) "⚠ " else "") + t.merchant.ifBlank { "(이름 없음)" },
-                        style = TextStyle(color = if (review) WarnColor else text, fontSize = 12.sp),
+                        style = TextStyle(color = if (review) WarnColor else text, fontSize = 14.sp),
                         modifier = GlanceModifier.defaultWeight(),
                         maxLines = 1,
                     )
-                    Text((if (t.flow == "in") "+" else "") + Money.won(t.amount), style = TextStyle(color = sub, fontSize = 12.sp))
+                    Text((if (t.flow == "in") "+" else "") + Money.won(t.amount), style = TextStyle(color = text, fontSize = 14.sp))
                 }
             }
         }
@@ -332,12 +331,12 @@ private fun PickCard(p: Pick, picking: Pair<Long, Long>?) {
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 p.merchant.ifBlank { "(이름 없음)" },
-                style = TextStyle(color = TextColor, fontSize = 13.sp, fontWeight = FontWeight.Bold),
+                style = TextStyle(color = TextColor, fontSize = 14.sp, fontWeight = FontWeight.Bold),
                 modifier = GlanceModifier.defaultWeight(),
                 maxLines = 1,
             )
-            Text(Money.won(p.amount), style = TextStyle(color = TextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium))
-            Text("  ${p.left}건 남음", style = TextStyle(color = SubColor, fontSize = 11.sp))
+            Text(Money.won(p.amount), style = TextStyle(color = TextColor, fontSize = 14.sp, fontWeight = FontWeight.Medium))
+            Text("  ${p.left}건 남음", style = TextStyle(color = SubColor, fontSize = 12.sp))
         }
         Spacer(GlanceModifier.height(4.dp))
         Row(modifier = GlanceModifier.fillMaxWidth()) {
@@ -356,7 +355,7 @@ private fun PickCard(p: Pick, picking: Pair<Long, Long>?) {
                     Spacer(GlanceModifier.height(2.dp))
                     Text(
                         c.name,
-                        style = TextStyle(color = if (on) TextColor else SubColor, fontSize = 11.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal),
+                        style = TextStyle(color = if (on) TextColor else SubColor, fontSize = 12.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal),
                         maxLines = 1,
                     )
                 }
@@ -393,7 +392,7 @@ private fun FocusPage(context: Context, subjects: List<FocusSubject>?, sessions:
     val list = subjects.orEmpty()
     val runningName = running?.let { r -> list.firstOrNull { it.id == r.subjectId }?.name }
 
-    Text(if (runningName != null) "$runningName 하는 중" else "오늘 순공", style = TextStyle(color = SubColor, fontSize = 11.sp), maxLines = 1)
+    Text(if (runningName != null) "$runningName 하는 중" else "오늘 순공", style = TextStyle(color = SubColor, fontSize = 12.sp), maxLines = 1)
     if (running != null) {
         LiveClock(context, R.layout.widget_chrono_big, total)
     } else {
@@ -403,7 +402,7 @@ private fun FocusPage(context: Context, subjects: List<FocusSubject>?, sessions:
     if (n == 0) return
     Spacer(GlanceModifier.height(6.dp))
     if (subjects != null && list.isEmpty()) {
-        Text("앱의 집중 칸에서 과목을 추가해 주세요", style = TextStyle(color = SubColor, fontSize = 12.sp))
+        Text("앱의 집중 칸에서 과목을 추가해 주세요", style = TextStyle(color = SubColor, fontSize = 13.sp))
         return
     }
     val byId = list.associateBy { it.id }
@@ -432,14 +431,14 @@ private fun FocusPage(context: Context, subjects: List<FocusSubject>?, sessions:
                 Spacer(GlanceModifier.width(10.dp))
                 Text(
                     s.name,
-                    style = TextStyle(color = TextColor, fontSize = 13.sp, fontWeight = if (isRunning) FontWeight.Bold else FontWeight.Normal),
+                    style = TextStyle(color = TextColor, fontSize = 15.sp, fontWeight = if (isRunning) FontWeight.Bold else FontWeight.Normal),
                     modifier = GlanceModifier.defaultWeight(),
                     maxLines = 1,
                 )
                 if (isRunning) {
                     LiveClock(context, R.layout.widget_chrono_row, ms)
                 } else {
-                    Text(formatHms(ms), style = TextStyle(color = if (ms > 0) TextColor else SubColor, fontSize = 13.sp))
+                    Text(formatHms(ms), style = TextStyle(color = if (ms > 0) TextColor else SubColor, fontSize = 15.sp))
                 }
             }
         }

@@ -65,7 +65,7 @@ class WidgetModelTest {
         assertEquals(WidgetLayout.SMALL, WidgetLayout.forSize(250f, 100f))
         assertEquals(WidgetLayout.MEDIUM, WidgetLayout.forSize(250f, 180f))
         assertEquals(WidgetLayout.LARGE, WidgetLayout.forSize(250f, 300f))
-        assertEquals(2, WidgetLayout.MEDIUM.recentCount)
+        assertEquals(1, WidgetLayout.MEDIUM.recentCount)
     }
 
     @Test fun shortTime() {

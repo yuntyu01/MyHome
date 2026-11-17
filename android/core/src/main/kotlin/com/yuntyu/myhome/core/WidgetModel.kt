@@ -7,8 +7,8 @@ import com.yuntyu.myhome.core.api.TransactionDto
 /** 위젯 크기별 레이아웃. 작은 크기는 총 남은 돈과 상위 분류 2~3개만 보여준다. */
 enum class WidgetLayout(val categoryCount: Int, val recentCount: Int) {
     SMALL(2, 0),
-    MEDIUM(3, 2), // 세로 2칸(기본 크기)에 잘리지 않고 들어가는 양
-    LARGE(5, 4),
+    MEDIUM(3, 1), // 세로 2칸(기본 크기)에 잘리지 않고 들어가는 양. 글자를 키우며 최근 결제 2 → 1(2026-11-17)
+    LARGE(5, 3),
     ;
 
     companion object {
