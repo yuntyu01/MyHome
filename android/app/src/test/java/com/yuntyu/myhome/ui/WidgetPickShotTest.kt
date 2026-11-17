@@ -79,17 +79,17 @@ class WidgetPickShotTest {
         ),
     )
 
-    /** 건강 칸 합성 값: 3끼, 칼로리·탄단지 먹은 양 / 목표, 끼니 표(합이 위 합계), 최근 몸무게 */
+    /** 건강 칸 합성 값: 3끼 중 2끼, 칼로리·탄단지 먹은 양 / 목표, 끼니 표(합이 위 합계), 최근 몸무게 */
     private val health = HealthWidgetData(
         today = HealthToday(
-            date = "2026-11-17", loggedCount = 3, mealCount = 3,
+            date = "2026-11-17", loggedCount = 2, mealCount = 3,
             total = Nutrition(kcal = 1_240, carbs = 152, protein = 88, fat = 31),
             targets = Nutrition(kcal = 2_100, carbs = 250, protein = 140, fat = 60),
         ),
+        // 시안처럼 3끼 중 2끼(셋째는 "기록하기"), 두 끼 합이 위 합계
         meals = listOf(
-            WidgetMeal(1, "08:10", Nutrition(420, 52, 30, 12)),
-            WidgetMeal(2, "12:40", Nutrition(640, 82, 45, 14)),
-            WidgetMeal(3, "16:20", Nutrition(180, 18, 13, 5)),
+            WidgetMeal(1, "08:10", Nutrition(480, 55, 28, 12)),
+            WidgetMeal(2, "12:40", Nutrition(760, 97, 60, 19)),
         ),
         body = WidgetBody("2026-11-17", 72.4, -0.3),
     )
@@ -101,6 +101,9 @@ class WidgetPickShotTest {
         FocusSubject("s2", "영어", "#D19A7B", 1, updatedAt = 0),
         FocusSubject("s3", "코딩", "#7BC4A0", 2, updatedAt = 0),
     )
+    /** 수학을 25분 전에 시작해서 도는 중 */
+    private fun runningMath() = com.yuntyu.myhome.focus.FocusTimer.Running("s1", System.currentTimeMillis() - 25 * 60_000L)
+
     private fun sessions(): List<FocusSession> {
         val start = FocusDay.startOf(FocusDay.dayOf(System.currentTimeMillis()))
         val h = 3_600_000L
@@ -156,12 +159,17 @@ class WidgetPickShotTest {
         phoneShot(out, theme, "고르기-4x3", wide3) { SummaryWidgetContent(app, SummaryWidget.PAGE_BUDGET, summary, null, emptyList(), null, 9L to 2L, today = today) }
         phoneShot(out, theme, "건강-4x2", wide2) { SummaryWidgetContent(app, SummaryWidget.PAGE_HEALTH, plain, null, emptyList(), null, null, health = health, today = today) }
         phoneShot(out, theme, "집중-4x2", wide2) { SummaryWidgetContent(app, SummaryWidget.PAGE_FOCUS, plain, subjects, sessions(), null, null, today = today) }
+        // 시안처럼 4칸×3줄: 집중(수학 도는 중), 건강(끼니 표), 고르기
+        phoneShot(out, theme, "집중-4x3", wide3) { SummaryWidgetContent(app, SummaryWidget.PAGE_FOCUS, plain, subjects, sessions(), runningMath(), null, today = today) }
+        phoneShot(out, theme, "건강-4x3", wide3) { SummaryWidgetContent(app, SummaryWidget.PAGE_HEALTH, plain, null, emptyList(), null, null, health = health, today = today) }
         phoneShot(out, theme, "가계부-2x2", square) { SummaryWidgetContent(app, SummaryWidget.PAGE_BUDGET, plain, null, emptyList(), null, null, today = today) }
         phoneShot(out, theme, "건강-2x2", square) { SummaryWidgetContent(app, SummaryWidget.PAGE_HEALTH, plain, null, emptyList(), null, null, health = health, today = today) }
     }
 
     private fun shots(theme: String) {
         assumeTrue(System.getenv("SHOTS_OUT") != null)
+        // Robolectric은 위젯 목록(ListView 어댑터)을 그리지 못해서 같은 줄을 Column으로 그린다
+        com.yuntyu.myhome.widget.widgetListsAsColumns = true
         val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<MyHomeApp>()
         val out = File(System.getenv("SHOTS_OUT")!!, "widgets").apply { mkdirs() }
         phoneShots(theme)
@@ -179,6 +187,9 @@ class WidgetPickShotTest {
             }
             shot(out, theme, "집중-$sizeName", size) {
                 SummaryWidgetContent(app, SummaryWidget.PAGE_FOCUS, plain, subjects, sessions(), null, null, today = today)
+            }
+            if (sizeName != "작게") shot(out, theme, "집중-도는중-$sizeName", size) {
+                SummaryWidgetContent(app, SummaryWidget.PAGE_FOCUS, plain, subjects, sessions(), runningMath(), null, today = today)
             }
             // 건강 칸을 아직 안 받았을 때(앱 건강 칸을 한 번도 안 열었을 때)
             if (sizeName == "중간") shot(out, theme, "건강-처음-$sizeName", size) {

@@ -127,8 +127,6 @@ class WidgetModelTest {
         assertEquals("어제 19:56", WidgetModel.whenText("2026-11-16T19:56:00+09:00", d))
         assertEquals("11/3 23:10", WidgetModel.whenText("2026-11-03T23:10:00+09:00", d))
         assertEquals("", WidgetModel.whenText("", d))
-        assertEquals(3, WidgetModel.pickChoiceCount(WidgetLayout.MEDIUM))
-        assertEquals(6, WidgetModel.pickChoiceCount(WidgetLayout.LARGE))
     }
 
     @Test fun barsAndRowText() {

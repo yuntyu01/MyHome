@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 위젯 고르기 동그라미(고름). 앱 Modo CheckCircle(checked): cta 바탕에 onCta 체크 -->
+<!-- 위젯 고르기 동그라미(고름). 앱 Modo CheckCircle(checked): cta 바탕에 onCta 체크(밝게·어둡게 따라감) -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#1F1F1F" android:pathData="M0,12a12,12 0 1,0 24,0a12,12 0 1,0 -24,0" />
+    <path android:fillColor="@color/widget_cta" android:pathData="M0,12a12,12 0 1,0 24,0a12,12 0 1,0 -24,0" />
     <group android:pivotX="12" android:pivotY="12" android:scaleX="0.667" android:scaleY="0.667">
-        <path android:fillColor="#FFFFFF" android:pathData="M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z" />
+        <path android:fillColor="@color/widget_on_cta" android:pathData="M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z" />
     </group>
 </vector>

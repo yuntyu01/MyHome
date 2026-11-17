@@ -36,6 +36,13 @@ class HealthWidgetTest {
         assertEquals(emptyList<WidgetMeal>(), HealthWidget.shownMeals(four, 0))
     }
 
+    @Test fun tableHasEveryPlannedMealThenExtras() {
+        val n = Nutrition(420, 52, 30, 12)
+        val meals = listOf(WidgetMeal(2, "12:40", n), WidgetMeal(101, "15:00", Nutrition(100)), WidgetMeal(1, "08:10", n))
+        assertEquals(listOf(1 to n, 2 to n, 3 to null, 101 to Nutrition(100)), HealthWidget.tableRows(meals, 3))
+        assertEquals(emptyList<Pair<Int, Nutrition?>>(), HealthWidget.tableRows(emptyList(), 0))
+    }
+
     @Test fun bodyLastAndDiff() {
         assertNull(HealthWidget.bodyOf(emptyList()))
         assertEquals(WidgetBody("2026-11-16", 72.4, null), HealthWidget.bodyOf(listOf(Weight("2026-11-16", 72.4))))

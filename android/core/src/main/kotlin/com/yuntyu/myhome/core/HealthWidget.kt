@@ -55,6 +55,17 @@ object HealthWidget {
     /** 표에 보일 끼니: 칸에 들어가는 만큼 최근 것(먹은 순서는 그대로) */
     fun shownMeals(meals: List<WidgetMeal>, max: Int): List<WidgetMeal> = if (max <= 0) emptyList() else meals.takeLast(max)
 
+    /**
+     * 위젯 끼니 표 줄(사용자 시안, 2026-11-18 "1끼 55g … / 3끼 기록하기 — — —"): 하루 끼니 수만큼 번호 순으로, 먹은 끼니는 그 숫자,
+     * 아직이면 null. 일정 밖에 먹은 끼니(기타)는 뒤에 붙인다.
+     */
+    fun tableRows(meals: List<WidgetMeal>, mealCount: Int): List<Pair<Int, Nutrition?>> {
+        val byIndex = meals.associateBy { it.index }
+        val planned = (1..mealCount.coerceAtLeast(0)).map { it to byIndex[it]?.nutrition }
+        val extra = meals.filter { it.index !in 1..mealCount }.sortedBy { it.index }.map { it.index to it.nutrition }
+        return planned + extra
+    }
+
     /** 72.0 → "72", 72.35 → "72.4" */
     fun kg(v: Double): String {
         val r = Math.round(v * 10) / 10.0
