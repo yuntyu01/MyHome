@@ -13,6 +13,9 @@ import com.yuntyu.myhome.data.FocusSubject
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.yuntyu.myhome.core.api.CategoryBudget
+import com.yuntyu.myhome.core.HealthWidgetData
+import com.yuntyu.myhome.core.WidgetBody
+import com.yuntyu.myhome.core.WidgetMeal
 import com.yuntyu.myhome.core.api.HealthToday
 import com.yuntyu.myhome.core.api.Nutrition
 import com.yuntyu.myhome.core.api.PeriodInfo
@@ -52,7 +55,7 @@ class WidgetPickShotTest {
         ),
         pick = Pick(
             id = 9, merchant = "GS25 합성점", amount = 3300, occurredAt = "2026-11-17T08:42:00+09:00", reason = "ambiguous", left = 3,
-            choices = listOf(PickChoice(1, "식비"), PickChoice(2, "카페·간식"), PickChoice(5, "생활"), PickChoice(4, "쇼핑")),
+            choices = listOf(PickChoice(1, "식비"), PickChoice(2, "카페·간식"), PickChoice(5, "생활"), PickChoice(4, "쇼핑"), PickChoice(3, "교통"), PickChoice(7, "구독")),
         ),
     )
 
@@ -76,11 +79,19 @@ class WidgetPickShotTest {
         ),
     )
 
-    /** 건강 칸 합성 값: 3끼 중 2끼, 칼로리·탄단지 먹은 양 / 목표 */
-    private val health = HealthToday(
-        date = "2026-11-17", loggedCount = 2, mealCount = 3,
-        total = Nutrition(kcal = 1_240, carbs = 152, protein = 88, fat = 31),
-        targets = Nutrition(kcal = 2_100, carbs = 250, protein = 140, fat = 60),
+    /** 건강 칸 합성 값: 3끼, 칼로리·탄단지 먹은 양 / 목표, 끼니 표(합이 위 합계), 최근 몸무게 */
+    private val health = HealthWidgetData(
+        today = HealthToday(
+            date = "2026-11-17", loggedCount = 3, mealCount = 3,
+            total = Nutrition(kcal = 1_240, carbs = 152, protein = 88, fat = 31),
+            targets = Nutrition(kcal = 2_100, carbs = 250, protein = 140, fat = 60),
+        ),
+        meals = listOf(
+            WidgetMeal(1, "08:10", Nutrition(420, 52, 30, 12)),
+            WidgetMeal(2, "12:40", Nutrition(640, 82, 45, 14)),
+            WidgetMeal(3, "16:20", Nutrition(180, 18, 13, 5)),
+        ),
+        body = WidgetBody("2026-11-17", 72.4, -0.3),
     )
     private val today = LocalDate.of(2026, 11, 17)
 

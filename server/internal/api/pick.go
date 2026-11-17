@@ -32,8 +32,9 @@ type PickChoice struct {
 // PickReasons는 위젯에서 고를 확인 필요 사유다(pipeline.WidgetPickReasons).
 var PickReasons = pipeline.WidgetPickReasons
 
-// MaxPickChoices는 위젯 한 줄에 들어가는 동그라미 수다.
-const MaxPickChoices = 4
+// MaxPickChoices는 위젯에 보여줄 수 있는 분류 동그라미 수다. 큰 위젯은 고르기가 위젯을 다 채워서 6개까지(2026-11-17),
+// 중간 위젯은 앞에서 3개만 쓴다(앱 WidgetModel.pickChoiceCount).
+const MaxPickChoices = 6
 
 // pickUsageLookback 동안 확정한 지출 건수로 동그라미 순서를 정한다.
 const pickUsageLookback = 90 * 24 * time.Hour

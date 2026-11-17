@@ -101,11 +101,12 @@ object WidgetModel {
         else -> 0 to 0 // 고르기 칸이 아래를 가린다(사용자 요청, 2026-11-17 "밑에 내용 가리고 세로로 선택")
     }
 
-    /** 고르기 중에 남은 돈 머리를 보일지: 중간(세로 2칸)은 동그라미 줄이 들어가게 머리를 가린다 */
-    fun headWhilePicking(layout: WidgetLayout): Boolean = layout == WidgetLayout.LARGE
-
-    /** 고르기 칸의 분류 동그라미 수(맨 밑 "없음" 줄은 따로): 중간은 세로 2칸에 들어가게 3, 크게는 4 */
-    fun pickChoiceCount(layout: WidgetLayout): Int = if (layout == WidgetLayout.LARGE) 4 else 3
+    /**
+     * 고르기 칸의 분류 동그라미 수(맨 밑 "없음" 줄은 따로): 중간은 세로 2칸에 들어가게 3, 크게는 위젯을 다 채워서 6
+     * (사용자 요청, 2026-11-17 "일부만 있는 게 아니라 화면을 전부 채우는"). 서버가 주는 최대도 6(api.MaxPickChoices).
+     * 고르는 동안은 크기와 상관없이 남은 돈 머리도 가린다.
+     */
+    fun pickChoiceCount(layout: WidgetLayout): Int = if (layout == WidgetLayout.LARGE) 6 else 3
 
     /**
      * 결제 시각 "2026-11-16T19:56:00+09:00"(서버가 KST로 준다) → 오늘이면 "오늘 19:56", 어제면 "어제 19:56", 그 전은 "11/14 19:56".

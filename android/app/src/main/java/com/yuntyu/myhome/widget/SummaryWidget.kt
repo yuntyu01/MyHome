@@ -68,13 +68,15 @@ import com.yuntyu.myhome.core.WidgetLayout
 import com.yuntyu.myhome.core.WidgetModel
 import com.yuntyu.myhome.core.api.ApiResult
 import com.yuntyu.myhome.core.HealthPlan
-import com.yuntyu.myhome.core.api.HealthToday
+import com.yuntyu.myhome.core.HealthWidget
+import com.yuntyu.myhome.core.HealthWidgetData
+import com.yuntyu.myhome.core.WidgetBody
+import com.yuntyu.myhome.core.api.Nutrition
 import com.yuntyu.myhome.core.api.Pick
 import com.yuntyu.myhome.core.api.Summary
 import com.yuntyu.myhome.core.api.TransactionEdit
 import com.yuntyu.myhome.core.formatHms
 import com.yuntyu.myhome.data.FocusSession
-import com.yuntyu.myhome.data.HealthWidgetCache
 import com.yuntyu.myhome.data.FocusSubject
 import com.yuntyu.myhome.focus.FocusTimer
 import com.yuntyu.myhome.ui.MainActivity
@@ -89,7 +91,7 @@ import java.time.LocalDate
  * - 가계부: 남은 날과 하루 쓸 돈 / 남은 돈(누르면 쓴 돈 / 예산), 고를 거래(동그라미 한 번으로 분류, 다음 것으로 넘어감),
  *   분류별 남은 돈(사용률 높은 순), 최근 결제. 서버 캐시(SummaryRepository)만 읽는다
  * - 집중: 오늘 순공, 과목 줄(동그라미를 누르면 앱을 열지 않고 시작·멈춤). 폰 기록(Room)만 읽는다
- * - 건강: 오늘 칼로리·탄단지(먹은 양 / 목표)와 찍기 단추. 받아 둔 것(HealthWidgetCache)만 읽는다
+ * - 건강: 오늘 칼로리·탄단지(먹은 양 / 목표), 끼니 표, 몸무게, 끼니 찍기·몸 기록 단추. 받아 둔 것(HealthWidgetCache)만 읽는다
  * 그릴 때 네트워크는 쓰지 않는다. 도는 타이머의 초는 시스템 Chronometer가 그려서 앱을 깨우지 않는다.
  */
 class SummaryWidget : GlanceAppWidget() {
@@ -104,7 +106,7 @@ class SummaryWidget : GlanceAppWidget() {
             val st by repo.state.collectAsState()
             val page = currentState(PAGE) ?: PAGE_BUDGET
             val head = currentState(HEAD) ?: HEAD_PER_DAY
-            val health by app.healthWidget.today.collectAsState()
+            val health by app.healthWidget.data.collectAsState()
             val running by FocusTimer.running(context).collectAsState()
             val day = FocusDay.dayOf(System.currentTimeMillis())
             val subjects by remember { focus.subjects() }.collectAsState(initial = null)
@@ -112,7 +114,7 @@ class SummaryWidget : GlanceAppWidget() {
             val healthDay = HealthPlan.scheduleDay(app.healthLocal.schedule.meals, java.time.LocalDateTime.now())
             SummaryWidgetContent(
                 context, page, st.summary, subjects, sessions, running, st.picking,
-                head = head, health = HealthWidgetCache.forDay(health, healthDay), today = LocalDate.now(),
+                head = head, health = HealthWidget.forDay(health, healthDay), today = LocalDate.now(),
             )
         }
     }
@@ -143,13 +145,17 @@ internal fun SummaryWidgetContent(
     running: com.yuntyu.myhome.focus.FocusTimer.Running?,
     picking: Pair<Long, Long>? = null,
     head: Int = SummaryWidget.HEAD_PER_DAY,
-    health: HealthToday? = null,
+    health: HealthWidgetData? = null,
     today: LocalDate = LocalDate.now(),
 ) {
     GlanceTheme {
-        val badges: (@Composable () -> Unit)? =
-            if (page == SummaryWidget.PAGE_BUDGET && summary != null) ({ BudgetBadges(context, summary) }) else null
-        WidgetFrame(context, page, badges) {
+        // 탭 줄 오른쪽: 가계부는 확인·실패 배지, 건강은 몸 기록·끼니 찍기 단추
+        val trailing: (@Composable () -> Unit)? = when {
+            page == SummaryWidget.PAGE_BUDGET && summary != null -> ({ BudgetBadges(context, summary) })
+            page == SummaryWidget.PAGE_HEALTH -> ({ HealthButtons(context) })
+            else -> null
+        }
+        WidgetFrame(context, page, trailing) {
             when (page) {
                 SummaryWidget.PAGE_FOCUS -> FocusPage(context, subjects, sessions, running)
                 SummaryWidget.PAGE_HEALTH -> HealthPage(context, health)
@@ -382,13 +388,13 @@ private fun BudgetPage(context: Context, summary: Summary?, picking: Pair<Long, 
     }
     val pick = summary.pick?.takeIf { it.choices.isNotEmpty() }
     val showPick = pick != null && WidgetModel.showPick(layout, true)
-    if (!showPick || WidgetModel.headWhilePicking(layout)) {
+    // 고르는 동안은 위젯을 다 쓴다: 남은 돈 머리도 가린다(사용자 요청, 2026-11-17 "일부만 있는 게 아니라 화면을 전부 채우는")
+    if (!showPick) {
         BudgetHead(context, summary, layout, head, today)
         Spacer(GlanceModifier.height(6.dp))
     }
     if (showPick && pick != null) {
-        // 고르는 동안은 아래(분류·최근 결제)를 가린다(사용자 요청, 2026-11-17). 머리가 위에 있으면(크게) 머리 막대 아래를 조금 띄운다
-        if (WidgetModel.headWhilePicking(layout)) Spacer(GlanceModifier.height(6.dp))
+        // 고르는 동안은 아래(분류·최근 결제)를 가린다(사용자 요청, 2026-11-17)
         PickCard(context, pick, picking, summary, layout, today)
         return
     }
@@ -517,6 +523,12 @@ private fun BudgetHead(context: Context, summary: Summary, layout: WidgetLayout,
 @Composable
 private fun PickCard(context: Context, p: Pick, picking: Pair<Long, Long>?, summary: Summary, layout: WidgetLayout, today: LocalDate) {
     val byId = summary.categories.associateBy { it.id }
+    // 크게는 고르기가 위젯을 다 채운다: 분류 6개까지, 줄을 넓고 글자를 크게(누르기 쉽게)
+    val big = layout == WidgetLayout.LARGE
+    val rowPad = if (big) 2.dp else 1.dp
+    val circle = if (big) 20.dp else 18.dp
+    val nameSize = if (big) 15.sp else 14.sp
+    val sideSize = if (big) 14.sp else 13.sp
     // 바탕 칸 없이 위젯 카드 위에 바로(사용자 의견, 2026-11-17 "박스 안에 박스가 별로")
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -533,135 +545,211 @@ private fun PickCard(context: Context, p: Pick, picking: Pair<Long, Long>?, summ
             style = TextStyle(color = SubColor, fontSize = 12.sp),
             maxLines = 1,
         )
+        if (big) Spacer(GlanceModifier.height(4.dp))
         // Glance 컨테이너는 직접 자식을 10개까지만 그려서 줄을 Column으로 묶는다. 중간 위젯(세로 2칸)에 들어가게 줄 사이를 좁힌다
         Column(modifier = GlanceModifier.fillMaxWidth()) {
             for (c in p.choices.take(WidgetModel.pickChoiceCount(layout))) {
                 val on = picking?.first == p.id && picking.second == c.id
                 val cat = byId[c.id]
                 Row(
-                    modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp)
+                    modifier = GlanceModifier.fillMaxWidth().padding(vertical = rowPad)
                         .clickable(actionRunCallback<PickCategoryAction>(actionParametersOf(PickTxParam to p.id, PickCatParam to c.id))),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Image(
                         provider = ImageProvider(if (on) R.drawable.widget_circle_on else R.drawable.widget_circle_off),
                         contentDescription = "${c.name}로 고르기",
-                        modifier = GlanceModifier.size(18.dp),
+                        modifier = GlanceModifier.size(circle),
                     )
                     Spacer(GlanceModifier.width(8.dp))
                     Text(
                         c.name,
-                        style = TextStyle(color = TextColor, fontSize = 14.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal),
+                        style = TextStyle(color = TextColor, fontSize = nameSize, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal),
                         modifier = GlanceModifier.defaultWeight(),
                         maxLines = 1,
                     )
                     Text(
                         WidgetModel.usageText(cat),
-                        style = TextStyle(color = cat?.let { colorFor(WidgetModel.stateOf(it)) } ?: TextColor, fontSize = 13.sp),
+                        style = TextStyle(color = cat?.let { colorFor(WidgetModel.stateOf(it)) } ?: TextColor, fontSize = sideSize),
                         maxLines = 1,
                     )
                 }
             }
             // 없음: 위 분류가 다 아니면 앱에서 이 결제의 분류 고르기 판(다른 분류·가계부에서 빼기)
             Row(
-                modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp)
+                modifier = GlanceModifier.fillMaxWidth().padding(vertical = rowPad)
                     .clickable(actionStartActivity(openIntent(context, "review", p.id))),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Image(provider = ImageProvider(R.drawable.widget_circle_off), contentDescription = "없음, 앱에서 고르기", modifier = GlanceModifier.size(18.dp))
+                Image(provider = ImageProvider(R.drawable.widget_circle_off), contentDescription = "없음, 앱에서 고르기", modifier = GlanceModifier.size(circle))
                 Spacer(GlanceModifier.width(8.dp))
-                Text("없음", style = TextStyle(color = TextColor, fontSize = 14.sp), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
-                Text("앱에서 고르기", style = TextStyle(color = SubColor, fontSize = 13.sp), maxLines = 1)
+                Text("없음", style = TextStyle(color = TextColor, fontSize = nameSize), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
+                Text("앱에서 고르기", style = TextStyle(color = SubColor, fontSize = sideSize), maxLines = 1)
             }
         }
     }
 }
 
 /**
- * 건강 페이지(사용자 요청, 2026-11-17 "건강 항목으로 사진 찍는 버튼이랑 탄단지칼로리"): 위 "오늘 · N/M끼", 칼로리 먹은 양 / 목표,
- * 오른쪽 진한 동그라미 찍기 단추(누르면 앱의 끼니 찍기), 칼로리 막대, 아래 탄수화물·단백질·지방 막대(먹은 양 / 목표).
- * 중간은 한 줄에 이름 · 막대 · 값, 크게는 이름 · 값 아래 긴 막대. 작은 위젯은 칼로리·막대와 단추만.
+ * 건강 페이지. 사용자 요청(2026-11-17): "건강 항목으로 사진 찍는 버튼이랑 탄단지칼로리", "탄단지칼은 한 끼당 표 하고 상단에 탄단지칼
+ * 어느 정도 했는지", "몸 사진 기록도 몸무게랑".
+ * 위에 오늘 칼로리 먹은 양 / 목표(크게)와 "탄 152/250 · 단 88/140 · 지 31/60g", 아래 끼니 표(먹은 순서, 끼니 · 시각 · kcal · 탄 · 단 · 지).
+ * 끼니 찍기·몸 기록 단추는 탭 줄 오른쪽([HealthButtons]). 크게는 맨 밑에 최근 몸무게. 작은 위젯은 칼로리와 찍기 단추만,
+ * 2칸×2줄처럼 좁고 높으면 탄단지 세 줄과 몸무게 줄도.
  */
 @Composable
-private fun HealthPage(context: Context, health: HealthToday?) {
+private fun HealthPage(context: Context, health: HealthWidgetData?) {
     val size = LocalSize.current
     val layout = WidgetLayout.forSize(size.width.value, size.height.value)
     val small = layout == WidgetLayout.SMALL
     val large = layout == WidgetLayout.LARGE
-    val total = health?.total
-    val goal = health?.targets
-    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = GlanceModifier.defaultWeight()) {
-            val meals = health?.takeIf { it.mealCount > 0 }?.let { " · ${it.loggedCount}/${it.mealCount}끼" }.orEmpty()
-            // 작은 위젯은 목표 줄이 들어가지 않아서 먹은 칼로리만
-            Text(if (small) "오늘 kcal" else "오늘$meals", style = TextStyle(color = SubColor, fontSize = 12.sp), maxLines = 1)
-            val kcal = total?.let { Money.grouped(it.kcal.toLong()) } ?: "-"
-            val of = goal?.kcal?.takeIf { it > 0 }?.let { "/ ${Money.grouped(it.toLong())}kcal" } ?: "kcal"
-            if (small) {
-                Text(kcal, style = TextStyle(color = TextColor, fontSize = 18.sp, fontWeight = FontWeight.Bold), maxLines = 1)
-            } else {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(kcal, style = TextStyle(color = TextColor, fontSize = if (large) 24.sp else 22.sp, fontWeight = FontWeight.Bold), maxLines = 1)
-                    Text(" $of", style = TextStyle(color = SubColor, fontSize = 14.sp), modifier = GlanceModifier.padding(bottom = 3.dp), maxLines = 1)
-                }
+    val today = health?.today
+    val total = today?.total ?: Nutrition()
+    val goal = today?.targets ?: Nutrition()
+    val kcal = if (today != null) Money.grouped(total.kcal.toLong()) else "-"
+    val kcalOver = goal.kcal > 0 && total.kcal > goal.kcal
+    if (small) {
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                Text("오늘 kcal", style = TextStyle(color = SubColor, fontSize = 12.sp), maxLines = 1)
+                Text(kcal, style = TextStyle(color = if (kcalOver) OverColor else TextColor, fontSize = 18.sp, fontWeight = FontWeight.Bold), maxLines = 1)
             }
+            RoundButton(context, R.drawable.widget_cta, R.drawable.ic_widget_camera, OnCtaColor, "끼니 찍기", "health_capture", 36.dp)
         }
-        // 찍기 단추: 앱의 끼니 찍기(다음 끼니)로 바로. 진한 동그라미(앱의 주 단추 색)라 눌러야 할 곳이 바로 보인다
-        Box(
-            modifier = GlanceModifier.size(if (small) 36.dp else 44.dp).background(ImageProvider(R.drawable.widget_cta))
-                .clickable(actionStartActivity(openIntent(context, "health_capture"))),
-            contentAlignment = Alignment.Center,
-        ) {
-            Image(
-                provider = ImageProvider(R.drawable.ic_widget_camera),
-                contentDescription = "끼니 찍기",
-                colorFilter = ColorFilter.tint(OnCtaColor),
-                modifier = GlanceModifier.size(if (small) 18.dp else 22.dp),
-            )
+        // 좁아도 세로가 넉넉하면(2칸×2줄) 탄단지와 몸무게
+        if (size.height.value < 150f || today == null) return
+        Spacer(GlanceModifier.height(6.dp))
+        Column(modifier = GlanceModifier.fillMaxWidth()) {
+            SmallMacro("탄수화물", total.carbs, goal.carbs, overIsBad = true)
+            SmallMacro("단백질", total.protein, goal.protein, overIsBad = false)
+            SmallMacro("지방", total.fat, goal.fat, overIsBad = true)
+            Spacer(GlanceModifier.height(4.dp))
+            BodyLine(context, health.body, fontSize = 13)
         }
+        return
     }
-    val kcalGoal = goal?.kcal ?: 0
-    if (health != null && kcalGoal > 0) {
-        Spacer(GlanceModifier.height(if (small) 3.dp else 4.dp))
-        val eaten = total?.kcal ?: 0
-        Bar(context, eaten.toDouble() / kcalGoal, if (eaten > kcalGoal) BudgetState.OVER else BudgetState.OK)
-    }
-    // 좁아도 세로가 넉넉하면(2칸×2줄) 탄단지를 보인다
-    if (small && size.height.value < 150f) return
-    Spacer(GlanceModifier.height(6.dp))
-    if (health == null) {
+    if (today == null) {
         Text("앱의 건강 칸을 한 번 열어 주세요", style = TextStyle(color = SubColor, fontSize = 13.sp))
         return
     }
-    Column(modifier = GlanceModifier.fillMaxWidth()) {
-        MacroRow(context, "탄수화물", total?.carbs ?: 0, goal?.carbs ?: 0, stacked = large, overIsBad = true, bar = !small)
-        MacroRow(context, "단백질", total?.protein ?: 0, goal?.protein ?: 0, stacked = large, overIsBad = false, bar = !small)
-        MacroRow(context, "지방", total?.fat ?: 0, goal?.fat ?: 0, stacked = large, overIsBad = true, bar = !small)
+    // 오늘 칼로리(크게)
+    Row(verticalAlignment = Alignment.Bottom) {
+        Text(kcal, style = TextStyle(color = if (kcalOver) OverColor else TextColor, fontSize = if (large) 24.sp else 20.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+        Text(
+            if (goal.kcal > 0) " / ${Money.grouped(goal.kcal.toLong())}kcal" else " kcal",
+            style = TextStyle(color = SubColor, fontSize = 13.sp), modifier = GlanceModifier.padding(bottom = 3.dp), maxLines = 1,
+        )
+    }
+    // 탄단지 먹은 양 / 목표: 목표를 넘으면 살구(단백질은 넘어도 괜찮아서 그대로)
+    Row(modifier = GlanceModifier.fillMaxWidth()) {
+        MacroPart("탄", total.carbs, goal.carbs, overIsBad = true, unit = "")
+        Text(" · ", style = TextStyle(color = SubColor, fontSize = 13.sp))
+        MacroPart("단", total.protein, goal.protein, overIsBad = false, unit = "")
+        Text(" · ", style = TextStyle(color = SubColor, fontSize = 13.sp))
+        MacroPart("지", total.fat, goal.fat, overIsBad = true, unit = "g")
+    }
+    Spacer(GlanceModifier.height(if (large) 10.dp else 3.dp))
+    val rows = HealthWidget.shownMeals(health.meals, if (large) 6 else 3)
+    if (rows.isEmpty()) {
+        Text("아직 먹은 끼니가 없어요", style = TextStyle(color = SubColor, fontSize = 13.sp))
+    } else {
+        val fs = if (large) 14 else 13
+        // 끼니 표: 머리(칸 이름) + 끼니 줄. Glance 컨테이너는 직접 자식을 10개까지만 그려서 Column으로 묶는다
+        Column(modifier = GlanceModifier.fillMaxWidth()) {
+            MealTableRow("", "", listOf("kcal", "탄", "단", "지"), SubColor, 11, header = true)
+            for (m in rows) {
+                val n = m.nutrition
+                MealTableRow(
+                    HealthPlan.label(m.index), m.time,
+                    listOf(Money.grouped(n.kcal.toLong()), n.carbs.toString(), n.protein.toString(), n.fat.toString()),
+                    TextColor, fs, pad = if (large) 2.dp else 0.dp,
+                )
+            }
+        }
+    }
+    if (large) {
+        Spacer(GlanceModifier.height(10.dp))
+        Box(modifier = GlanceModifier.fillMaxWidth().height(1.dp).background(LineColor)) {}
+        Spacer(GlanceModifier.height(6.dp))
+        BodyLine(context, health.body, fontSize = 14)
     }
 }
 
-/**
- * 탄단지 한 줄: 이름, 막대(먹은 양 / 목표), "먹은 g / 목표 g"(목표가 없으면 먹은 g만, 막대 없음).
- * 목표를 넘으면 살구색(단백질은 넘어도 괜찮아서 그대로). stacked면 이름 · 값 아래 긴 막대(크게).
- */
+/** 탭 줄 오른쪽 건강 단추: 몸 기록(옅은 동그라미에 체중계, 몸무게·몸 사진), 끼니 찍기(진한 동그라미). 누르면 앱의 그 화면 */
 @Composable
-private fun MacroRow(context: Context, name: String, eaten: Int, goal: Int, stacked: Boolean, overIsBad: Boolean, bar: Boolean = true) {
-    val value = if (goal > 0) "$eaten / ${goal}g" else "${eaten}g"
-    val over = overIsBad && goal > 0 && eaten > goal
-    val state = if (over) BudgetState.OVER else BudgetState.OK
-    val ratio = if (goal > 0) eaten.toDouble() / goal else 0.0
-    val valueColor = if (over) OverColor else TextColor
-    if (!stacked) {
-        MeterRow(context, name, ratio, state, value, valueColor, bar = bar)
-        return
+private fun HealthButtons(context: Context) {
+    RoundButton(context, R.drawable.widget_soft, R.drawable.ic_widget_body, TextColor, "몸 기록", "body", 28.dp)
+    Spacer(GlanceModifier.width(8.dp))
+    RoundButton(context, R.drawable.widget_cta, R.drawable.ic_widget_camera, OnCtaColor, "끼니 찍기", "health_capture", 28.dp)
+}
+
+@Composable
+private fun RoundButton(context: Context, bg: Int, icon: Int, tint: GlanceColor, label: String, screen: String, size: Dp) {
+    Box(
+        modifier = GlanceModifier.size(size).background(ImageProvider(bg)).clickable(actionStartActivity(openIntent(context, screen))),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(provider = ImageProvider(icon), contentDescription = label, colorFilter = ColorFilter.tint(tint), modifier = GlanceModifier.size(size * 0.55f))
     }
-    Column(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(modifier = GlanceModifier.fillMaxWidth()) {
-            Text(name, style = TextStyle(color = TextColor, fontSize = 15.sp), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
-            Text(value, style = TextStyle(color = valueColor, fontSize = 15.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+}
+
+/** 위 탄단지 한 칸: "탄 152/250"(목표가 없으면 먹은 양만) */
+@Composable
+private fun MacroPart(name: String, eaten: Int, goal: Int, overIsBad: Boolean, unit: String) {
+    val over = overIsBad && goal > 0 && eaten > goal
+    Text(
+        "$name " + (if (goal > 0) "$eaten/$goal" else "$eaten") + unit,
+        style = TextStyle(color = if (over) OverColor else TextColor, fontSize = 13.sp),
+        maxLines = 1,
+    )
+}
+
+/** 작은 위젯(2칸×2줄)의 탄단지 한 줄: 이름 · "152/250g" */
+@Composable
+private fun SmallMacro(name: String, eaten: Int, goal: Int, overIsBad: Boolean) {
+    val over = overIsBad && goal > 0 && eaten > goal
+    Row(modifier = GlanceModifier.fillMaxWidth()) {
+        Text(name, style = TextStyle(color = TextColor, fontSize = 13.sp), modifier = GlanceModifier.defaultWeight(), maxLines = 1)
+        Text(if (goal > 0) "$eaten/${goal}g" else "${eaten}g", style = TextStyle(color = if (over) OverColor else TextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+    }
+}
+
+/** 끼니 표 한 줄: 왼쪽 "1끼 08:10", 오른쪽 kcal · 탄 · 단 · 지 칸(너비 고정, 오른쪽 맞춤이라 줄마다 숫자가 같은 자리) */
+@Composable
+private fun MealTableRow(label: String, time: String, cells: List<String>, color: GlanceColor, fontSize: Int, header: Boolean = false, pad: Dp = 0.dp) {
+    Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = pad), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = GlanceModifier.defaultWeight(), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = TextStyle(color = color, fontSize = fontSize.sp), maxLines = 1)
+            if (time.isNotEmpty()) Text(" $time", style = TextStyle(color = SubColor, fontSize = (fontSize - 1).sp), maxLines = 1)
         }
-        Spacer(GlanceModifier.height(5.dp))
-        Bar(context, ratio, state)
+        cells.forEachIndexed { i, v ->
+            Text(
+                v,
+                style = TextStyle(
+                    color = color, fontSize = fontSize.sp, textAlign = TextAlign.End,
+                    fontWeight = if (header || i > 0) FontWeight.Normal else FontWeight.Medium,
+                ),
+                modifier = GlanceModifier.width(if (i == 0) 50.dp else 36.dp),
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** 몸무게 줄: "몸무게 72.4kg · 지난번보다 −0.3kg"(없으면 "몸무게 · 기록하기"). 누르면 앱의 몸 기록 */
+@Composable
+private fun BodyLine(context: Context, body: WidgetBody?, fontSize: Int) {
+    Row(
+        modifier = GlanceModifier.fillMaxWidth().clickable(actionStartActivity(openIntent(context, "body"))),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("몸무게 ", style = TextStyle(color = SubColor, fontSize = fontSize.sp), maxLines = 1)
+        Text(
+            body?.let { HealthWidget.bodyText(it) } ?: "기록하기",
+            style = TextStyle(color = if (body != null) TextColor else SubColor, fontSize = fontSize.sp),
+            modifier = GlanceModifier.defaultWeight(),
+            maxLines = 1,
+        )
     }
 }
 

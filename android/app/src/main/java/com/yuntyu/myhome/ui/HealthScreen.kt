@@ -94,11 +94,11 @@ suspend fun loadHealthHome(): Result<HealthHome> = withContext(Dispatchers.IO) {
         is ApiResult.Ok -> r.value
         else -> return@withContext Result.failure(IllegalStateException(r.describe()))
     }
-    // 위젯 건강 칸도 같은 값으로(앱에서 끼니를 고치고 돌아오면 바로 맞는다)
-    app.healthWidget.set(today)
-    runCatching { com.yuntyu.myhome.widget.SummaryWidget().updateAll(app) }
     val weekly = (api.healthWeekly(day.toString()) as? ApiResult.Ok)?.value
     val card = (api.healthDay(day.toString()) as? ApiResult.Ok)?.value
+    // 위젯 건강 칸도 같은 값으로(앱에서 끼니를 고치고 돌아오면 바로 맞는다). 끼니 표는 하루 기록에서
+    app.healthWidget.set(today, card)
+    runCatching { com.yuntyu.myhome.widget.SummaryWidget().updateAll(app) }
     val outbox = MealOutbox.forDay(app, day.toString())
     // 못 보낸 끼니도 찍은 것으로 쳐서 알림에서 뺀다. 헬스를 인증했거나 쉬는 날이면 헬스 알림도 뺀다
     card?.meals?.let { meals -> app.healthLocal.setLoggedForDay(day.toString(), meals.map { it.index } + outbox.keys) }

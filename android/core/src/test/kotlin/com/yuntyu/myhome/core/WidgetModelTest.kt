@@ -110,8 +110,6 @@ class WidgetModelTest {
         assertEquals(0 to 0, WidgetModel.rows(WidgetLayout.LARGE, true))
         assertEquals(WidgetLayout.SMALL.categoryCount to 0, WidgetModel.rows(WidgetLayout.SMALL, true))
         assertEquals(false, WidgetModel.showPick(WidgetLayout.SMALL, true))
-        assertEquals(false, WidgetModel.headWhilePicking(WidgetLayout.MEDIUM))
-        assertEquals(true, WidgetModel.headWhilePicking(WidgetLayout.LARGE))
     }
 
     // 남은 날은 오늘과 마지막 날을 모두 센다. 5일 시작이면 11/17 → 12/04까지 18일
@@ -130,7 +128,7 @@ class WidgetModelTest {
         assertEquals("11/3 23:10", WidgetModel.whenText("2026-11-03T23:10:00+09:00", d))
         assertEquals("", WidgetModel.whenText("", d))
         assertEquals(3, WidgetModel.pickChoiceCount(WidgetLayout.MEDIUM))
-        assertEquals(4, WidgetModel.pickChoiceCount(WidgetLayout.LARGE))
+        assertEquals(6, WidgetModel.pickChoiceCount(WidgetLayout.LARGE))
     }
 
     @Test fun barsAndRowText() {

@@ -2,6 +2,7 @@ package com.yuntyu.myhome.ui
 
 import android.graphics.BitmapFactory
 import android.widget.Toast
+import androidx.glance.appwidget.updateAll
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -79,7 +80,12 @@ fun BodyScreen(modifier: Modifier) {
 
     LaunchedEffect(tick) {
         when (val r = withContext(Dispatchers.IO) { app.api.bodyWeights() }) {
-            is ApiResult.Ok -> { weights = r.value.weights; error = null }
+            is ApiResult.Ok -> {
+                weights = r.value.weights; error = null
+                // 위젯 건강 칸의 몸무게 줄도 맞춘다
+                app.healthWidget.setBody(com.yuntyu.myhome.core.HealthWidget.bodyOf(r.value.weights))
+                runCatching { com.yuntyu.myhome.widget.SummaryWidget().updateAll(app) }
+            }
             else -> error = r.plain()
         }
     }

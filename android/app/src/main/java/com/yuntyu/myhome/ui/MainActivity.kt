@@ -202,6 +202,8 @@ fun AppRoot(launchRequest: MutableState<Pair<String, Long?>?>) {
             "invest" -> screen = Screen.INVEST
             "focus" -> screen = Screen.FOCUS
             "health_gym" -> { screen = Screen.HEALTH; go(Screen.HEALTH_GYM) }
+            // 위젯 건강 칸의 몸 기록 단추·몸무게 줄
+            "body" -> { screen = Screen.HEALTH; go(Screen.BODY) }
             "health_capture" -> {
                 screen = Screen.HEALTH
                 healthNav.openCapture(null, req.second?.toInt()?.takeIf { it > 0 })

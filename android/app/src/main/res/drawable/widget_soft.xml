@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 위젯의 덜 진한 단추 바탕(몸 기록): 막대 트랙과 같은 옅은 동그라미 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/widget_track" />
+</shape>
