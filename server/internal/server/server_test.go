@@ -549,7 +549,7 @@ func TestWidgetPick(t *testing.T) {
 		Pick *pick `json:"pick"`
 	}
 	c.do("GET", "/v1/summary", nil, &sum)
-	if sum.Pick == nil || sum.Pick.Merchant != "합성몰" || sum.Pick.Reason != "no_rule" || sum.Pick.Left != 2 || len(sum.Pick.Choices) != 4 {
+	if sum.Pick == nil || sum.Pick.Merchant != "합성몰" || sum.Pick.Reason != "no_rule" || sum.Pick.Left != 2 || len(sum.Pick.Choices) != 6 { // api.MaxPickChoices
 		t.Fatalf("최근 것부터 고름: %+v", sum.Pick)
 	}
 	if code := c.do("PATCH", "/v1/transactions/"+itoa(sum.Pick.ID), map[string]any{"category_id": c.catID("식비")}, nil); code != 200 {
