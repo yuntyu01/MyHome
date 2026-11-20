@@ -144,7 +144,7 @@ func TestWebPagesRender(t *testing.T) {
 		"/report":               "월간 리포트",
 		"/reconcile":            "결제 수단별 지출",
 		"/more":                 "명세서 대조",
-		"/invest":               "아직 옮기지 않았어요",
+		"/invest":               "자동매매 상태가 아직 없어요",
 	} {
 		rec := c.get(path)
 		if rec.Code != 200 {

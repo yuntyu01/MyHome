@@ -5,20 +5,22 @@ import (
 	"time"
 )
 
-// Position은 실제 계좌와 그달 판정 근거다. JSON 모양은 TQ state/position.json과 같다 —
-// 마이그레이션 때 그 파일을 그대로 읽고, 화면도 같은 이름을 쓴다.
+// Position은 실제 계좌와 그달 판정 근거다(invest_state의 position 문서).
+//
+// 2026-11-20부터 보유(종목·수량·취득원가·연도별 실현손익)는 invest_fills, 판정 칸은 invest_judgments가 정본이고
+// 이 문서는 그림자다 — 매 명령이 비트 단위로 대조한다(store.checkShadow). JSON 이름은 바꾸지 않는다: 되돌릴 때
+// 예전 코드가 그대로 읽어야 하고, 변경 이력(invest_state_history)과도 같은 모양이어야 한다.
 type Position struct {
-	Holdings       Account            `json:"holdings"`
-	LastRun        string             `json:"last_run"` // 판정일 YYYY-MM-DD
-	YM             string             `json:"ym"`       // 판정월
-	Signal         Judgment           `json:"signal"`
-	FXRate         float64            `json:"fx_rate"`
-	FXEstimated    bool               `json:"fx_estimated"` // 시장 환율로 추정한 값인가. amend --fx가 끈다
-	ApplyYM        string             `json:"apply_ym"`
-	ContributedKRW float64            `json:"contributed_krw"`
-	MonthsInvested int                `json:"months_invested"`
-	JudgmentCount  int                `json:"judgment_count"` // 준수 카운트의 분모
-	CloseUSD       map[string]float64 `json:"close_usd"`
+	Holdings       Account  `json:"holdings"`
+	LastRun        string   `json:"last_run"` // 판정일 YYYY-MM-DD
+	YM             string   `json:"ym"`       // 판정월
+	Signal         Judgment `json:"signal"`
+	FXRate         float64  `json:"fx_rate"`
+	FXEstimated    bool     `json:"fx_estimated"` // 시장 환율로 추정한 값인가. amend --fx가 끈다
+	ApplyYM        string   `json:"apply_ym"`
+	ContributedKRW float64  `json:"contributed_krw"`
+	MonthsInvested int      `json:"months_invested"`
+	JudgmentCount  int      `json:"judgment_count"` // 준수 카운트의 분모
 	// 어느 적용월의 체결인지 함께 남긴다 — 이 키가 없으면 다음 판정에서 체결일만 이월돼
 	// 미체결 감지가 죽는다(§1.5)
 	ExecutedOn *string   `json:"executed_on"`
@@ -67,9 +69,6 @@ func (p *Position) Normalize() {
 	}
 	if p.Holdings.TaxPaidKRW == nil {
 		p.Holdings.TaxPaidKRW = map[int]float64{}
-	}
-	if p.CloseUSD == nil {
-		p.CloseUSD = map[string]float64{}
 	}
 	if p.Before != nil {
 		if p.Before.Holdings.RealizedGainKRW == nil {
@@ -149,13 +148,12 @@ type Adjustment struct {
 	Reason  string  `json:"reason"`
 }
 
-// Pending은 24시간 냉각 중인 이탈 요청이다.
+// Pending은 24시간 냉각 중인 이탈 요청이다(invest_state의 pending 문서 — 표로 옮기지 않았다, DECISIONS 「자동매매 상태 정규화」).
 type Pending struct {
-	Kind        string `json:"kind"`
 	YM          string `json:"ym"`
 	Symbol      string `json:"symbol"`
 	Reason      string `json:"reason"`
-	RequestedAt string `json:"requested_at"` // YYYY-MM-DDTHH:MM:SS (KST, 시간대 표시 없음 — TQ와 같다)
+	RequestedAt string `json:"requested_at"` // YYYY-MM-DDTHH:MM:SS (KST, 시간대 표시 없음 — 지금 문서들과 같은 모양)
 }
 
 // OrderBook은 진행 중인 자동 매매 주문이다. 사이클이 끝나면 지운다.

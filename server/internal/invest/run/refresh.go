@@ -59,7 +59,7 @@ func (a *App) refreshOnce(ctx context.Context) int {
 	}
 	last, ok := master.Last()
 	if !ok {
-		return a.fail(ExitFail, "마스터가 비어 있다. `myhome invest import-tq`로 먼저 옮길 것")
+		return a.fail(ExitFail, "가격 마스터가 비어 있다. 처음 이력은 따로 넣어야 한다(야후로 채우는 것은 마지막 행 다음부터)")
 	}
 	symbols := make([]string, 0, len(invest.Columns)+1)
 	col := map[string]string{}

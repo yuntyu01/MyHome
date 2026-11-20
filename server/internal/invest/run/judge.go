@@ -79,7 +79,7 @@ func (a *App) Judge(ctx context.Context, o JudgeOpts) int {
 		FXRate: pos.FXRate,
 		// 환율을 이어받으면 그 환율이 추정인지도 이어받는다 — 판정 한 번에 추정값이 확정값으로 둔갑하지 않게
 		FXEstimated: pos.FXEstimated, ApplyYM: d.ApplyYM, ContributedKRW: pos.ContributedKRW,
-		MonthsInvested: pos.MonthsInvested, JudgmentCount: judged, CloseUSD: pos.CloseUSD,
+		MonthsInvested: pos.MonthsInvested, JudgmentCount: judged,
 	}
 	if sameApply {
 		next.ExecutedOn, next.ExecutedYM = pos.ExecutedOn, pos.ExecutedYM

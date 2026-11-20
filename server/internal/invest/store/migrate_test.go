@@ -41,7 +41,7 @@ func prodShapedPosition(ym, lastRun, apply string, sig invest.Judgment, shares i
 		Holdings: invest.Account{Symbol: "TQQQ", Shares: shares, CostKRW: cost, CashUSD: 12.5,
 			RealizedGainKRW: map[int]float64{2024: 1_234_567.875, 2025: -12_345.5}, TaxPaidKRW: map[int]float64{2024: 0}},
 		LastRun: lastRun, YM: ym, Signal: sig, FXRate: 1386.25, ApplyYM: apply, ContributedKRW: 4_398_765.43,
-		MonthsInvested: 7, JudgmentCount: 7, CloseUSD: map[string]float64{"TQQQ": 64.62},
+		MonthsInvested: 7, JudgmentCount: 7,
 		ExecutedOn: invest.StrPtr("2026-07-01"), ExecutedYM: invest.StrPtr("2026-07"),
 	}
 }
@@ -92,7 +92,7 @@ func TestInvestTableMigrationsBackfillAndRoundTrip(t *testing.T) {
 	gap := 3
 	book.LedgerGap = &gap
 	put("orders", "invest trade", book, true)
-	put("pending", "invest deviate", invest.Pending{Kind: "deviation", YM: "2026-08", Symbol: "QQQM", Reason: "합성", RequestedAt: "2026-08-02T10:00:00"}, true)
+	put("pending", "invest deviate", invest.Pending{YM: "2026-08", Symbol: "QQQM", Reason: "합성", RequestedAt: "2026-08-02T10:00:00"}, true)
 
 	for round := 1; round <= 2; round++ {
 		migrate(t, url, "up")

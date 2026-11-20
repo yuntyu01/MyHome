@@ -183,14 +183,14 @@
 - **예약 실행은 systemd timer** — kodeploy에는 사용자 CronJob이 없고, TQ의 명령 단위 구조(refresh·judge·trade·status)를 그대로 옮길 수 있다. 같은 유닛은 겹쳐 돌지 않고, 서로 다른 명령·손으로 친 명령은 advisory lock(7240002, 가계부 처리 잠금과 분리)이 막는다 — `deploy/home/systemd/`, `invest/store.Lock`.
 - **판정 타이머에 1일을 넣음** (TQ는 25~31일) — 판정이 뉴욕 자정을 넘기면 다음 날 만회하는데, 월말이 31일이면 만회 날이 1일이다. 판정할 날인지는 `JudgmentDay`가 정한다 — 타이머만 바꾸면 된다.
 - **금액·가격은 float64 / double precision** — 원 단위 bigint 규칙은 가계부 거래에만. TQ 산술과 비트 단위로 같아야 이식 대조(판정 336행, 원금 장부)가 성립한다 — `invest/account.go`, `00005_invest.sql`.
-- **position·orders·pending은 jsonb 단일 문서 + 변경 이력 테이블** — TQ의 `state/*.json` 모양 그대로라 마이그레이션이 손실 없고, git log가 하던 감사 추적은 `invest_state_history`가 한다. 원금·이탈·적립·앱 밖 매수는 추가 전용 테이블 — 정정은 지우지 않고 `superseded_at`.
+- **position·orders·pending은 jsonb 단일 문서 + 변경 이력 테이블** — TQ의 `state/*.json` 모양 그대로라 마이그레이션이 손실 없고, git log가 하던 감사 추적은 `invest_state_history`가 한다. (2026-11-20 판정·주문·체결을 표로 옮기고 문서는 그림자로 — 아래 「자동매매 상태 정규화」) 원금·이탈·적립·앱 밖 매수는 추가 전용 테이블 — 정정은 지우지 않고 `superseded_at`.
 - **336행 픽스처를 실행 관문으로도** — TQ는 정기 작업 앞에 회귀 테스트를 돌렸다. 여기서는 judge·trade·execute가 DB 가격으로 직접 대조하고 어긋나면 멈춘다(마스터 오염 방어) — `invest.CheckFixture`.
 - **시세는 야후 chart API를 표준 라이브러리로 직접 호출** — yfinance에 해당하는 Go 라이브러리가 없고, 토스 시세 API에는 신호 입력(S&P500·NDX)이 없다. 원종가(`quote.close`)와 거래소 시간대 날짜를 쓴다. 2026-11-06 실측 대조에서 SPX·ETF 오차 0, NDX 1.4e-7 — `invest/yahoo`.
 - **토스 클라이언트는 표준 라이브러리만** — 토큰은 클라이언트당 1개만 유효해 0600 파일로 캐시해 재사용한다. 주문 POST는 재시도하지 않고, 결정적 `clientOrderId`가 이중 주문을 막는다 — `invest/toss`.
 - **웹은 토스를 부르지 않는다** — 토큰이 1개뿐이라 두 프로세스가 각자 받으면 서로를 무효화한다. 화면의 보유 현황은 매매 작업이 DB에 남긴 상태를 보여준다.
 - **매매 실패는 메일 대신 앱 알림 (사용자 결정, 2026-11-08)** - Gmail 앱 비밀번호를 VM에 두지 않으려고 메일을 뺐다(`MAIL_*`·`GMAIL_APP_PASSWORD`·`SMTP_*` 없음). invest 유닛이 실패하면 `OnFailure=`가 `myhome-alert@.service`(`myhome invest alert --unit`)를 불러 `invest_alerts`에 한 줄을 남기고, 앱이 위젯 갱신 주기(30분·결제 전송 직후)에 `GET /v1/invest/alerts?after=<id>`로 읽어 "자동매매 실패" 채널(소리 있음)로 띄운다. 그래서 알림은 최대 30분쯤 늦을 수 있고, 서버는 7일 안의 것만 준다. 푸시(FCM)는 Firebase 키를 하나 더 두게 돼서 안 썼다. VM 자체가 죽은 것은 `status` 성공 때 보내는 `INVEST_HEARTBEAT_URL` 신호가 끊기는 것으로 외부가 잡는다. 메일을 다시 쓰려면 git 기록에서 메일판 `invest/run/alert.go`를 본다.
-- **버린 것** — X·Threads 공개 기록과 차트 발행(pipeline/, x/), KIS 어댑터(교훈만 주석으로), Cloudflare Worker 뷰어와 GitHub Actions 우회책(러너 IP 게이트, workflow_run). **보관한 것** — 백테스트·마스터·환율 원본 xlsx를 참고용으로 `docs/tq/`에. 백테스트 결과는 화면에 넣지 않는다(TQ 규칙: 평균 하나로 판단하게 만든다).
-- **마이그레이션은 `myhome invest import-tq` 1회** — 빈 DB에만 쓰고, 쓰기 전에 336행 대조와 원금 장부 대조, 쓴 뒤에 다시 읽어 원본 대조. 가격은 `scripts/tq_export.py`로 parquet → CSV.
+- **버린 것** — X·Threads 공개 기록과 차트 발행(pipeline/, x/), KIS 어댑터(교훈만 주석으로), Cloudflare Worker 뷰어와 GitHub Actions 우회책(러너 IP 게이트, workflow_run). **보관한 것** — 백테스트·마스터·환율 원본 xlsx를 참고용으로 `docs/backtest-source/`에(2026-11-20 `docs/tq/`에서 옮김, `backtest.json`의 원본). 백테스트 결과는 화면에 넣지 않는다(TQ 규칙: 평균 하나로 판단하게 만든다).
+- **마이그레이션은 `myhome invest import-tq` 1회** — 빈 DB에만 쓰고, 쓰기 전에 336행 대조와 원금 장부 대조, 쓴 뒤에 다시 읽어 원본 대조. 가격은 `scripts/tq_export.py`로 parquet → CSV. (2026-11-20 둘 다 지움 — 옮기기는 끝났다. 아래 「자동매매 상태 정규화」)
 
 ## 하단바와 투자 칸 (사용자 요청, 2026-11-08)
 
@@ -338,7 +338,7 @@
 - **남은 것 (메모만, 코드 안 고침)** - status(deadman)는 적용월이 이번 달인지 보지 않고 35일 규칙에 기댄다. 판정 누락은 trade가 먼저 실패로 알리고, 매매 창 밖이면 최대 일주일 뒤 status가 잡는다.
 
 - **매매 타이머 1~7일 (사용자 결정, 2026-11-09)** - 적용월 첫 거래일에 내고, 전환 달(매도 체결 → 매수 체결)도 거래일 2~3일이면 끝난다. 7일까지 못 끝냈으면 장애라 사람이 본다(실패는 앱 알림). 15일까지 늘렸던 이유(마지막 날 낸 주문을 확인할 실행이 없어 다음 달을 막음)는 `orders --clear-stale`로 사람이 치운다. 그래서 전환할 수 있는 날은 8~24일이다(판정 25~31일·1일, 매매 1~7일을 피함). 다시 늘리려면 `myhome-invest-trade.timer`의 `OnCalendar` 한 줄.
-- **11/2 토스 앱 수동 매수를 11월분으로 기록 (사용자 결정, 2026-11-09)** - 전환 때 토스 55주 vs TQ 장부 43주. 토스 주문 조회로 11/2 TQQQ 12주 $63.46을 찾았고, 적용월 신호(TQQQ)와 같은 종목·같은 달이라 `adjust`(앱 밖 매수)가 아니라 `execute`(11월 체결, 7일 지연)로 적었다. 원화는 토스 API가 주지 않아(`totalPurchaseAmount.krw`가 0) 사용자가 앱에서 본 원금 5,567,291원에서 기존 장부 합계를 뺀 1,017,316원, 환율은 그 금액 ÷ 체결액(수수료 포함)으로 맞췄다. 남은 주문가능 $286.01은 `--apply-cash`로 장부 현금에 넣어 12월 매수에 같이 쓴다(원금에는 안 더한다). 바꾸려면 `amend`로 단가·환율만 고칠 수 있다.
+- **11/2 토스 앱 수동 매수를 11월분으로 기록 (사용자 결정, 2026-11-09)** - 옮길 때 토스 보유가 TQ 장부보다 많았다. 토스 주문 조회로 11/2 토스 앱에서 직접 산 TQQQ 매수를 찾았고, 적용월 신호(TQQQ)와 같은 종목·같은 달이라 `adjust`(앱 밖 매수)가 아니라 `execute`(11월 체결, 7일 지연)로 적었다. 원화는 토스 API가 주지 않아(`totalPurchaseAmount.krw`가 0) 사용자가 토스 앱에서 본 원금에서 기존 장부 합계를 뺀 값, 환율은 그 금액 ÷ 체결액(수수료 포함)으로 맞췄다. 남은 주문가능 달러는 `--apply-cash`로 장부 현금에 넣어 12월 매수에 같이 쓴다(원금에는 안 더한다). 바꾸려면 `amend`로 단가·환율만 고칠 수 있다.
 - **체결 환율은 결제 뒤 토스 거래내역으로 자동 확정 (사용자 요청, 2026-11-10)** - 통합증거금 환율은 주문·체결 조회에 없고 결제가 끝난 `GET /api/v1/transactions`의 `exchangeRate`에만 있다(미국 주식 T+1). 그래서 trade는 시장 환율로 추정해 적고, 결제 뒤 trade(이미 완료된 날)·refresh가 결제 내역의 평균 단가·적용 환율(정산금액 가중)로 `amend`와 같은 길을 밟아 다시 매긴다(수량은 그대로). 자동으로는 trade가 남긴 달만 고치고, 사람이 `execute`로 적은 달은 `amend --auto`로 부를 때만 고친다(사람이 적은 원금이 정답일 수 있어서). 결제 내역 수량이 그 달 체결과 다르면(앱 밖 매매 섞임) 고치지 않고 알린다. 전환 달은 매도도 같은 환율 하나로 다시 매긴다(amend 모형 그대로) — 매도 환율을 따로 쓰려면 `Account.SellAll` 호출에 매도 쪽 환율을 넘기면 된다. 계약은 `broker.Settlements`(선택 계약)라 다른 증권사는 구현 안 해도 된다 — `run/fxconfirm.go`, `toss/settle.go`.
 - **평가용 환율(USDKRW_MKT)은 토스 매매기준율 (사용자 요청, 2026-11-10)** - 그날 뉴욕 16:00 시각의 `GET /api/v1/exchange-rate` `midRate`. 토스가 못 준 날만 야후 `KRW=X`(예전 방식). 2026-11-02 기준 야후 일봉 1,325.5 vs 토스 1,344.4로 야후가 1% 넘게 달랐다. 이미 있는 값은 바꾸지 않는다. 판정은 환율을 안 써서 출처가 섞여도 판정·주문은 그대로다 — `run/refresh.go`의 `brokerFX`.
 - **main에 push하면 자동 배포 (사용자 결정, 2026-11-10 "매번 배포해")** - 서버는 테스트 통과 뒤 VM으로, 앱은 Play 비공개 테스트(alpha)로. VM은 들어오는 포트가 없어서 러너가 터널 SSH로 들어가고, 키는 `restrict,command="sudo /opt/myhome/ci-deploy.sh"`로 묶었다(셸·포워딩 없음, sudo도 그 스크립트 하나). 끌어오는 방식(VM이 GitHub를 주기적으로 확인)은 비공개 저장소 읽기 토큰을 VM에 둬야 하고 작은 VM에서 빌드할 수도 없어서 안 했다. 🔴 이 키는 배포 권한 = 마이그레이션을 root로 돌리는 권한이라 main push 권한과 같은 무게다. 토스 키 같은 비밀값은 GitHub에 올리지 않는다(VM에 이미 있는 것을 쓴다). 키를 VM에 까는 것(`setup-ci-deploy.sh`)과 GitHub Secret 등록은 사람이 한다. 끄려면 `HOME_KNOWN_HOSTS` 변수를 지우면 배포 단계가 건너뛰어진다 - `.github/workflows/server.yml`, `deploy/home/{install,ci-deploy,setup-ci-deploy}.sh`.
@@ -635,3 +635,21 @@
 - **밀린 날은 신호만** - 신호는 가격 마스터로 정확히 다시 계산되므로 밀린 날도 채우지만, 계좌는 지금 장부라 마스터 마지막 날에만 적는다. 표가 비었으면 그달 1일부터 신호를 채운다(배포 뒤 첫 갱신부터 이번 달 기록이 보이게).
 - **같은 식 하나** - 매일 기록의 금액과 투자 첫 화면 요약은 `invest.Value` 하나로 계산한다. 달 마지막 거래일의 매일 신호는 그달 판정과 비트까지 같다(테스트로 묶음).
 - **화면** - 앱 투자 첫 화면에 "오늘 신호"(마지막 기록일 종가로 본 TQQQ·QQQM, 근거, 이번 달 종목과 같은지·이대로면 다음 달에 바뀌는지)와 "매일 기록"(날짜 · 신호 · 원금 · 금액 · 수익률, 누르면 S&P500·변동성)을 보인다. 보여 주기만 하고 아무것도 바꾸지 않는다. 웹 투자 페이지에는 아직 없다(`GET /v1/invest`의 `daily`).
+
+## 자동매매 상태 정규화 (사용자 지시서, 2026-11-20, refactor/invest-db 브랜치)
+
+전략·계산·주문 키·실패 경로는 그대로이고 저장 구조만 바꿨다. 바꾸기 전 코드로 만든 넉 달 주기 골든(`run/testdata/cycle_golden.json`)과 출력·DB 상태가 같다.
+
+- **이 브랜치는 그날 앞서 만든 투자 홈·입금일·매일 기록 위에서 시작한다** - 그 작업이 main에 없었고 같은 파일(store·trade)을 바꿔서, 따로 두면 나중에 리팩터를 다시 해야 한다. 그래서 지시서의 "매매 1~7일"과 달리 브랜치의 매매 타이머는 그 작업의 1~24일이다(뒤 요청으로 1~10일이 된다). 되돌리려면 첫 커밋(투자 홈·입금일·매일 기록)을 revert.
+- **판정 1회 = 1행 `invest_judgments`** - judge가 position과 같은 트랜잭션에 남기고, 같은 달을 다시 판정하면 같은 값이어야 한다(다르면 실패). 지난 판정은 position 변경 이력에서 판정월마다 처음 보인 값으로 채웠다. target은 역할 라벨(TQQQ·QQQ) 그대로다(문서와 비트 대조하려고). `mid_month`는 자리만 있다. 되돌리기: 00023 down.
+- **주문 기록은 `invest_order_books`·`invest_orders`·`invest_order_events`** - 한 적용월에 묶음이 여러 번 열릴 수 있어(거절로 비었다가 다시 냄) 달이 아니라 일련번호가 묶음 키다. 열린 묶음은 하나(부분 유일 색인). 거절·"증권사에 없음"으로 빠진 주문은 지우지 않고 `dropped`, 묶음은 `done`·`empty`·`clear-stale`로 닫는다. 같은 날 같은 주문은 같은 clientOrderId라 같은 행을 다시 쓰고 전이에 "같은 키로 다시 냄"을 남긴다. 되돌리기: 00024 down(orders 문서가 그대로 있어 예전 코드가 이어받는다).
+- **체결 1건 = 1행 `invest_fills`, 보유는 체결에서 다시 쌓는다** - krw는 계좌 산술이 실제로 더한 원화 그대로다(매수 = 수수료 포함 체결액 × 환율로 늘어난 취득원가, 매도 = 수수료 뺀 매도대금, 앱 밖 매수 = 지불액). 그래서 `invest.Replay`가 같은 덧셈을 같은 순서로 하면 종목·수량·취득원가·연도별 실현손익이 비트 단위로 같다. 이를 위해 SellAll·BuyExact·BuyMax에 같은 식으로 그 값을 돌려주는 `…T` 판을 붙였다(결과는 그대로, 백테스트 재현 테스트 통과). 수수료·단가·환율 칸은 참고용이다. 되돌리기: 00025 down.
+- **체결 장부의 시작은 지금 계좌(여는 잔고)** - TQ 시절 체결은 단가·환율이 남아 있지 않아 줄마다 되살릴 수 없다. 마이그레이션이 지금 position을 `opening` 한 줄 + 연도별 `realized` 줄로 놓고, 그 뒤 체결이 쌓인다. 그 앞 매매는 원금 내역(invest_ledger)과 문서 이력에 그대로 있다.
+- **현금(cash_usd)과 납부 세금(tax_paid_krw)은 문서가 정본** - 체결로 정해지지 않는 길이 있다(reconcile --apply-cash가 증권사 현금에 맞춤, tax --paid). 대조 대상도 아니다.
+- **정정(amend)은 그 달 체결 첫 줄부터 덮는다** - 정정은 체결 직전 상태(before)에서 다시 계산하므로 그 뒤 줄(그 사이 앱 밖 매수 포함)이 모두 바뀐다. 지우지 않고 `superseded_at`(원금 내역과 같은 방식). 체결 장부가 생기기 전에 끝난 달이면 덮을 줄이 없으니 정정한 계좌를 여는 잔고로 다시 놓는다(출처 amend).
+- **position 문서는 그림자, 매 명령이 비트 대조** - `LoadPosition`(모든 매매 명령)과 `SavePosition`(같은 트랜잭션에서 쓰고 바로 대조)이 판정 칸 ↔ `invest_judgments`, 보유 ↔ 체결 재계산을 비교한다. 다르면 `ShadowError`로 종료 코드 1 → OnFailure → `invest_alerts`(앱 알림). 저장이 막히면 문서도 표도 쓰이지 않는다. 화면(웹·앱)은 `LoadPositionDoc`으로 대조 없이 읽는다(어긋나도 화면은 떠야 한다). 문서를 지우는 마이그레이션은 만들지 않았다 - 석 달 대조가 통과하면 사람이 정한다.
+- **orders 문서도 그림자로 계속 쓴다** - 지시서는 position만 그림자로 두라고 했지만, 주문 표가 정본이 된 뒤에도 같은 문서를 쓰고 읽을 때 대조하면 표 매핑 실수를 바로 잡고, 00024를 내려도 예전 코드가 진행 중 주문을 이어받는다. 문서 JSON 이름(`odno` 등)은 그래서 바꾸지 않았다.
+- **pending(냉각 중 이탈 요청)은 문서로 둔다** - 한 번에 하나뿐인 잠깐짜리 값이고, 계산에 쓰이지 않으며, 요청·취소는 이미 `invest_state_history`에 남는다. 표로 옮겨도 얻는 것이 없고 바뀌는 길만 는다. position 문서를 지울 때 함께 다시 본다. `kind`(늘 "deviation", 아무도 안 읽음)는 지웠다.
+- **추가만 하는 표는 매매 역할도 SELECT·INSERT만** - `invest_judgments`, `invest_order_events`(`postgres-roles.sql`). 체결·원금 내역은 정정 표시(`superseded_at`) 때문에 UPDATE가 필요하다.
+- **새로 시작하는 계좌는 `store.Bootstrap`** - 판정 행·여는 잔고·문서를 한 번에 놓고, position이 있으면 거부한다(운용 중 계좌 덮어쓰기 방지 - 옛 import-tq의 보장). CLI는 없다(쓸 일이 없다). `store.Rebase`는 테스트가 상태를 직접 바꿀 때만 쓴다.
+- **TQ 이식 잔재 정리** - `invest import-tq`·`run/importtq.go`·`scripts/tq_export.py`를 지웠다(옮기기는 끝났다). TQ 파일 모양 때문에만 있던 `position.close_usd`(쓰기만 하고 아무도 안 읽음)와 `pending.kind`를 지웠다. `tq_port_test.go`는 매매 시나리오 회귀라 `scenario_test.go`로 이름만 바꿨다. 원본 xlsx는 `backtest.json`의 원본이라 `docs/backtest-source/`로 옮겼다. "TQ claude.md §…"처럼 규칙의 근거를 적은 주석은 남겼다(CLAUDE.md가 그 근거를 가리킨다). clientOrderId의 `tq-` 모양은 이미 낸 주문의 중복 방지가 걸려 있어 그대로다.

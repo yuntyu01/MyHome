@@ -109,7 +109,7 @@ func (a *App) Order(ctx context.Context, o OrderOpts) int {
 	if c.LateDays > 0 {
 		a.printf("  ⚠ 실행일(%s)에서 %d일 지연 — 늦은 매수로 기록된다 (미매수보다는 낫다)", invest.FormatDay(c.ExecDay), c.LateDays)
 	}
-	// TQ와 같은 안내: 손으로 샀으면 체결을 기록한다(자동 매매는 trade가 기록한다)
+	// 손으로 샀으면 체결을 기록한다(자동 매매는 trade가 기록한다)
 	a.printf("\n  증권사에서 주문 후:")
 	a.printf("    myhome invest execute --fill %s=<체결단가> --fx <적용환율>", target)
 	return ExitOK
@@ -436,7 +436,9 @@ func pendingOf(book invest.OrderBook) []int {
 	return out
 }
 
-// clientOrderID는 주문의 멱등성 키다. (뉴욕 주문일·종목·방향·수량·유형) - TQ와 같은 모양이다.
+// clientOrderID는 주문의 멱등성 키다. (뉴욕 주문일·종목·방향·수량·유형)
+//
+// 🔴 모양(tq-<뉴욕 주문일>-…)을 바꾸지 않는다. 이미 낸 주문과의 중복 방지가 이 키에 걸려 있다.
 //
 // 같은 날 같은 주문을 다시 보내면 같은 키라 토스가 이전 주문을 돌려준다. 승격하거나 수량을 바꾸면 새 키다.
 // 🔴 키는 보내기 전에 주문 기록에 남긴다. 응답을 못 받으면 다음 실행이 이 키로 증권사에서 찾는다.
@@ -953,8 +955,8 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 	next := invest.Position{
 		Holdings: newAcct, LastRun: pos.LastRun, YM: pos.YM, Signal: pos.Signal, FXRate: fx, ApplyYM: ym,
 		ContributedKRW: pos.ContributedKRW + newMoneyKRW, MonthsInvested: pos.MonthsInvested + 1,
-		JudgmentCount: pos.JudgmentCount, CloseUSD: closesOf(row),
-		ExecutedOn: invest.StrPtr(invest.FormatDay(today)), ExecutedYM: invest.StrPtr(ym),
+		JudgmentCount: pos.JudgmentCount,
+		ExecutedOn:    invest.StrPtr(invest.FormatDay(today)), ExecutedYM: invest.StrPtr(ym),
 		LateDays: &zero, Before: before, FXEstimated: fxEst,
 	}
 	shares := newAcct.Shares - stepped.Shares

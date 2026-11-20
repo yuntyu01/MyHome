@@ -26,7 +26,7 @@ const (
 	AnnualDeductKRW = 2_500_000 // 기본공제 250만원/년, 손실 이월공제 없음
 )
 
-// Account는 계좌 상태다. JSON 모양은 TQ state/position.json의 holdings와 같다.
+// Account는 계좌 상태다(position 문서의 holdings).
 type Account struct {
 	Symbol          string          `json:"symbol"` // 보유 종목. 없으면 ""
 	Shares          int             `json:"shares"` // 정수주

@@ -579,9 +579,9 @@ internal fun DepositDayDialog(current: Int, onDismiss: () -> Unit, onSave: (Int)
 @Composable
 private fun NotMigrated() {
     SectionCard("투자") {
-        Text("아직 옮기지 않았어요.")
+        Text("자동매매 상태가 아직 없어요.")
         Text(
-            "서버에서 myhome invest import-tq로 TQ 상태를 옮기면 여기에 보여요.",
+            "서버 DB에 자동매매 상태가 생기면 여기에 보여요.",
             style = MaterialTheme.typography.bodySmall,
             color = LocalModo.current.muted,
         )

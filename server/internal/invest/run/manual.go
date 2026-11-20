@@ -151,8 +151,8 @@ func (a *App) Execute(ctx context.Context, o ExecuteOpts) int {
 		Holdings: newAcct, LastRun: pos.LastRun, YM: pos.YM, Signal: pos.Signal, FXRate: fx, ApplyYM: ym,
 		// 누적 적립은 실제로 넣은 돈을 더한다
 		ContributedKRW: pos.ContributedKRW + amount, MonthsInvested: pos.MonthsInvested + 1,
-		JudgmentCount: pos.JudgmentCount, CloseUSD: closesOf(row),
-		ExecutedOn: invest.StrPtr(invest.FormatDay(today)), ExecutedYM: invest.StrPtr(ym),
+		JudgmentCount: pos.JudgmentCount,
+		ExecutedOn:    invest.StrPtr(invest.FormatDay(today)), ExecutedYM: invest.StrPtr(ym),
 		LateDays: &late, FXEstimated: fxEst, Before: before,
 	}
 	shares := newAcct.Shares - acct.Shares
@@ -708,7 +708,7 @@ func (a *App) Deviate(ctx context.Context, o DeviateOpts) int {
 		return a.fail(ExitFail, "%v", err)
 	}
 	if p == nil || p.Symbol != want || p.YM != ym {
-		rec := invest.Pending{Kind: "deviation", YM: ym, Symbol: want, Reason: strings.TrimSpace(o.Reason), RequestedAt: now.Format("2006-01-02T15:04:05")}
+		rec := invest.Pending{YM: ym, Symbol: want, Reason: strings.TrimSpace(o.Reason), RequestedAt: now.Format("2006-01-02T15:04:05")}
 		if err := a.Store.SavePending(ctx, rec); err != nil {
 			return a.fail(ExitFail, "%v", err)
 		}

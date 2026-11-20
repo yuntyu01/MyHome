@@ -21,8 +21,8 @@ import (
 	"github.com/yuntyu01/MyHome/server/internal/testdb"
 )
 
-// TQ tests/test_run.py · test_state.py 중 run_test.go에 아직 없던 것을 옮겼다.
-// 하네스(newHarness, fakeBroker)는 run_test.go 것을 그대로 쓴다. 이름은 TQ 테스트 이름을 Go식으로 바꿨다.
+// 매매 시나리오 회귀 테스트. 검증된 기준(TQ tests/test_run.py · test_state.py의 시나리오)과 같은 결과를 지킨다.
+// 하네스(newHarness, fakeBroker)는 run_test.go 것을 그대로 쓴다.
 
 const (
 	devReason    = "시장이 크게 빠져 3배 레버리지를 들고 있기가 불안하다"
@@ -815,13 +815,13 @@ func TestNoBypassFlagsExist(t *testing.T) {
 
 // ── 8. 최초 설정 — 운용 중인 계좌를 덮어쓰지 않는다 ──────────────────
 
-// 운용 중인 계좌를 초기화하는 것은 되돌릴 수 없는 사고다 (TQ init → Go import-tq).
-func TestImportNeverOverwritesALiveAccount(t *testing.T) {
+// 운용 중인 계좌를 초기화하는 것은 되돌릴 수 없는 사고다 (TQ init → 옮겨 온 뒤로는 Bootstrap).
+func TestBootstrapNeverOverwritesALiveAccount(t *testing.T) {
 	h := newHarness(t, seedOpt{acct: invest.Account{Symbol: "TQQQ", Shares: 205, CostKRW: 28_000_000}})
 	before := h.pos()
-	dir := t.TempDir()
-	if rc := h.app.ImportTQ(h.ctx, ImportOpts{StateDir: dir, MasterCSV: filepath.Join(dir, "master.csv")}); rc != 1 {
-		t.Fatalf("rc %d", rc)
+	fresh := julyPos(invest.Account{})
+	if err := h.st.Bootstrap(h.ctx, fresh); err == nil {
+		t.Fatal("운용 중인 계좌 위에 처음 상태를 놓았다")
 	}
 	if after := h.pos(); !reflect.DeepEqual(after, before) {
 		t.Fatalf("거부했는데 계좌가 바뀌었다: %+v", after)

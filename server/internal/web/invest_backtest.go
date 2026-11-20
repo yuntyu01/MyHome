@@ -110,7 +110,7 @@ func buildBacktestPage(t backtest.Table, all bool) btPage {
 	return p
 }
 
-// investBacktest는 GET /invest/backtest 다. ?s=all이면 전체 표본, 아니면 닷컴 제외(TQ와 같은 기본값).
+// investBacktest는 GET /invest/backtest 다. ?s=all이면 전체 표본, 아니면 닷컴 제외(TQ 뷰어의 기본값).
 func (wb *Web) investBacktest(w http.ResponseWriter, r *http.Request) {
 	t, err := backtest.Load()
 	if err != nil {

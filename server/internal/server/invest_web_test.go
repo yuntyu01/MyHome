@@ -103,7 +103,7 @@ func shortDay(s string) string {
 func TestWebInvestNotMigrated(t *testing.T) {
 	c := newWebClient(t)
 	for _, path := range []string{"/invest", "/invest/value"} {
-		if body := c.page(path); !strings.Contains(body, "아직 옮기지 않았어요") || !strings.Contains(body, `href="/invest" aria-current="page"`) {
+		if body := c.page(path); !strings.Contains(body, "자동매매 상태가 아직 없어요") || !strings.Contains(body, `href="/invest" aria-current="page"`) {
 			t.Errorf("%s: 옮기기 전 안내와 투자 탭 선택이 보여야 함", path)
 		}
 	}

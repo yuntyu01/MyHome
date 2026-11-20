@@ -14,7 +14,7 @@
 # 모두 ssh 표준입력으로 보내서 명령줄·로그에 남지 않는다.
 #
 # 🔴 자동매매 타이머(myhome-invest-*.timer)는 설치만 하고 켜지 않는다. 켜는 건 사람이 한다
-#    (TQ에서 넘어오는 날을 정하고 import-tq를 한 다음): VM에서 sudo /opt/myhome/enable-invest.sh
+#    (자동매매 상태가 DB에 있고 다른 곳의 실행을 멈춘 다음): VM에서 sudo /opt/myhome/enable-invest.sh
 #    (끄기는 disable-invest.sh). systemctl enable --now를 바로 쓰면 지난 실행 기록 때문에 켜자마자 돌 수 있다
 set -euo pipefail
 

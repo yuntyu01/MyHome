@@ -3,7 +3,7 @@
 #
 #   sudo /opt/myhome/enable-invest.sh
 #
-# 켜기 전에: import-tq로 TQ 상태를 옮겼고, TQ 쪽 실행을 멈췄는지 확인한다(토스 토큰이 1개라 동시 실행 금지).
+# 켜기 전에: 자동매매 상태(position)가 DB에 있고, 다른 곳에서 도는 실행이 없는지 확인한다(토스 토큰이 1개라 동시 실행 금지).
 # 이 스크립트는 주문을 내지 않는다. 마지막에 status(읽기 전용 점검)를 한 번 돌려 /healthz/invest를 채운다.
 #
 # 🔴 타이머는 Persistent=true다. systemd는 지난 실행 시각(/var/lib/systemd/timers/stamp-<타이머>)을 보고,

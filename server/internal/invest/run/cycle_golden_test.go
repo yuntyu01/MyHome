@@ -115,7 +115,6 @@ func newCycleRig(t *testing.T) *cycleRig {
 		Holdings: invest.Account{Symbol: "TQQQ", Shares: 40, CostKRW: 4_001_234.5, CashUSD: 12.34, RealizedGainKRW: map[int]float64{2025: -12_345.5}, TaxPaidKRW: map[int]float64{}},
 		LastRun:  "2026-07-31", YM: "2026-07", Signal: julyGolden, FXRate: 1386.25, ApplyYM: "2026-08",
 		ContributedKRW: contributed, MonthsInvested: 7, JudgmentCount: 7,
-		CloseUSD:   map[string]float64{"QQQM": 283.29, "TQQQ": 64.62},
 		ExecutedOn: invest.StrPtr("2026-07-01"), ExecutedYM: invest.StrPtr("2026-07"), LateDays: ip(0),
 		Before: &invest.Snapshot{Holdings: before, ContributedKRW: contributed - 600_000, MonthsInvested: 6},
 	}

@@ -47,9 +47,6 @@ const investUsage = `사용법: myhome invest <명령> [옵션]
   reconcile [--apply-cash]           증권사 계좌 대조 (읽기 전용)
   alert --unit U                     실패 알림을 앱에 남김 (systemd OnFailure가 부른다)
 
-마이그레이션
-  import-tq --state DIR --master CSV [--dry-run]
-
 종료 코드: 0 정상, 1 실패(기다려도 안 풀림), 75 기다리면 풀리는 실패
 환경변수: DATABASE_URL, TOSS_APP_KEY, TOSS_APP_SECRET, TOSS_ACCOUNT, TOSS_TOKEN_FILE(선택),
           INVEST_HEARTBEAT_URL (status 성공 시 ping)`
@@ -195,8 +192,6 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 	year := fs.Int("year", 0, "특정 연도만")
 	paidYear := fs.Int("paid-year", 0, "그 연도분을 납부했다고 기록")
 	applyCash := fs.Bool("apply-cash", false, "현금 차이만 앱에 반영")
-	stateDir := fs.String("state", "", "TQ state/ 디렉터리")
-	master := fs.String("master", "", "master.csv (scripts/tq_export.py)")
 	unit := fs.String("unit", "", "실패한 systemd 유닛 이름")
 	clearStale := fs.Bool("clear-stale", false, "지난 적용월 주문 기록을 지운다 (증권사에 묻고 안전할 때만)")
 	if err := fs.Parse(args); err != nil {
@@ -229,7 +224,7 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 	case "adjust":
 		return app.Adjust(ctx, run.AdjustOpts{Date: *date, DryRun: *dry, Shares: shares.v, Paid: paid.v, Symbol: *symbol, Auto: *auto, FX: *fx, Reason: *reason})
 	case "tax":
-		// TQ와 같은 `tax --paid YEAR`. 다른 명령의 --paid는 원화라서 tax에서만 연도로 읽는다(--paid-year도 그대로 받는다)
+		// `tax --paid YEAR`. 다른 명령의 --paid는 원화라서 tax에서만 연도로 읽는다(--paid-year도 그대로 받는다)
 		py := *paidYear
 		if py == 0 && paid.v != nil {
 			if *paid.v != float64(int(*paid.v)) || *paid.v < 2000 || *paid.v > 2100 {
@@ -257,8 +252,6 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 		return app.Reconcile(ctx, run.ReconcileOpts{ApplyCash: *applyCash})
 	case "alert":
 		return app.Alert(ctx, run.AlertOpts{Unit: *unit})
-	case "import-tq":
-		return app.ImportTQ(ctx, run.ImportOpts{StateDir: *stateDir, MasterCSV: *master, DryRun: *dry})
 	}
 	fmt.Fprintf(app.Err, "✗ 알 수 없는 명령: %s\n%s\n", name, investUsage)
 	return run.ExitFail

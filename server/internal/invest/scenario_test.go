@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TQ tests/test_account.py · test_state.py · test_run.py 중 순수 함수 몫으로 아직 없던 것.
+// 매매 시나리오 회귀(순수 함수 몫). 검증된 기준(TQ tests/test_account.py · test_state.py · test_run.py)과 같은 결과를 지킨다.
 
 // 장중에는 그날이 완결 거래일이 아니다. 개장 직후·주말은 직전 거래일이 완결이다.
 func TestLastCompleteSessionWaitsForTheClose(t *testing.T) {

@@ -460,7 +460,7 @@ const whyText = `
   myhome invest deviate --symbol <종목>          (사유는 선택)
 
   24시간 뒤 한 번 더 실행해야 확정된다. 사유는 6개월 뒤 다시 보여준다.
-  과거 백테스트 원본은 docs/tq/전략_SPX185_백테스트결과_v2.xlsx
+  과거 백테스트 원본은 docs/backtest-source/전략_SPX185_백테스트결과_v2.xlsx
 `
 
 // ReconcileOpts는 reconcile 옵션이다.

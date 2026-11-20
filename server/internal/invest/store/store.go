@@ -27,8 +27,8 @@ import (
 // 가계부 처리 잠금(7240001)과 분리한다 — 매매가 알림 처리를 막지 않게.
 const lockKey = 7240002
 
-// ErrNoPosition은 position 상태가 아직 없을 때다(마이그레이션 전).
-var ErrNoPosition = errors.New("position 상태가 없다. `myhome invest import-tq`로 TQ 상태를 먼저 옮길 것")
+// ErrNoPosition은 position 상태가 아직 없을 때다(시작 전).
+var ErrNoPosition = errors.New("position 상태가 없다 — 자동매매를 아직 시작하지 않았다(처음 상태는 Bootstrap이 놓는다)")
 
 type querier interface {
 	dbq.DBTX
@@ -197,7 +197,7 @@ func (s *Store) FillFXMkt(ctx context.Context, day time.Time, v float64) (bool, 
 	return n == 1, err
 }
 
-// CopyPrices는 마이그레이션용 일괄 적재다.
+// CopyPrices는 가격 마스터 일괄 적재다(처음 이력·테스트).
 func (s *Store) CopyPrices(ctx context.Context, rows invest.Prices) (int64, error) {
 	ps := make([]dbq.CopyInvestPricesParams, len(rows))
 	for i, r := range rows {
@@ -855,8 +855,8 @@ func (s *Store) AppendLedger(ctx context.Context, e invest.LedgerEntry) error {
 	return err
 }
 
-// ImportLedger는 마이그레이션용 그대로 적재다. amend 덮어쓰기를 다시 적용하지 않는다 —
-// TQ 장부에는 이미 덮인 결과만 남아 있다.
+// ImportLedger는 원금 내역 한 줄을 그대로 적재한다(시드·복구용). round2와 amend 덮어쓰기를 다시 적용하지 않는다 —
+// 이미 그 처리를 거친 줄을 그대로 옮길 때 쓴다.
 func (s *Store) ImportLedger(ctx context.Context, e invest.LedgerEntry) error {
 	on, err := invest.ParseDay(e.On)
 	if err != nil {
@@ -954,11 +954,6 @@ func (s *Store) RecordMissedMonth(ctx context.Context, ym, signalTarget string, 
 	return &d, s.insertDeviation(ctx, d)
 }
 
-// ImportDeviation은 마이그레이션용 그대로 적재다.
-func (s *Store) ImportDeviation(ctx context.Context, d invest.Deviation) error {
-	return s.insertDeviation(ctx, d)
-}
-
 // ── 적립액 ───────────────────────────────────────────────────────────
 
 // LoadContributions는 적립액 변경 이력이다. effective_from 오름차순.
@@ -1027,7 +1022,7 @@ func (s *Store) SetContribution(ctx context.Context, amount int64, effectiveFrom
 	return c, s.ImportContribution(ctx, c)
 }
 
-// ImportContribution은 검사 없이 넣는다(최초 개시·마이그레이션용).
+// ImportContribution은 검사 없이 넣는다(최초 개시용).
 func (s *Store) ImportContribution(ctx context.Context, c invest.Contribution) error {
 	on, err := invest.ParseDay(c.RecordedOn)
 	if err != nil {

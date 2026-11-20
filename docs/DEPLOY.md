@@ -143,7 +143,7 @@ sudo /opt/myhome/enable-invest.sh    # 켜기: 지난 실행 기록 정리 → �
 sudo /opt/myhome/disable-invest.sh   # 끄기: 타이머만 끈다. 돌고 있는 작업은 끊지 않는다
 ```
 
-- 켜기 전에 `import-tq`로 TQ 상태를 옮기고 TQ 쪽 실행을 멈춘다(토스 토큰이 1개라 동시 실행 금지).
+- 켜기 전에 자동매매 상태(position)가 DB에 있고 다른 곳에서 도는 실행이 없는지 본다(토스 토큰이 1개라 동시 실행 금지).
 - `systemctl enable --now`를 바로 쓰지 않는다. 타이머가 `Persistent=true`라 예전에 켰던 기록(`/var/lib/systemd/timers/stamp-myhome-invest-*`)이 있으면 켜는 순간 놓친 일정(예: trade)을 돌린다. `enable-invest.sh`는 그 기록을 지우고 켠다.
 - 마지막에 출력되는 `systemctl list-timers`에서 다음 실행 시각을 확인한다.
 

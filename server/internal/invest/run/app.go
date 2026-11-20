@@ -277,17 +277,6 @@ func sellLegsFor(acct invest.Account, target string) []string {
 	return nil
 }
 
-// closesOf는 그날 행의 거래 종목 종가다(값이 있는 것만).
-func closesOf(row invest.PriceRow) map[string]float64 {
-	out := map[string]float64{}
-	for _, t := range invest.Tickers {
-		if v := row.Get(t); !math.IsNaN(v) {
-			out[t] = v
-		}
-	}
-	return out
-}
-
 // rejectAbsurdFills는 수동 입력 오타 방어다 — 체결단가를 그날 종가와 대조한다.
 //
 // execute --fill TQQQ=0.649 (실제 $64.90)를 치면 장부가 649주가 된다(실측 — 증권사는 6주).
