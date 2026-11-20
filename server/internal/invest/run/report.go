@@ -88,23 +88,31 @@ func (a *App) Status(ctx context.Context, o StatusOpts) int {
 	if err != nil {
 		return a.fail(ExitFail, "apply_ym 형식 이상")
 	}
-	// 입금일을 정했으면 매수는 입금 뒤다. 입금이 안 보여도 입금일 + 며칠이 지나면 있는 돈으로 사므로
-	// 그 날(deadline)까지는 기다리는 중이고, 지나도 못 샀으면 빠진 것이다
+	// 매수는 주문가능금액이 계획을 채우면 한다. 모자라면 10일(마감)까지 입금을 기다리므로 그 날까지는 기다리는 중이고,
+	// 지나도 못 샀으면 빠진 것이다. 입금일을 정했으면 그 날 전에는 사지 않는다
 	dd, err := a.Store.DepositDay(ctx)
 	if err != nil {
 		a.printf("입금일    읽지 못함 — 첫 거래일 기준으로 본다 (%v)", err)
 		dd = 0
 	}
-	execDay := invest.BuyDeadline(t.Year(), t.Month(), dd)
+	// 입금일과 상관없이 마감은 10일(또는 그 앞 거래일)이다 — 그때까지 입금을 기다린다
+	execDay := invest.BuyDeadline(t.Year(), t.Month())
 	switch {
+	case pos.ExecutedThisMonth() && pos.TopUpKRW > 0:
+		// 전환은 끝났고 적립금 추가 매수만 남았다. 마감까지 안 되면 trade가 실패로 알렸으니 여기서는 적기만 한다
+		a.printf("매수      %s 전환 완료 (%s) · 적립금 %s원 추가 매수 대기 (늦어도 %s)", pos.ApplyYM, *pos.ExecutedOn, won(pos.TopUpKRW), invest.FormatDay(execDay))
+		if today.After(execDay) {
+			a.printf("          ⚠ 마감이 지났다 — 들어온 적립금은 다음 달 매수에 같이 쓰인다")
+		}
 	case pos.ExecutedThisMonth():
 		a.printf("매수      %s 완료 (%s) ✓", pos.ApplyYM, *pos.ExecutedOn)
 	case !today.After(execDay):
-		// 실행일 당일은 아직 기회가 남았다 — 여기서 알리면 오경보다
+		// 마감 당일은 아직 기회가 남았다 — 여기서 알리면 오경보다
 		if dd > 0 {
 			a.printf("매수      %s 예정 (입금일 %d일 · 늦어도 %s)", pos.ApplyYM, dd, invest.FormatDay(execDay))
 		} else {
-			a.printf("매수      %s 예정 (%s)", pos.ApplyYM, invest.FormatDay(execDay))
+			first, _ := invest.BuyDayOf(pos.ApplyYM, 0)
+			a.printf("매수      %s 예정 (%s부터 · 늦어도 %s)", pos.ApplyYM, invest.FormatDay(first), invest.FormatDay(execDay))
 		}
 	default:
 		return a.fail(ExitFail, "%s 매수 미체결 — 실행일(%s) %d일 경과.\n  `myhome invest order` 로 주문서를 확인할 것.\n  안 사는 것도 이탈이다. 다만 사유도 잠금도 남지 않아 더 위험하다.",

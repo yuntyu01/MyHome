@@ -193,7 +193,9 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		}
 	}
 	seen := a.observe(ctx, client, ym)
-	if pos.ExecutedThisMonth() {
+	// 전환 달에 매도대금으로 먼저 사고 남은 적립금이 있으면 같은 달 안에 더 산다(아래 매수 단계를 그대로 탄다)
+	topUp := pos.ExecutedThisMonth() && pos.TopUpKRW > 0
+	if pos.ExecutedThisMonth() && !topUp {
 		a.printf("%s 이미 완료 (%s). 할 일 없음", ym, *pos.ExecutedOn)
 		// 추정 환율로 적은 달이면 결제가 끝났는지 보고 증권사 적용 환율로 확정한다(실패해도 매매는 정상)
 		if pos.FXEstimated {
@@ -234,8 +236,12 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	if book.YM != ym { // 지난달 잔여는 이어받지 않는다
 		return a.fail(ExitFail, "진행 중인 주문 기록이 %s 것이다. 새 주문을 내지 않는다.\n  `myhome invest orders`로 보고, 증권사에 남은 주문이 없으면 `myhome invest orders --clear-stale`로 정리할 것", book.YM)
 	}
-	// 입금일 게이트 — 이번 달 주문을 하나도 안 냈을 때만. 이미 낸 주문은 입금과 상관없이 끝까지 따라간다
-	if len(book.Orders) == 0 && a.waitForDeposit(ctx, today, ym, seen, o.DryRun) {
+	if topUp && len(book.Orders) == 0 {
+		a.printf("%s 전환은 끝났다 (%s) — 남은 적립금 %s원을 더 산다", ym, *pos.ExecutedOn, won(pos.TopUpKRW))
+	}
+	// 입금일 게이트 — 이번 달 주문을 하나도 안 냈고 팔 것이 없을 때만. 이미 낸 주문은 입금과 상관없이 끝까지 따라간다.
+	// 🔴 전환 달은 기다리지 않는다 — 매도·매수가 늦으면 한 달 잘못된 포지션이다(적립금은 들어오면 더 산다)
+	if len(book.Orders) == 0 && len(sells) == 0 && a.waitForDeposit(ctx, today, ym, seen, o.DryRun) {
 		return ExitOK
 	}
 
@@ -272,7 +278,7 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	//    단, 주문이 만료됐으면 승격하고, 매도가 끝났으면 매수로 넘어가 아래 주문 단계로 이어진다
 	sameRun := false
 	if len(pending) > 0 {
-		rc, next := a.settle(ctx, client, &book, pending, today, acct, pos, target, row, fx, fxEst, o.DryRun)
+		rc, next := a.settle(ctx, client, &book, pending, today, acct, pos, target, row, fx, fxEst, o.DryRun, topUp)
 		if next == settleStop {
 			return rc
 		}
@@ -330,6 +336,11 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	if err != nil {
 		return a.fail(ExitFail, "%v", err)
 	}
+	// 이번에 사려는 원화: 적립액. 전환 달 추가 매수면 그때 모자랐던 적립금만
+	wantKRW := float64(planKRW)
+	if topUp {
+		wantKRW = pos.TopUpKRW
+	}
 	// 🔴 매도대금을 반드시 더한다. 전환 달은 매도 체결 뒤에도 계좌가 아직 옛 상태다
 	_, proceedsUSD := sold(book)
 	// 🔴 이미 채워진 매수분을 뺀다 — 안 빼면 초과 매수가 된다 (실측: 6주 계획에서 1주 체결 후 6주를 또 내 7주)
@@ -343,8 +354,23 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	// 거듭된다 — 지금 가격을 다시 받아 그 위에 안전폭을 얹는다
 	ref := a.freshPrice(ctx, target, close, today)
 	est := ref * (1 + SizingBuffer)
-	planUSD := acct.CashUSD + float64(planKRW)/fx + proceedsUSD - spentUSD
+	// 🔴 매수 상한: 계획액 + 장부 현금(+ 전환 달 매도대금). 계좌에 다른 돈이 더 있어도 이만큼만 산다
+	planUSD := acct.CashUSD + wantKRW/fx + proceedsUSD - spentUSD
 	planQty := int(math.Floor(planUSD / (est * (1 + invest.FeeRate))))
+	// 전환 달 남은 적립금이 한 주 값도 안 되면 더 살 것이 없다 — 다음 달 매수에 같이 쓰이게 두고 이번 달을 닫는다
+	if topUp && planQty <= 0 {
+		a.printf("  남은 적립금 %s원은 %s 한 주(%s)에 못 미친다 — 다음 달 매수에 같이 쓴다", won(pos.TopUpKRW), target, usd(est))
+		if o.DryRun {
+			return ExitOK
+		}
+		done := pos
+		done.TopUpKRW = 0
+		if err := a.Store.SavePosition(ctx, done); err != nil {
+			return a.fail(ExitFail, "저장 실패: %v", err)
+		}
+		a.noteDone(ctx, ym, target)
+		return ExitOK
+	}
 
 	var qty int
 	if o.DryRun {
@@ -362,14 +388,30 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 			a.printf("  매도대금 %s가 아직 주문가능금액(%s)에 다 들어오지 않았다 — 매수는 다음 실행에서 낸다", usd(proceedsUSD), usd(b.CashUSD))
 			return ExitOK
 		}
+		// 🔴 주문가능금액이 계획에 모자라면 적립금이 아직 안 들어온 것이다. 적립 매수는 실패가 아니라 입금 대기로
+		// 끝내고(알림 없음) 마감(10일)까지 기다린다. 전환 달은 기다리지 않는다 — 매도대금으로 먼저 사고, 모자란 적립금은
+		// 들어오면 같은 달 안에 더 산다(position.top_up_krw)
+		short := b.CashUSD < planUSD*cashSeenBand
+		if proceedsUSD > 0 {
+			book.TopUpKRW = 0 // 다시 낼 때(만료 뒤 승격 등) 그새 들어왔으면 남은 적립금이 없다
+		}
+		switch {
+		case short && proceedsUSD > 0:
+			book.TopUpKRW = math.Min(float64(planKRW), (planUSD-b.CashUSD)*fx)
+			a.printf("  적립금이 아직 다 안 들어왔다(약 %s원) — 매도대금으로 먼저 사고, 들어오면 이번 달 안에 더 산다", won(book.TopUpKRW))
+		case short:
+			return a.depositWait(today, ym, planUSD, b.CashUSD, wantKRW, topUp)
+		}
 		if b.MaxQty <= 0 {
 			return a.fail(ExitFail, "증권사가 %s를 0주까지만 허용한다 (주문가능 %s).\n  확인할 것:\n    · %s원 자동이체가 실제로 들어왔는가\n    · 통합증거금(원화주문)이 켜져 있는가 — 신청해야 켜진다",
 				target, usd(b.CashUSD), commas(float64(planKRW)))
 		}
-		qty = b.MaxQty
-		a.printf("  증권사 주문가능 %s (최대 %d주)", usd(b.CashUSD), qty)
-		if qty != planQty {
-			a.printf("  계획 %d주(%s원) vs 계좌 %d주 — 계좌 기준으로 산다", planQty, commas(float64(planKRW)), qty)
+		qty = min(b.MaxQty, planQty)
+		a.printf("  증권사 주문가능 %s (최대 %d주)", usd(b.CashUSD), b.MaxQty)
+		if b.MaxQty > planQty {
+			a.printf("  계획 상한 %d주(%s원 + 장부 현금) — 계좌에 더 있어도 계획만큼 산다", planQty, won(wantKRW))
+		} else if b.MaxQty < planQty {
+			a.printf("  계획 %d주 vs 계좌 %d주 — 계좌 기준으로 산다", planQty, b.MaxQty)
 		}
 	}
 	if qty <= 0 {
@@ -388,6 +430,27 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 
 // proceedsSeen은 매도대금이 주문가능금액에 들어왔다고 볼 비율이다. 수수료 계산 차이만큼 여유를 둔다.
 const proceedsSeen = 0.99
+
+// cashSeenBand는 주문가능금액이 계획을 채웠다고 볼 비율이다. 통합증거금은 원화를 증권사 환율(우대·스프레드)로 바꿔
+// 세므로 시장 환율로 잡은 계획보다 조금 적게 보인다 — 그만큼은 들어온 것으로 본다.
+const cashSeenBand = 0.97
+
+// depositWait는 적립금이 아직 안 들어와 사지 못한 날이다. 마감(10일, 휴장이면 그 앞 거래일) 전이면 입금 대기로
+// 정상 종료(알림 없음), 마감 날에도 모자라면 실패로 알린다.
+func (a *App) depositWait(today time.Time, ym string, needUSD, haveUSD, wantKRW float64, topUp bool) int {
+	deadline, _ := invest.BuyDeadlineOf(ym)
+	what := "적립금"
+	if topUp {
+		what = "전환 달 남은 적립금"
+	}
+	if today.Before(deadline) {
+		a.printf("%s 입금 대기 — 주문가능 %s · 필요 %s(%s %s원 + 장부 현금). 들어오면 산다 (늦어도 %s)",
+			ym, usd(haveUSD), usd(needUSD), what, won(wantKRW), invest.FormatDay(deadline))
+		return ExitOK
+	}
+	return a.fail(ExitFail, "🚨 %s %s이 마감(%s)까지 들어오지 않았다 — 주문가능 %s · 필요 %s.\n  확인할 것:\n    · 자동이체가 실제로 됐는가\n    · 통합증거금(원화주문)이 켜져 있는가 — 신청해야 켜진다",
+		ym, what, invest.FormatDay(deadline), usd(haveUSD), usd(needUSD))
+}
 
 // freshQuoteBand를 넘게 마스터 종가와 다른 현재가는 믿지 않는다(야후 오류로 보고 종가를 쓴다).
 const freshQuoteBand = 0.30
@@ -809,7 +872,7 @@ const (
 // 🔴 dryRun이면 조회만 하고 아무것도 쓰지 않는다. 미리 보려고 친 명령이 그 달 체결을 확정하면
 // 안 된다 — 실제로 --dry-run이 position·ledger를 써서 체결을 확정한 적이 있다.
 func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.OrderBook, pending []int, today time.Time,
-	acct invest.Account, pos invest.Position, target string, row invest.PriceRow, fx float64, fxEst, dryRun bool) (int, settleNext) {
+	acct invest.Account, pos invest.Position, target string, row invest.PriceRow, fx float64, fxEst, dryRun, topUp bool) (int, settleNext) {
 	ym := book.YM
 	for _, i := range pending {
 		o := &book.Orders[i]
@@ -912,6 +975,10 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 	if err != nil {
 		return a.fail(ExitFail, "%v", err), settleStop
 	}
+	wantKRW := float64(planKRW)
+	if topUp {
+		wantKRW = pos.TopUpKRW
+	}
 	before := snapshot(acct, pos)
 
 	// 🔴 장부는 받아 적기만 한다. 다시 계산하지 않는다
@@ -944,8 +1011,8 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 		return a.fail(ExitFail, "%v", err), settleStop
 	}
 	traded = append(traded, bt)
-	if math.Abs(newMoneyKRW-float64(planKRW)) > float64(planKRW)*0.05 {
-		a.printf("  계획 %s원 · 실제 투입 %s원", commas(float64(planKRW)), won(newMoneyKRW))
+	if math.Abs(newMoneyKRW-wantKRW) > wantKRW*0.05 {
+		a.printf("  계획 %s원 · 실제 투입 %s원", won(wantKRW), won(newMoneyKRW))
 	}
 	if dryRun {
 		a.printf("[dry-run] %s %s %d주 · 잔여 %s — 저장하지 않았다", ym, target, newAcct.Shares, usd(newAcct.CashUSD))
@@ -959,10 +1026,21 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 		ExecutedOn:    invest.StrPtr(invest.FormatDay(today)), ExecutedYM: invest.StrPtr(ym),
 		LateDays: &zero, Before: before, FXEstimated: fxEst,
 	}
+	next.TopUpKRW = book.TopUpKRW
+	if topUp {
+		// 전환 달 적립금 추가 매수: 그 달 체결 기록(체결일·직전 상태·월 수)은 그대로, 계좌와 원금만 더한다
+		next = pos
+		next.Holdings, next.FXRate, next.FXEstimated = newAcct, fx, fxEst
+		next.ContributedKRW = pos.ContributedKRW + newMoneyKRW
+		next.TopUpKRW = 0
+	}
 	shares := newAcct.Shares - stepped.Shares
 	note := ""
+	if topUp {
+		note = "적립 추가 매수"
+	}
 	if fxEst {
-		note = "환율 추정"
+		note = strings.TrimPrefix(note+" · 환율 추정", " · ")
 	}
 	err = a.Store.InTx(ctx, func(s *store.Store) error {
 		if err := s.AddFills(ctx, invest.FillsOf(traded, today, ym, invest.FillFromTrade)); err != nil {
@@ -985,6 +1063,11 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 	if fxEst {
 		a.printf("  ⚠ 환율 %s는 시장 환율 추정이다. 결제(T+1)가 끝나면 다음 trade·refresh가 증권사 적용 환율로 확정한다", plain2(fx))
 		a.printf("     (직접: myhome invest amend --auto)")
+	}
+	if next.TopUpKRW > 0 {
+		a.printf("  남은 적립금 %s원은 들어오면 이번 달 안에 더 산다", won(next.TopUpKRW))
+	} else {
+		a.noteDone(ctx, ym, target)
 	}
 	return ExitOK, settleStop
 }

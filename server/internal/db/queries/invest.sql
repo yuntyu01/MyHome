@@ -123,11 +123,16 @@ LIMIT 1;
 -- 실패 알림 한 줄. 매매 역할만 쓴다.
 INSERT INTO invest_alerts (unit, cmd, run_id, exit_code, title, body)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, created_at, unit, cmd, run_id, exit_code, title, body;
+RETURNING id, created_at, unit, cmd, run_id, exit_code, title, body, kind, ym;
+
+-- name: InsertInvestDoneAlert :execrows
+-- 매수 완료 알림. 같은 달은 한 번뿐이다 — 이미 있으면 0.
+INSERT INTO invest_alerts (kind, ym, title, body) VALUES ('done', $1, $2, $3)
+ON CONFLICT (ym) WHERE kind = 'done' DO NOTHING;
 
 -- name: ListInvestAlertsAfter :many
 -- 앱이 마지막으로 본 id 다음 알림. since보다 오래된 것은 주지 않는다(처음 연결한 기기에 옛 알림을 쏟지 않게).
-SELECT id, created_at, unit, cmd, run_id, exit_code, title, body
+SELECT id, created_at, unit, cmd, run_id, exit_code, title, body, kind, ym
 FROM invest_alerts
 WHERE id > sqlc.arg(after_id) AND created_at >= sqlc.arg(since)
 ORDER BY id
@@ -201,13 +206,13 @@ SELECT ym, kind, day, spx, sma185, vol, c1, c2, target, created_at FROM invest_j
 
 -- name: GetOpenInvestOrderBook :one
 -- 열린 주문 묶음(많아야 하나).
-SELECT id, ym, stage, style_idx, ledger_gap FROM invest_order_books WHERE closed_at IS NULL;
+SELECT id, ym, stage, style_idx, ledger_gap, top_up_krw FROM invest_order_books WHERE closed_at IS NULL;
 
 -- name: InsertInvestOrderBook :one
-INSERT INTO invest_order_books (ym, stage, style_idx, ledger_gap) VALUES ($1, $2, $3, $4) RETURNING id;
+INSERT INTO invest_order_books (ym, stage, style_idx, ledger_gap, top_up_krw) VALUES ($1, $2, $3, $4, $5) RETURNING id;
 
 -- name: UpdateInvestOrderBook :exec
-UPDATE invest_order_books SET stage = $2, style_idx = $3, ledger_gap = $4 WHERE id = $1 AND closed_at IS NULL;
+UPDATE invest_order_books SET stage = $2, style_idx = $3, ledger_gap = $4, top_up_krw = $5 WHERE id = $1 AND closed_at IS NULL;
 
 -- name: CloseInvestOrderBook :execrows
 UPDATE invest_order_books SET closed_at = now(), closed_by = $2 WHERE id = $1 AND closed_at IS NULL;

@@ -127,12 +127,13 @@ func (a *App) addFlow(ctx context.Context, known map[string]bool, e invest.FlowE
 // waitForDeposit은 입금일 게이트다. 이번 달 주문을 아직 하나도 안 냈을 때만 부른다(낸 주문은 끝까지 따라간다).
 // true면 오늘은 사지 않고 기다린다.
 //
-// 입금일을 정하지 않았으면 예전처럼 바로 산다. 정했으면 이번 달 입금이 적립액의 절반 이상 보일 때 사고,
-// 입금일 + DepositGraceDays가 지나도 안 보이면 있는 돈으로 산다(못 사는 것보다 낫다). 입금이 일찍 들어오면 일찍 산다.
+// 입금일을 정했으면 그 날(다음 거래일) 전에는 사지 않는다 — 다른 용도의 돈으로 월급 전에 사 버리지 않게.
+// 이번 달 입금이 적립액의 절반 이상 보이면 입금일 전이라도 산다. 입금일이 되면 여기서는 막지 않고, 주문가능금액이
+// 계획에 모자라면 trade의 입금 대기가 10일까지 기다린다(그래도 모자라면 실패).
 func (a *App) waitForDeposit(ctx context.Context, today time.Time, ym string, seen observed, dryRun bool) bool {
 	dd, err := a.Store.DepositDay(ctx)
 	if err != nil {
-		a.warnf("⚠ 입금일을 읽지 못했다 — 기다리지 않고 산다: %v", err)
+		a.warnf("⚠ 입금일을 읽지 못했다 — 입금일 없이 진행한다: %v", err)
 		return false
 	}
 	if dd == 0 {
@@ -146,24 +147,20 @@ func (a *App) waitForDeposit(ctx context.Context, today time.Time, ym string, se
 		a.printf("  입금 확인 — 이번 달 %s원 (입금일 %d일)", won(seen.DepositKRW), dd)
 		return false
 	}
-	deadline, ok := invest.BuyDeadlineOf(ym, dd)
-	if !ok {
+	buyDay, ok := invest.BuyDayOf(ym, dd)
+	if !ok || !today.Before(buyDay) {
 		return false
 	}
-	if today.Before(deadline) {
-		if dryRun {
-			a.printf("[dry-run] 입금일 %d일 — 실제 실행은 입금이 보이거나 %s가 될 때까지 기다린다", dd, invest.FormatDay(deadline))
-			return false
-		}
-		what := "이번 달 입금 " + won(seen.DepositKRW) + "원"
-		if !seen.OK {
-			what = "입금 내역을 읽지 못함"
-		}
-		a.printf("%s 입금 기다림 — 입금일 %d일 · %s. %s까지 안 보이면 있는 돈으로 산다", ym, dd, what, invest.FormatDay(deadline))
-		return true
+	if dryRun {
+		a.printf("[dry-run] 입금일 %d일 — 실제 실행은 입금이 보이거나 %s가 될 때까지 기다린다", dd, invest.FormatDay(buyDay))
+		return false
 	}
-	a.warnf("⚠ 입금이 안 보인다 — 입금일 %d일에서 %d일이 지났다. 있는 돈으로 산다", dd, invest.DepositGraceDays)
-	return false
+	what := "이번 달 입금 " + won(seen.DepositKRW) + "원"
+	if !seen.OK {
+		what = "입금 내역을 읽지 못함"
+	}
+	a.printf("%s 입금일 전 — 입금일 %d일 · %s. 입금이 보이거나 %s가 되면 산다", ym, dd, what, invest.FormatDay(buyDay))
+	return true
 }
 
 // noteOrder는 증권사가 받은 주문을 남긴다(구매 신청 단계).
@@ -182,4 +179,53 @@ func (a *App) noteFill(ctx context.Context, ym string, o invest.BookOrder) {
 	}
 	a.addFlow(ctx, nil, invest.FlowEvent{YM: ym, Step: invest.StepFill, Key: o.OrderID, At: a.now(),
 		Symbol: o.Symbol, Side: o.Side, Qty: o.Qty, Price: o.FillPrice, Style: broker.Style(o.Style).Label(), OrderID: o.OrderID})
+}
+
+// noteDone은 그 달 매수가 모두 끝났다는 알림을 한 번 남긴다(앱의 조용한 채널, 사용자 요청 2026-11-20).
+// 본문은 종목·이번 달 산 수량·이번 달 원금만이다 — 수익률·평가액은 싣지 않는다(자주 열어 보게 만들지 않으려고).
+// 같은 달은 DB가 한 번만 받는다. 실패해도 매매는 정상이다.
+func (a *App) noteDone(ctx context.Context, ym, symbol string) {
+	if a.Store == nil {
+		return
+	}
+	fills, err := a.Store.LoadFills(ctx)
+	if err != nil {
+		a.warnf("⚠ 완료 알림을 남기지 못했다(매매와 무관): %v", err)
+		return
+	}
+	shares := 0
+	for _, f := range fills {
+		if f.YM == ym && f.Symbol == symbol && f.Side == invest.FillBuy && f.Source != invest.FillFromAdjust {
+			shares += f.Shares
+		}
+	}
+	rows, err := a.Store.LoadLedger(ctx)
+	if err != nil {
+		a.warnf("⚠ 완료 알림을 남기지 못했다(매매와 무관): %v", err)
+		return
+	}
+	principal := 0.0
+	for _, r := range rows {
+		if r.YM == ym && r.Source != "adjust" {
+			principal += r.AmountKRW
+		}
+	}
+	title := monthLabel(ym) + " 매수 완료"
+	body := fmt.Sprintf("%s %d주 · 이번 달 원금 %s원", symbol, shares, won(principal))
+	ok, err := a.Store.AddDoneAlert(ctx, ym, title, body)
+	switch {
+	case err != nil:
+		a.warnf("⚠ 완료 알림을 남기지 못했다(매매와 무관): %v", err)
+	case ok:
+		a.printf("  완료 알림 — %s · %s", title, body)
+	}
+}
+
+// monthLabel은 "2026-12"를 "12월"로.
+func monthLabel(ym string) string {
+	t, err := time.Parse("2006-01", ym)
+	if err != nil {
+		return ym
+	}
+	return fmt.Sprintf("%d월", t.Month())
 }

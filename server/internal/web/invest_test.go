@@ -100,12 +100,16 @@ func TestInvestStatusPlannedAndExecDay(t *testing.T) {
 func TestInvestStatusMissedPurchase(t *testing.T) {
 	pos := basePosition()
 	pos.ExecutedOn, pos.ExecutedYM = invest.StrPtr("2026-10-01"), invest.StrPtr("2026-10") // 지난 적용월 체결만 있다
-	now := etNow(2026, 11, 6)
+	// 마감은 10일(입금을 기다리는 마지막 날)이라 11일부터 매수 안 됨이다
+	if s := buildInvestStatus(etNow(2026, 11, 10), pos, baseInputs(etNow(2026, 11, 10))); s.Month.Bad {
+		t.Errorf("마감 당일은 기다리는 중 = %+v", s.Month)
+	}
+	now := etNow(2026, 11, 11)
 	s := buildInvestStatus(now, pos, baseInputs(now))
-	if !s.Month.Bad || s.Month.Value != "✗ 매수 안 됨" || !strings.Contains(s.Month.Meta, "실행일 11월 2일에서 4일 지남") {
+	if !s.Month.Bad || s.Month.Value != "✗ 매수 안 됨" || !strings.Contains(s.Month.Meta, "실행일 11월 2일에서 9일 지남") {
 		t.Errorf("미체결 = %+v", s.Month)
 	}
-	if !s.Schedule[1].Bad || s.Schedule[1].Value != "11월 2일 · D+4" {
+	if !s.Schedule[1].Bad || s.Schedule[1].Value != "11월 2일 · D+9" {
 		t.Errorf("지난 실행일 = %+v", s.Schedule[1])
 	}
 	if s.Problems != 1 {

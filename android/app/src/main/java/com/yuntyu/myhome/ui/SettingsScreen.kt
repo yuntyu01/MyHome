@@ -138,7 +138,7 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
                 0 -> "정하지 않음"
                 else -> "매달 ${d}일"
             },
-            help = "월급이 토스증권에 들어오는 날이에요. 이 날 뒤로 입금이 보이면 그날 밤에 사고, 정하지 않으면 매달 첫 거래일에 계좌에 있는 돈으로 사요.",
+            help = "월급이 토스증권에 들어오는 날이에요(1~7일). 이 날 전에는 사지 않아요. 어느 쪽이든 적립금이 다 들어와야 사고, 10일까지 안 들어오면 알려 드려요.",
             onClick = { if (depositDay != null) depositDialog = true },
         )
 

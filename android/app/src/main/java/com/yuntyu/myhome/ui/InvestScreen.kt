@@ -529,7 +529,7 @@ private fun StepIcon(state: String, size: Dp) {
     }
 }
 
-/** 입금일 고르기(1~20일, 달력처럼 7칸씩). 정하지 않으면 예전처럼 첫 거래일에 산다. 설정 화면이 쓴다 */
+/** 입금일 고르기(1~7일 — 매매 창이 1~10일이라). 정하지 않으면 첫 거래일부터 산다. 설정 화면이 쓴다 */
 @Composable
 internal fun DepositDayDialog(current: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
     val m = LocalModo.current
@@ -540,10 +540,10 @@ internal fun DepositDayDialog(current: Int, onDismiss: () -> Unit, onSave: (Int)
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    "월급이 토스증권에 들어오는 날이에요. 이 날 뒤로 입금이 보이면 그날 밤에 사고, 3일이 지나도 안 보이면 있는 돈으로 사요.",
+                    "월급이 토스증권에 들어오는 날이에요. 이 날 전에는 사지 않고, 적립금이 들어오면 그날 밤에 사요. 10일까지 안 들어오면 알려 드려요.",
                     fontSize = 14.sp, color = m.muted, modifier = Modifier.padding(bottom = 8.dp),
                 )
-                for (week in (1..20).chunked(7)) {
+                for (week in (1..7).chunked(7)) {
                     Row(Modifier.fillMaxWidth()) {
                         for (d in week) {
                             val on = d == day

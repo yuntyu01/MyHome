@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -717,22 +718,36 @@ func TestTradeStopsWhenPreflightFails(t *testing.T) {
 	}
 }
 
-func TestTradeStopsWhenTheBrokerAllowsNothing(t *testing.T) {
+// 주문가능금액이 0이면 적립금이 안 들어온 것이다 — 마감 전에는 입금 대기(알림 없음), 마감 날에는 실패.
+func TestTradeWaitsWhenTheBrokerAllowsNothing(t *testing.T) {
 	h := newHarness(t, seedOpt{})
 	h.fb.spent = 1e9 // 한도 0
-	if rc := h.trade(execDay, false); rc != 1 || !strings.Contains(h.err.String(), "0주") {
-		t.Fatalf("rc %d %s", rc, h.err)
+	if rc := h.trade(execDay, false); rc != 0 || !strings.Contains(h.out.String(), "입금 대기") || len(h.fb.attempts) != 0 {
+		t.Fatalf("rc %d %s %s", rc, h.out, h.err)
+	}
+	if rc := h.trade(d(8, 10), false); rc != 1 || !strings.Contains(h.err.String(), "마감") {
+		t.Fatalf("마감 날 rc %d %s", rc, h.err)
 	}
 }
 
-// 계좌에 계획보다 많은 돈이 있으면 계좌 기준으로 산다 (§12.1.5).
-func TestThePlanNoLongerCapsTheOrder(t *testing.T) {
+// planQtyAt은 계획(적립 60만원 ÷ 환율 1420.6, 장부 현금 0)으로 살 수 있는 수량이다 — 매수 상한.
+func planQtyAt(est float64) int {
+	return int(math.Floor((600000 / 1420.6) / (est * (1 + invest.FeeRate))))
+}
+
+// 🔴 매수 상한은 계획액 + 장부 현금이다(2026-11-20 사용자 결정, TQ §12.1.5 "계좌에 있는 만큼 산다"를 바꿈).
+// 계좌에 다른 돈이 더 있어도 계획만큼만 산다.
+func TestThePlanCapsTheOrder(t *testing.T) {
 	h := newHarness(t, seedOpt{})
 	h.fb.limit = 3000
-	h.trade(execDay, false)
-	lim, est := 3000.0, 64.62*(1+SizingBuffer)
-	if q := h.fb.placed[0].Qty; q != int(lim/est) {
-		t.Fatalf("계좌 기준 수량이 아니다: %d", q)
+	if rc := h.trade(execDay, false); rc != 0 {
+		t.Fatalf("rc %d %s", rc, h.err)
+	}
+	if q, want := h.fb.placed[0].Qty, planQtyAt(64.62*(1+SizingBuffer)); q != want {
+		t.Fatalf("계획을 넘겨 샀다: %d주 (상한 %d주)", q, want)
+	}
+	if !strings.Contains(h.out.String(), "계획 상한") {
+		t.Fatalf("%s", h.out)
 	}
 }
 
@@ -943,11 +958,14 @@ func TestStatusDeadman(t *testing.T) {
 	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-08-03"}); rc != 0 {
 		t.Fatal("실행일 당일은 오경보다")
 	}
-	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-08-05"}); rc != 1 {
-		t.Fatal("매수 없이 지난 실행일을 못 잡았다")
+	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-08-10"}); rc != 0 {
+		t.Fatal("마감(10일) 당일은 오경보다 — 입금을 기다리는 중이다")
+	}
+	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-08-11"}); rc != 1 {
+		t.Fatal("매수 없이 지난 마감을 못 잡았다")
 	}
 	h.execute(map[string]float64{"TQQQ": 64.90}, "2026-08-04", nil, nil)
-	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-08-05"}); rc != 0 {
+	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-08-11"}); rc != 0 {
 		t.Fatalf("이번 달 매수를 인정하지 않았다: %s", h.err)
 	}
 	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-09-10"}); rc != 1 {

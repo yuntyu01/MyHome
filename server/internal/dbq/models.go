@@ -137,6 +137,8 @@ type InvestAlert struct {
 	ExitCode  *int32    `json:"exit_code"`
 	Title     string    `json:"title"`
 	Body      string    `json:"body"`
+	Kind      string    `json:"kind"`
+	Ym        *string   `json:"ym"`
 }
 
 type InvestBrokerCash struct {
@@ -266,6 +268,7 @@ type InvestOrderBook struct {
 	OpenedAt  time.Time  `json:"opened_at"`
 	ClosedAt  *time.Time `json:"closed_at"`
 	ClosedBy  *string    `json:"closed_by"`
+	TopUpKrw  float64    `json:"top_up_krw"`
 }
 
 type InvestOrderEvent struct {

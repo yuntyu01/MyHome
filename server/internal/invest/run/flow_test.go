@@ -51,40 +51,44 @@ func (h *harness) flow(step string) []invest.FlowEvent {
 }
 
 // 입금일을 정하면 돈이 안 보이는 동안은 사지 않고, 입금일 + 3일이 지나면 있는 돈으로 산다.
-func TestTradeWaitsForTheDepositDay(t *testing.T) {
+func TestTradeWaitsForTheDepositDayAndThenForTheMoney(t *testing.T) {
 	h := newHarness(t, seedOpt{})
 	cb := withCash(h)
+	h.fb.limit = 20 // 남은 달러뿐 — 적립금이 아직 안 들어왔다
 	if err := h.st.SetDepositDay(h.ctx, 5); err != nil {
 		t.Fatal(err)
 	}
-	for _, day := range []int{3, 4, 5, 6, 7} { // 8/5(수)가 입금일, 기한은 8/8(토) → 8/10(월)
+	for _, c := range []struct {
+		day  int
+		want string
+	}{{3, "입금일 전"}, {4, "입금일 전"}, {5, "입금 대기"}, {6, "입금 대기"}, {7, "입금 대기"}} { // 8/5(수)가 입금일, 마감 8/10(월)
 		h.out.Reset()
-		if rc := h.trade(d(8, day), false); rc != 0 {
-			t.Fatalf("8/%d rc %d: %s", day, rc, h.err)
+		if rc := h.trade(d(8, c.day), false); rc != 0 {
+			t.Fatalf("8/%d rc %d: %s", c.day, rc, h.err)
 		}
 		if len(h.fb.attempts) != 0 {
-			t.Fatalf("8/%d 입금 전에 주문했다: %+v", day, h.fb.attempts)
+			t.Fatalf("8/%d 입금 전에 주문했다: %+v", c.day, h.fb.attempts)
 		}
-		if !strings.Contains(h.out.String(), "입금 기다림") {
-			t.Fatalf("8/%d: %s", day, h.out)
+		if !strings.Contains(h.out.String(), c.want) {
+			t.Fatalf("8/%d: %s", c.day, h.out)
 		}
 	}
 	if len(cb.from) == 0 || !cb.from[0].Equal(time.Date(2026, 8, 1, 0, 0, 0, 0, broker.KST)) {
 		t.Fatalf("입금 내역은 적용월 1일(한국)부터 본다: %v", cb.from)
 	}
-	if rc := h.trade(d(8, 10), false); rc != 0 {
-		t.Fatalf("rc %d: %s", rc, h.err)
+	// 마감 전에는 status도 미체결로 알리지 않는다
+	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-08-07"}); rc != 0 {
+		t.Fatalf("마감 전 status가 실패했다: %s", h.err)
 	}
-	if len(h.fb.placed) != 1 || !strings.Contains(h.err.String(), "입금이 안 보인다") {
-		t.Fatalf("기한이 지나면 있는 돈으로 산다: %+v / %s", h.fb.placed, h.err)
+	// 마감 날에도 모자라면 실패(알림). 있는 돈으로 사지 않는다
+	h.err.Reset()
+	if rc := h.trade(d(8, 10), false); rc != 1 || !strings.Contains(h.err.String(), "마감(2026-08-10)까지 들어오지 않았다") || len(h.fb.attempts) != 0 {
+		t.Fatalf("마감에 알리지 않았다: rc %d %s %+v", rc, h.err, h.fb.attempts)
 	}
-	// 상태 점검도 기한 전에는 미체결로 알리지 않는다
-	if err := h.st.SetDepositDay(h.ctx, 20); err != nil {
-		t.Fatal(err)
-	}
-	h.day = d(8, 12)
-	if rc := h.app.Status(h.ctx, StatusOpts{Date: "2026-08-12"}); rc != 0 {
-		t.Fatalf("입금일 전 status가 실패했다: %s", h.err)
+	// 그날 들어오면 같은 날 다시 돌 때 산다
+	h.fb.limit = 1e9
+	if rc := h.trade(d(8, 10), false); rc != 0 || len(h.fb.placed) != 1 {
+		t.Fatalf("들어왔는데 사지 않았다: rc %d %s", rc, h.err)
 	}
 }
 

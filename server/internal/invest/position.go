@@ -29,6 +29,9 @@ type Position struct {
 	Before     *Snapshot `json:"before,omitempty"` // 체결 직전 상태. amend가 여기서부터 다시 계산한다
 	AmendedOn  *string   `json:"amended_on,omitempty"`
 	AmendCount int       `json:"amend_count,omitempty"`
+	// TopUpKRW는 전환 달에 매도대금으로 먼저 사느라 아직 사지 못한 이번 달 적립금(원)이다. 들어오면 같은 달
+	// 매매 창(1~10일) 안에 더 사고 0이 된다. 다음 판정이 새 적용월을 열면 사라진다(그 돈은 다음 달 매수에 쓰인다)
+	TopUpKRW float64 `json:"top_up_krw,omitempty"`
 }
 
 // Judgment는 판정 근거 전체다. 모든 판정은 기록에 남긴다.
@@ -161,11 +164,13 @@ type Pending struct {
 // 지정가 주문은 즉시 체결이 보장되지 않고, 전환하는 달은 매도가 체결돼야 매수를 낼 수 있다.
 // 그래서 한 번에 끝내지 않고 날마다 이어받는다.
 type OrderBook struct {
-	YM        string      `json:"ym"`
-	Stage     string      `json:"stage"` // sell | buy
-	StyleIdx  int         `json:"style_idx"`
-	LedgerGap *int        `json:"ledger_gap,omitempty"` // 증권사 보유 - 장부 (앱 밖 매매 흔적)
-	Orders    []BookOrder `json:"orders"`
+	YM        string `json:"ym"`
+	Stage     string `json:"stage"` // sell | buy
+	StyleIdx  int    `json:"style_idx"`
+	LedgerGap *int   `json:"ledger_gap,omitempty"` // 증권사 보유 - 장부 (앱 밖 매매 흔적)
+	// TopUpKRW는 전환 달 매수를 낼 때 아직 들어오지 않은 적립금(원)이다. 체결을 반영하면 position.top_up_krw가 된다
+	TopUpKRW float64     `json:"top_up_krw,omitempty"`
+	Orders   []BookOrder `json:"orders"`
 }
 
 // BookOrder는 제출한 주문 1건이다.

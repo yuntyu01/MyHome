@@ -231,6 +231,17 @@ class ApiTest {
         assertEquals("/v1/invest/alerts?after=6", server.takeRequest().path)
         assertEquals(7L, r.alerts.single().id)
         assertEquals("✗ 합성 거부", r.alerts.single().body)
+        assertEquals("fail", r.alerts.single().kind) // kind가 없는 옛 서버 응답은 실패다
+    }
+
+    // 매수 완료 알림은 kind done으로 온다(앱은 조용한 채널로 띄운다)
+    @Test fun investDoneAlert() {
+        server.enqueue(MockResponse().setBody(
+            """{"alerts":[{"id":8,"created_at":"2026-12-02T09:17:00+09:00","kind":"done","title":"12월 매수 완료","body":"TQQQ 9주 · 이번 달 원금 600,000원"}]}""",
+        ))
+        val a = (api().investAlerts(7) as ApiResult.Ok<InvestAlerts>).value.alerts.single()
+        assertEquals("done", a.kind)
+        assertEquals("12월 매수 완료", a.title)
     }
 
     // 옮기기 전에는 migrated만 false로 온다(목록은 null)

@@ -66,11 +66,13 @@ func TestInvestFlowJudgeLinesAndWaitingForDeposit(t *testing.T) {
 	if f.State != stepWaiting || f.Title != "12월 자동 매수" {
 		t.Fatalf("%+v", f)
 	}
-	// 입금일이 지나면 확인 중, 기한이 지나도 안 보이면 문제
-	if d := stepOf(t, buildInvestFlow(etNow(2026, 12, 7), decemberPending(), nil, 600_000, nil, nil, investFlowInputs{DepositDay: 5}), "deposit"); d.State != stepRunning {
-		t.Fatalf("%+v", d)
+	// 입금일이 지나면 확인 중(마감 10일 당일까지), 마감이 지나도 안 보이면 문제
+	for _, day := range []int{7, 10} {
+		if d := stepOf(t, buildInvestFlow(etNow(2026, 12, day), decemberPending(), nil, 600_000, nil, nil, investFlowInputs{DepositDay: 5}), "deposit"); d.State != stepRunning {
+			t.Fatalf("12/%d %+v", day, d)
+		}
 	}
-	late := buildInvestFlow(etNow(2026, 12, 9), decemberPending(), nil, 600_000, nil, nil, investFlowInputs{DepositDay: 5})
+	late := buildInvestFlow(etNow(2026, 12, 11), decemberPending(), nil, 600_000, nil, nil, investFlowInputs{DepositDay: 5})
 	if d := stepOf(t, late, "deposit"); d.State != stepFailed || late.State != stepFailed {
 		t.Fatalf("%+v / %s", d, late.State)
 	}

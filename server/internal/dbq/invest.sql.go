@@ -224,15 +224,16 @@ func (q *Queries) GetInvestState(ctx context.Context, key string) (GetInvestStat
 }
 
 const getOpenInvestOrderBook = `-- name: GetOpenInvestOrderBook :one
-SELECT id, ym, stage, style_idx, ledger_gap FROM invest_order_books WHERE closed_at IS NULL
+SELECT id, ym, stage, style_idx, ledger_gap, top_up_krw FROM invest_order_books WHERE closed_at IS NULL
 `
 
 type GetOpenInvestOrderBookRow struct {
-	ID        int64  `json:"id"`
-	Ym        string `json:"ym"`
-	Stage     string `json:"stage"`
-	StyleIdx  int32  `json:"style_idx"`
-	LedgerGap *int32 `json:"ledger_gap"`
+	ID        int64   `json:"id"`
+	Ym        string  `json:"ym"`
+	Stage     string  `json:"stage"`
+	StyleIdx  int32   `json:"style_idx"`
+	LedgerGap *int32  `json:"ledger_gap"`
+	TopUpKrw  float64 `json:"top_up_krw"`
 }
 
 // 열린 주문 묶음(많아야 하나).
@@ -245,6 +246,7 @@ func (q *Queries) GetOpenInvestOrderBook(ctx context.Context) (GetOpenInvestOrde
 		&i.Stage,
 		&i.StyleIdx,
 		&i.LedgerGap,
+		&i.TopUpKrw,
 	)
 	return i, err
 }
@@ -300,7 +302,7 @@ func (q *Queries) InsertInvestAdjustment(ctx context.Context, arg InsertInvestAd
 const insertInvestAlert = `-- name: InsertInvestAlert :one
 INSERT INTO invest_alerts (unit, cmd, run_id, exit_code, title, body)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, created_at, unit, cmd, run_id, exit_code, title, body
+RETURNING id, created_at, unit, cmd, run_id, exit_code, title, body, kind, ym
 `
 
 type InsertInvestAlertParams struct {
@@ -332,6 +334,8 @@ func (q *Queries) InsertInvestAlert(ctx context.Context, arg InsertInvestAlertPa
 		&i.ExitCode,
 		&i.Title,
 		&i.Body,
+		&i.Kind,
+		&i.Ym,
 	)
 	return i, err
 }
@@ -439,6 +443,26 @@ func (q *Queries) InsertInvestDeviation(ctx context.Context, arg InsertInvestDev
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertInvestDoneAlert = `-- name: InsertInvestDoneAlert :execrows
+INSERT INTO invest_alerts (kind, ym, title, body) VALUES ('done', $1, $2, $3)
+ON CONFLICT (ym) WHERE kind = 'done' DO NOTHING
+`
+
+type InsertInvestDoneAlertParams struct {
+	Ym    *string `json:"ym"`
+	Title string  `json:"title"`
+	Body  string  `json:"body"`
+}
+
+// 매수 완료 알림. 같은 달은 한 번뿐이다 — 이미 있으면 0.
+func (q *Queries) InsertInvestDoneAlert(ctx context.Context, arg InsertInvestDoneAlertParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertInvestDoneAlert, arg.Ym, arg.Title, arg.Body)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const insertInvestFill = `-- name: InsertInvestFill :exec
@@ -614,14 +638,15 @@ func (q *Queries) InsertInvestOrder(ctx context.Context, arg InsertInvestOrderPa
 }
 
 const insertInvestOrderBook = `-- name: InsertInvestOrderBook :one
-INSERT INTO invest_order_books (ym, stage, style_idx, ledger_gap) VALUES ($1, $2, $3, $4) RETURNING id
+INSERT INTO invest_order_books (ym, stage, style_idx, ledger_gap, top_up_krw) VALUES ($1, $2, $3, $4, $5) RETURNING id
 `
 
 type InsertInvestOrderBookParams struct {
-	Ym        string `json:"ym"`
-	Stage     string `json:"stage"`
-	StyleIdx  int32  `json:"style_idx"`
-	LedgerGap *int32 `json:"ledger_gap"`
+	Ym        string  `json:"ym"`
+	Stage     string  `json:"stage"`
+	StyleIdx  int32   `json:"style_idx"`
+	LedgerGap *int32  `json:"ledger_gap"`
+	TopUpKrw  float64 `json:"top_up_krw"`
 }
 
 func (q *Queries) InsertInvestOrderBook(ctx context.Context, arg InsertInvestOrderBookParams) (int64, error) {
@@ -630,6 +655,7 @@ func (q *Queries) InsertInvestOrderBook(ctx context.Context, arg InsertInvestOrd
 		arg.Stage,
 		arg.StyleIdx,
 		arg.LedgerGap,
+		arg.TopUpKrw,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -890,7 +916,7 @@ func (q *Queries) ListInvestAdjustments(ctx context.Context) ([]ListInvestAdjust
 }
 
 const listInvestAlertsAfter = `-- name: ListInvestAlertsAfter :many
-SELECT id, created_at, unit, cmd, run_id, exit_code, title, body
+SELECT id, created_at, unit, cmd, run_id, exit_code, title, body, kind, ym
 FROM invest_alerts
 WHERE id > $1 AND created_at >= $2
 ORDER BY id
@@ -922,6 +948,8 @@ func (q *Queries) ListInvestAlertsAfter(ctx context.Context, arg ListInvestAlert
 			&i.ExitCode,
 			&i.Title,
 			&i.Body,
+			&i.Kind,
+			&i.Ym,
 		); err != nil {
 			return nil, err
 		}
@@ -1511,14 +1539,15 @@ func (q *Queries) UpdateInvestOrder(ctx context.Context, arg UpdateInvestOrderPa
 }
 
 const updateInvestOrderBook = `-- name: UpdateInvestOrderBook :exec
-UPDATE invest_order_books SET stage = $2, style_idx = $3, ledger_gap = $4 WHERE id = $1 AND closed_at IS NULL
+UPDATE invest_order_books SET stage = $2, style_idx = $3, ledger_gap = $4, top_up_krw = $5 WHERE id = $1 AND closed_at IS NULL
 `
 
 type UpdateInvestOrderBookParams struct {
-	ID        int64  `json:"id"`
-	Stage     string `json:"stage"`
-	StyleIdx  int32  `json:"style_idx"`
-	LedgerGap *int32 `json:"ledger_gap"`
+	ID        int64   `json:"id"`
+	Stage     string  `json:"stage"`
+	StyleIdx  int32   `json:"style_idx"`
+	LedgerGap *int32  `json:"ledger_gap"`
+	TopUpKrw  float64 `json:"top_up_krw"`
 }
 
 func (q *Queries) UpdateInvestOrderBook(ctx context.Context, arg UpdateInvestOrderBookParams) error {
@@ -1527,6 +1556,7 @@ func (q *Queries) UpdateInvestOrderBook(ctx context.Context, arg UpdateInvestOrd
 		arg.Stage,
 		arg.StyleIdx,
 		arg.LedgerGap,
+		arg.TopUpKrw,
 	)
 	return err
 }

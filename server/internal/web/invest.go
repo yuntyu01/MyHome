@@ -296,7 +296,7 @@ func buildInvestStatus(now time.Time, pos invest.Position, in investInputs) inve
 
 	// 이번 달(적용월) 매수. 입금일을 정했으면 매수는 입금 뒤이고, 입금일 + 며칠까지는 기다리는 중이다
 	execDay, applyOK := invest.BuyDayOf(pos.ApplyYM, in.Flow.DepositDay)
-	deadline, _ := invest.BuyDeadlineOf(pos.ApplyYM, in.Flow.DepositDay)
+	deadline, _ := invest.BuyDeadlineOf(pos.ApplyYM)
 	month := investRow{Title: monthNameAt(pos.ApplyYM, now) + " 매수"}
 	meta := "적용월 " + monthNameAt(pos.ApplyYM, now)
 	if t, err := invest.Ticker(pos.Signal.Target); err == nil {
@@ -641,11 +641,13 @@ const (
 type investAlert struct {
 	ID        int64     `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
+	// Kind는 fail(실패, 소리 있는 채널) 또는 done(그 달 매수 완료, 조용한 채널)이다. 예전 앱은 이 칸을 모르고 다 실패 채널로 띄운다
+	Kind  string `json:"kind"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }
 
-// apiInvestAlerts는 GET /v1/invest/alerts?after=<id>다. after 다음의 실패 알림을 오래된 것부터 준다.
+// apiInvestAlerts는 GET /v1/invest/alerts?after=<id>다. after 다음의 알림(실패·매수 완료)을 오래된 것부터 준다.
 func (wb *Web) apiInvestAlerts(w http.ResponseWriter, r *http.Request) {
 	var after int64
 	if v := r.URL.Query().Get("after"); v != "" {
@@ -664,7 +666,7 @@ func (wb *Web) apiInvestAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]investAlert, 0, len(rows))
 	for _, a := range rows {
-		out = append(out, investAlert{ID: a.ID, CreatedAt: a.CreatedAt, Title: a.Title, Body: a.Body})
+		out = append(out, investAlert{ID: a.ID, CreatedAt: a.CreatedAt, Kind: a.Kind, Title: a.Title, Body: a.Body})
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"alerts": out})
 }

@@ -1063,11 +1063,16 @@ func TestTradeRefusesToOrderWhenItCannotLearnTheLimit(t *testing.T) {
 // 수량은 계좌에 실제로 있는 만큼이다 — 장부가 넉넉해도 계좌를 넘지 않는다.
 func TestTradeAsksTheBrokerHowMuchItCanActuallyBuy(t *testing.T) {
 	h := newHarness(t, seedOpt{})
-	h.fb.limit = 200 // 증권사는 $200까지만
+	h.fb.limit = 200 // 증권사는 $200까지만 — 계획(약 $422)에 모자란다: 적립금이 아직 안 들어왔다
+	if rc := h.trade(execDay, false); rc != 0 || len(h.fb.attempts) != 0 || !strings.Contains(h.out.String(), "입금 대기") {
+		t.Fatalf("모자란데 샀다: rc %d %+v %s", rc, h.fb.attempts, h.out)
+	}
+	// 환율 차이만큼(계획의 97% 이상) 모자란 것은 들어온 것이다 — 계좌를 넘기지 않고 산다
+	h.fb.limit = (600000 / 1420.6) * 0.98
 	if rc := h.trade(execDay, false); rc != 0 {
 		t.Fatalf("rc %d %s", rc, h.err)
 	}
-	if q := h.fb.placed[0].Qty; float64(q) > math.Floor(200/64.62) {
+	if q := h.fb.placed[0].Qty; float64(q) > math.Floor(h.fb.limit/(64.62*(1+SizingBuffer))) {
 		t.Fatalf("계좌를 넘겨 주문했다: %d주", q)
 	}
 	if !strings.Contains(h.out.String(), "주문가능") {
@@ -1075,30 +1080,29 @@ func TestTradeAsksTheBrokerHowMuchItCanActuallyBuy(t *testing.T) {
 	}
 }
 
-// 🔴 2026-08-05 규칙 변경 — 계좌에 계획보다 많으면 그만큼 산다. 계획과 다르면 반드시 남긴다.
-func TestExtraMoneyInTheAccountActuallyGetsInvested(t *testing.T) {
+// 🔴 2026-11-20 사용자 결정 — 계좌에 계획보다 많아도 계획(적립액 + 장부 현금)만큼만 산다(TQ §12.1.5와 반대).
+// 장부 밖 돈은 사람이 정한다(적립액 바꾸기·앱 밖 매수).
+func TestExtraMoneyInTheAccountIsNotInvested(t *testing.T) {
 	h := newHarness(t, seedOpt{})
 	h.fb.limit = 2000 // 계획(60만원 ≈ $422)의 약 5배
 	if rc := h.trade(execDay, false); rc != 0 {
 		t.Fatalf("rc %d %s", rc, h.err)
 	}
-	if q := h.fb.placed[0].Qty; q <= 6 { // 계획만으로는 6주가 한계
-		t.Fatalf("추가 입금이 놀고 있다: %d주", q)
-	}
-	if !strings.Contains(h.out.String(), "계좌 기준으로 산다") {
-		t.Fatalf("%s", h.out)
+	if q, want := h.fb.placed[0].Qty, planQtyAt(64.62*(1+SizingBuffer)); q != want {
+		t.Fatalf("계획을 넘겨 샀다: %d주 (상한 %d주)", q, want)
 	}
 }
 
-// 적립액은 사이징에서 빠졌다 — 1주도 못 사는 계획이어도 계좌에 돈이 있으면 산다.
-func TestAPlanBelowOneShareStillOrders(t *testing.T) {
+// 계획(적립액 + 장부 현금)이 한 주 값도 안 되면 계좌에 돈이 있어도 사지 않는다 — 매수 상한이 계획이다
+// (2026-11-20 사용자 결정). 이상한 설정이라 조용히 넘기지 않고 알린다.
+func TestAPlanBelowOneShareDoesNotBuyBeyondThePlan(t *testing.T) {
 	h := newHarness(t, seedOpt{})
-	if _, err := h.st.SetContribution(h.ctx, 1000, "2026-08", "계획이 사이징을 더 이상 정하지 않는지 본다", d(7, 1), ""); err != nil {
+	if _, err := h.st.SetContribution(h.ctx, 1000, "2026-08", "계획이 한 주에 못 미치면 무엇을 하는지 본다", d(7, 1), ""); err != nil {
 		t.Fatal(err)
 	}
 	h.fb.limit = 500
-	if rc := h.trade(execDay, false); rc != 0 || len(h.fb.placed) == 0 {
-		t.Fatalf("계좌에 돈이 있는데 주문을 안 냈다: rc %d %s", rc, h.err)
+	if rc := h.trade(execDay, false); rc != 1 || len(h.fb.placed) != 0 || !strings.Contains(h.err.String(), "수량이 0") {
+		t.Fatalf("계획을 넘겨 샀거나 알리지 않았다: rc %d %+v %s", rc, h.fb.placed, h.err)
 	}
 }
 

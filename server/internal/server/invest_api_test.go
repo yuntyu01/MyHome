@@ -40,7 +40,7 @@ func (c *webClient) devicePut(path, body string) *httptest.ResponseRecorder {
 	return serve(c.h, req)
 }
 
-// 앱 설정의 입금일: 저장하면 첫 화면이 그 값을 돌려주고, 1~20 밖이면 거부한다. 0은 지우기다.
+// 앱 설정의 입금일: 저장하면 첫 화면이 그 값을 돌려주고, 1~7 밖이면 거부한다(매매 창 1~10일). 0은 지우기다.
 func TestAppInvestDepositDay(t *testing.T) {
 	c := newWebClient(t)
 	c.seedInvest(investSeed{})
@@ -53,7 +53,7 @@ func TestAppInvestDepositDay(t *testing.T) {
 	if err := json.Unmarshal(c.deviceGet("/v1/invest").Body.Bytes(), &s); err != nil || s.DepositDay != 5 {
 		t.Fatalf("첫 화면 입금일 %d %v", s.DepositDay, err)
 	}
-	for _, bad := range []string{`{"deposit_day": 21}`, `{"deposit_day": -1}`, `{}`, `{"deposit_day": 5, "x": 1}`} {
+	for _, bad := range []string{`{"deposit_day": 8}`, `{"deposit_day": -1}`, `{}`, `{"deposit_day": 5, "x": 1}`} {
 		if rec := c.devicePut("/v1/invest/prefs", bad); rec.Code != http.StatusBadRequest {
 			t.Fatalf("%s → %d", bad, rec.Code)
 		}
@@ -192,24 +192,30 @@ func TestAppInvestAlertsAPI(t *testing.T) {
 		('myhome-invest-judge.service', 'judge', '자동매매 월말 판정 실패 (exit 75)', '가격 없음', now())`); err != nil {
 		t.Fatal(err)
 	}
+	// 매수 완료 알림(kind done) — 앱은 조용한 채널로 띄운다
+	if _, err := c.pool.Exec(ctx, `INSERT INTO invest_alerts (kind, ym, title, body) VALUES ('done', '2026-12', '12월 매수 완료', 'TQQQ 9주 · 이번 달 원금 600,000원')`); err != nil {
+		t.Fatal(err)
+	}
 	type resp struct {
 		Alerts []struct {
 			ID    int64  `json:"id"`
+			Kind  string `json:"kind"`
 			Title string `json:"title"`
 			Body  string `json:"body"`
 		} `json:"alerts"`
 	}
 	var all resp
 	rec := c.deviceGet("/v1/invest/alerts")
-	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &all) != nil || len(all.Alerts) != 2 || all.Alerts[0].Body != "✗ 증권사 거부" {
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &all) != nil || len(all.Alerts) != 3 || all.Alerts[0].Body != "✗ 증권사 거부" ||
+		all.Alerts[0].Kind != "fail" || all.Alerts[2].Kind != "done" {
 		t.Fatalf("처음: %d %s", rec.Code, rec.Body.String())
 	}
 	var next resp
 	rec = c.deviceGet("/v1/invest/alerts?after=" + strconv.FormatInt(all.Alerts[0].ID, 10))
-	if json.Unmarshal(rec.Body.Bytes(), &next) != nil || len(next.Alerts) != 1 || !strings.Contains(next.Alerts[0].Title, "월말 판정") {
+	if json.Unmarshal(rec.Body.Bytes(), &next) != nil || len(next.Alerts) != 2 || !strings.Contains(next.Alerts[0].Title, "월말 판정") {
 		t.Fatalf("after: %s", rec.Body.String())
 	}
-	rec = c.deviceGet("/v1/invest/alerts?after=" + strconv.FormatInt(all.Alerts[1].ID, 10))
+	rec = c.deviceGet("/v1/invest/alerts?after=" + strconv.FormatInt(all.Alerts[2].ID, 10))
 	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"alerts":[]}` {
 		t.Fatalf("다 본 뒤: %s", rec.Body.String())
 	}

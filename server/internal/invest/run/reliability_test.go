@@ -326,8 +326,8 @@ func TestSizingUsesAFreshQuoteNotTheStaleClose(t *testing.T) {
 		t.Fatalf("rc %d %s", rc, h.err)
 	}
 	est := 75 * (1 + SizingBuffer)
-	if q := h.fb.placed[0].Qty; q != int(1000/est) {
-		t.Fatalf("현재가로 잡지 않았다: %d주 (현재가 기준 %d주)", q, int(1000/est))
+	if q := h.fb.placed[0].Qty; q != planQtyAt(est) {
+		t.Fatalf("현재가로 잡지 않았다: %d주 (현재가 기준 %d주)", q, planQtyAt(est))
 	}
 	if !strings.Contains(h.out.String(), "현재가 $75.00") {
 		t.Fatalf("%s", h.out)
@@ -343,7 +343,7 @@ func TestSizingFallsBackToTheCloseWhenTheQuoteIsUnusable(t *testing.T) {
 		if rc := h.trade(execDay, false); rc != 0 {
 			t.Fatalf("rc %d %s", rc, h.err)
 		}
-		if q := h.fb.placed[0].Qty; q != int(1000/closeEst()) {
+		if q := h.fb.placed[0].Qty; q != planQtyAt(closeEst()) {
 			t.Fatalf("종가로 돌아가지 않았다: %d주 %s", q, h.err)
 		}
 	}
@@ -356,7 +356,7 @@ func closeEst() float64 { c := 64.62; return c * (1 + SizingBuffer) }
 func TestAFundsRejectionRetriesOnceWithFewerShares(t *testing.T) {
 	h := newHarness(t, seedOpt{})
 	h.fb.limit = 1000
-	first := int(1000 / closeEst())
+	first := planQtyAt(closeEst())
 	h.fb.fundsAbove = first - 1
 	if rc := h.trade(execDay, false); rc != 0 {
 		t.Fatalf("rc %d %s", rc, h.err)

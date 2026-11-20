@@ -118,7 +118,7 @@ func buildInvestFlow(now time.Time, pos invest.Position, ledger []invest.LedgerE
 	}
 	executed := pos.ExecutedThisMonth()
 	buyDay, _ := invest.BuyDayOf(ym, in.DepositDay)
-	deadline, _ := invest.BuyDeadlineOf(ym, in.DepositDay)
+	deadline, _ := invest.BuyDeadlineOf(ym)
 	var entry *invest.LedgerEntry
 	for i := range ledger {
 		if ledger[i].YM == ym && ledger[i].Source != "amend" {
@@ -164,17 +164,19 @@ func buildInvestFlow(now time.Time, pos invest.Position, ledger []invest.LedgerE
 	case executed:
 		dep.State, dep.Value = stepSkipped, "기록 없음"
 		dep.Lines = append(dep.Lines, "이번 달 입금 기록이 없어요 (있던 돈으로 샀거나, 기록을 시작하기 전)")
-	case in.DepositDay == 0:
-		dep.State, dep.Value = stepWaiting, "입금일 미설정"
-		dep.Lines = append(dep.Lines, "설정 → 투자에서 입금일을 정하면 돈이 들어온 뒤에 사요",
-			"지금은 "+shortDay(invest.FormatDay(buyDay))+"(첫 거래일)에 계좌에 있는 돈으로 사요")
-	case today.Before(invest.Date(today.Year(), today.Month(), in.DepositDay)) || invest.YM(today) != ym:
+	case in.DepositDay == 0 && today.Before(buyDay):
+		dep.State, dep.Value = stepWaiting, shortDay(invest.FormatDay(buyDay))+" 예정"
+		dep.Lines = append(dep.Lines, "설정 → 투자에서 입금일을 정하면 그 날 전에는 사지 않아요")
+	case in.DepositDay > 0 && (today.Before(invest.Date(today.Year(), today.Month(), in.DepositDay)) || invest.YM(today) != ym):
 		dep.State, dep.Value = stepWaiting, fmt.Sprintf("%d일 예정", in.DepositDay)
-	case today.Before(deadline):
+	case !today.After(deadline):
 		dep.State, dep.Value = stepRunning, "확인 중"
 	default:
 		dep.State, dep.Value = stepFailed, "안 보임"
-		dep.Lines = append(dep.Lines, fmt.Sprintf("입금일 %d일에서 %d일이 지나도 안 보여서 있는 돈으로 사요", in.DepositDay, invest.DepositGraceDays))
+		dep.Lines = append(dep.Lines, fmt.Sprintf("%s까지 적립금이 안 들어와서 사지 못했어요", shortDay(invest.FormatDay(deadline))))
+	}
+	if !seen && !executed {
+		dep.Lines = append(dep.Lines, fmt.Sprintf("주문가능금액이 적립액에 모자라면 %s까지 기다려요(그래도 모자라면 알림)", shortDay(invest.FormatDay(deadline))))
 	}
 	if plan > 0 {
 		dep.Lines = append(dep.Lines, "적립 계획 "+group(plan)+"원/월")

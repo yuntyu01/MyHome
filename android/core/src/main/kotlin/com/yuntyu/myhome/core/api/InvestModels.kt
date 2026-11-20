@@ -141,7 +141,7 @@ data class InvestLedgerRow(
     val amount: Long = 0,
 )
 
-/** GET /v1/invest/alerts 응답. 자동매매 작업(systemd)이 실패할 때만 한 줄씩 생긴다. */
+/** GET /v1/invest/alerts 응답. 자동매매 작업(systemd)이 실패할 때와 그 달 매수가 끝났을 때(한 번) 한 줄씩 생긴다. */
 @Serializable
 data class InvestAlerts(val alerts: List<InvestAlert> = emptyList())
 
@@ -149,6 +149,8 @@ data class InvestAlerts(val alerts: List<InvestAlert> = emptyList())
 data class InvestAlert(
     val id: Long,
     @SerialName("created_at") val createdAt: String = "",
+    /** fail(실패, 소리 있는 채널) 또는 done(매수 완료, 조용한 채널). 칸이 없는 옛 서버는 다 실패다 */
+    val kind: String = "fail",
     val title: String = "",
     val body: String = "",
 )

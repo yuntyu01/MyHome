@@ -83,6 +83,7 @@ func (a *App) Judge(ctx context.Context, o JudgeOpts) int {
 	}
 	if sameApply {
 		next.ExecutedOn, next.ExecutedYM = pos.ExecutedOn, pos.ExecutedYM
+		next.TopUpKRW = pos.TopUpKRW // 같은 적용월을 다시 판정해도 남은 추가 매수는 그대로
 	}
 	var missed *invest.Deviation
 	err = a.Store.InTx(ctx, func(s *store.Store) error {

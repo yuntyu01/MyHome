@@ -535,7 +535,7 @@ func (s *Store) loadOrderTable(ctx context.Context) (*invest.OrderBook, error) {
 	if err != nil {
 		return nil, err
 	}
-	book := &invest.OrderBook{YM: b.Ym, Stage: b.Stage, StyleIdx: int(b.StyleIdx), Orders: []invest.BookOrder{}}
+	book := &invest.OrderBook{YM: b.Ym, Stage: b.Stage, StyleIdx: int(b.StyleIdx), TopUpKRW: b.TopUpKrw, Orders: []invest.BookOrder{}}
 	if b.LedgerGap != nil {
 		g := int(*b.LedgerGap)
 		book.LedgerGap = &g
@@ -614,7 +614,7 @@ func (s *Store) syncOrders(ctx context.Context, b invest.OrderBook) error {
 	open, err := s.q.GetOpenInvestOrderBook(ctx)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		if bookID, err = s.q.InsertInvestOrderBook(ctx, dbq.InsertInvestOrderBookParams{Ym: b.YM, Stage: b.Stage, StyleIdx: int32(b.StyleIdx), LedgerGap: gap}); err != nil {
+		if bookID, err = s.q.InsertInvestOrderBook(ctx, dbq.InsertInvestOrderBookParams{Ym: b.YM, Stage: b.Stage, StyleIdx: int32(b.StyleIdx), LedgerGap: gap, TopUpKrw: b.TopUpKRW}); err != nil {
 			return err
 		}
 	case err != nil:
@@ -624,7 +624,7 @@ func (s *Store) syncOrders(ctx context.Context, b invest.OrderBook) error {
 			return fmt.Errorf("열린 주문 묶음은 %s인데 %s 기록을 저장하려 한다", open.Ym, b.YM)
 		}
 		bookID = open.ID
-		if err := s.q.UpdateInvestOrderBook(ctx, dbq.UpdateInvestOrderBookParams{ID: bookID, Stage: b.Stage, StyleIdx: int32(b.StyleIdx), LedgerGap: gap}); err != nil {
+		if err := s.q.UpdateInvestOrderBook(ctx, dbq.UpdateInvestOrderBookParams{ID: bookID, Stage: b.Stage, StyleIdx: int32(b.StyleIdx), LedgerGap: gap, TopUpKrw: b.TopUpKRW}); err != nil {
 			return err
 		}
 	}
@@ -728,7 +728,7 @@ func (s *Store) ClearOrders(ctx context.Context, why string) error {
 		case err == nil:
 			// 비어서 닫는 묶음에 남은 주문은 묶음에서 빠진 것이다(거절·증권사에 없음)
 			if why == BookEmpty {
-				if err := s.syncOrders(ctx, invest.OrderBook{YM: open.Ym, Stage: open.Stage, StyleIdx: int(open.StyleIdx), Orders: []invest.BookOrder{}}); err != nil {
+				if err := s.syncOrders(ctx, invest.OrderBook{YM: open.Ym, Stage: open.Stage, StyleIdx: int(open.StyleIdx), TopUpKRW: open.TopUpKrw, Orders: []invest.BookOrder{}}); err != nil {
 					return err
 				}
 			}
@@ -1108,6 +1108,12 @@ func (s *Store) LastFailedRun(ctx context.Context, cmd string) (dbq.InvestRun, e
 // AddAlert는 실패 알림 한 줄을 남긴다. 앱이 GET /v1/invest/alerts로 읽어 폰 알림을 띄운다.
 func (s *Store) AddAlert(ctx context.Context, p dbq.InsertInvestAlertParams) (dbq.InvestAlert, error) {
 	return s.q.InsertInvestAlert(ctx, p)
+}
+
+// AddDoneAlert는 그 달 매수 완료 알림을 남긴다. 같은 달은 한 번뿐이다 — 이미 있으면 false.
+func (s *Store) AddDoneAlert(ctx context.Context, ym, title, body string) (bool, error) {
+	n, err := s.q.InsertInvestDoneAlert(ctx, dbq.InsertInvestDoneAlertParams{Ym: &ym, Title: title, Body: body})
+	return n > 0, err
 }
 
 // AlertsAfter는 afterID 다음의 알림이다. since보다 오래된 것과 max를 넘는 것은 뺀다.

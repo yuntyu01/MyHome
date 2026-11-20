@@ -20,6 +20,7 @@ object Notifications {
     const val CH_BUDGET = "budget"
     const val CH_HEALTH = "health"
     const val CH_INVEST = "invest"
+    const val CH_INVEST_DONE = "invest_done"
     const val CH_FOCUS = "focus"
 
     const val ID_UPLOADING = 1001
@@ -48,6 +49,12 @@ object Notifications {
                 // 자동매매가 실패했을 때만 온다. 드물고 놓치면 안 되니 소리를 낸다
                 NotificationChannel(CH_INVEST, "자동매매·서버 실패", NotificationManager.IMPORTANCE_HIGH).apply {
                     description = "서버의 자동매매 작업(가격 갱신·월말 판정·주문·상태 점검)이나 백업이 실패했을 때"
+                },
+                // 그 달 매수가 다 끝났을 때 한 번. 확인용이라 소리·진동 없이 조용히 둔다
+                NotificationChannel(CH_INVEST_DONE, "자동매매 완료", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "그 달 자동 매수가 모두 체결됐을 때 한 번(종목·수량·이번 달 원금)"
+                    setSound(null, null)
+                    enableVibration(false)
                 },
             ),
         )

@@ -5,17 +5,19 @@ import "time"
 // 입금일 — 월급이 들어와 자동이체로 증권 계좌에 돈이 들어오는 날(사용자 요청, 2026-11-20 "5일 월급, 5~6일 이체").
 //
 // TQ는 적용월 첫 거래일에 산다. 그런데 돈이 5~6일에 들어오면 첫 거래일 매수는 남은 달러만으로 끝나고
-// 그 달 적립금은 한 달 묵는다. 입금일을 정하면 매수를 그 날 뒤로 미룬다. 늦은 매수는 이탈이 아니라
+// 그 달 적립금은 한 달 묵는다. 입금일을 정하면 그 날 전에는 사지 않는다(입금이 보이면 일찍 산다). 그 뒤는
+// 주문가능금액으로 판단한다 — 계획에 모자라면 10일까지 입금을 기다린다(run의 입금 대기). 늦은 매수는 이탈이 아니라
 // 지연이다(TQ §6.2: 막을 것은 지연이 아니라 이탈, 매수일이 1일이든 20일이든 성과 차이는 3%).
 //
 // 날짜 기준: 입금일은 한국 날짜다. 매매 작업은 미국 장중(UTC 15:17, 한국 다음 날 0:17)에 도는데
 // 그때 뉴욕 날짜가 입금일과 같으면 한국에서는 입금일 낮이 이미 지났다. 그래서 뉴욕 날짜와 그대로 견준다.
 
 const (
-	// MaxDepositDay보다 늦은 입금일은 받지 않는다. 매매 타이머가 1~24일만 돌고, 판정(25일~)과 겹치지 않게 한다.
-	MaxDepositDay = 20
-	// DepositGraceDays는 입금일이 지나도 입금이 안 보일 때 더 기다리는 날수다(달력 날짜). 그 뒤에는 있는 돈으로 산다.
-	DepositGraceDays = 3
+	// TradeWindowLastDay는 매매 타이머가 도는 마지막 날이다(매월 1~10일, 2026-11-20 사용자 결정). 적립 매수는
+	// 주문가능금액이 계획에 모자라면 이 날까지 입금을 기다리고, 그래도 모자라면 실패로 알린다.
+	TradeWindowLastDay = 10
+	// MaxDepositDay보다 늦은 입금일은 받지 않는다. 입금일 다음 거래일이 매매 창(1~10일) 안에 오게 한다.
+	MaxDepositDay = 7
 	// DepositSeenRatio는 이번 달 입금이 적립액의 이 비율 이상이면 "들어왔다"로 본다. 다른 용도의 소액 입금으로
 	// 월급 이체 전에 사 버리지 않게 한다.
 	DepositSeenRatio = 0.5
@@ -42,13 +44,14 @@ func BuyDay(year int, month time.Month, depositDay int) time.Time {
 	return d
 }
 
-// BuyDeadline은 입금이 안 보여도 있는 돈으로 사기 시작하는 날이다. 이 날이 지나도록 못 샀으면 매수가 빠진 것이다.
-// 입금일이 없으면 BuyDay와 같다(예전 규칙: 첫 거래일이 지나면 미체결).
-func BuyDeadline(year int, month time.Month, depositDay int) time.Time {
-	if depositDay <= 0 {
-		return BuyDay(year, month, 0)
+// BuyDeadline은 적용월에 입금을 기다리는 마지막 거래일(10일, 휴장이면 그 앞 거래일)이다. 이 날 매매 작업까지
+// 사지 못했으면(주문가능금액이 계획에 모자라면) 실패로 알리고, 이 날이 지나도록 못 샀으면 매수가 빠진 것이다.
+func BuyDeadline(year int, month time.Month) time.Time {
+	d := Date(year, month, TradeWindowLastDay)
+	for !IsTradingDay(d) {
+		d = d.AddDate(0, 0, -1)
 	}
-	return firstTradingOnOrAfter(Date(year, month, min(depositDay, MaxDepositDay)+DepositGraceDays))
+	return d
 }
 
 // BuyDayOf·BuyDeadlineOf는 적용월 "YYYY-MM"으로 부른다.
@@ -60,12 +63,12 @@ func BuyDayOf(ym string, depositDay int) (time.Time, bool) {
 	return BuyDay(t.Year(), t.Month(), depositDay), true
 }
 
-func BuyDeadlineOf(ym string, depositDay int) (time.Time, bool) {
+func BuyDeadlineOf(ym string) (time.Time, bool) {
 	t, err := time.Parse("2006-01", ym)
 	if err != nil {
 		return time.Time{}, false
 	}
-	return BuyDeadline(t.Year(), t.Month(), depositDay), true
+	return BuyDeadline(t.Year(), t.Month()), true
 }
 
 // DepositSeen은 이번 달 입금 합계가 적립액에 견줘 "들어왔다"고 볼 만한지다. 적립액이 없으면 1원이라도 들어오면 된다.
