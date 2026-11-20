@@ -223,6 +223,44 @@ type InvestLedger struct {
 	CreatedAt    time.Time  `json:"created_at"`
 }
 
+type InvestOrder struct {
+	ID            int64      `json:"id"`
+	BookID        int64      `json:"book_id"`
+	Seq           int32      `json:"seq"`
+	ClientOrderID *string    `json:"client_order_id"`
+	OrderID       string     `json:"order_id"`
+	Symbol        string     `json:"symbol"`
+	Side          string     `json:"side"`
+	Qty           int32      `json:"qty"`
+	Price         float64    `json:"price"`
+	Style         string     `json:"style"`
+	SubmittedOn   time.Time  `json:"submitted_on"`
+	SubmittedAt   *time.Time `json:"submitted_at"`
+	State         string     `json:"state"`
+	FillPrice     float64    `json:"fill_price"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+type InvestOrderBook struct {
+	ID        int64      `json:"id"`
+	Ym        string     `json:"ym"`
+	Stage     string     `json:"stage"`
+	StyleIdx  int32      `json:"style_idx"`
+	LedgerGap *int32     `json:"ledger_gap"`
+	OpenedAt  time.Time  `json:"opened_at"`
+	ClosedAt  *time.Time `json:"closed_at"`
+	ClosedBy  *string    `json:"closed_by"`
+}
+
+type InvestOrderEvent struct {
+	ID       int64     `json:"id"`
+	OrderRef int64     `json:"order_ref"`
+	State    string    `json:"state"`
+	Qty      int32     `json:"qty"`
+	Note     string    `json:"note"`
+	At       time.Time `json:"at"`
+}
+
 type InvestPref struct {
 	ID         int32     `json:"id"`
 	DepositDay *int32    `json:"deposit_day"`

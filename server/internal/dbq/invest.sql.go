@@ -10,6 +10,23 @@ import (
 	"time"
 )
 
+const closeInvestOrderBook = `-- name: CloseInvestOrderBook :execrows
+UPDATE invest_order_books SET closed_at = now(), closed_by = $2 WHERE id = $1 AND closed_at IS NULL
+`
+
+type CloseInvestOrderBookParams struct {
+	ID       int64   `json:"id"`
+	ClosedBy *string `json:"closed_by"`
+}
+
+func (q *Queries) CloseInvestOrderBook(ctx context.Context, arg CloseInvestOrderBookParams) (int64, error) {
+	result, err := q.db.Exec(ctx, closeInvestOrderBook, arg.ID, arg.ClosedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 type CopyInvestPricesParams struct {
 	Day       time.Time `json:"day"`
 	Spx       float64   `json:"spx"`
@@ -110,6 +127,50 @@ func (q *Queries) GetInvestJudgment(ctx context.Context, arg GetInvestJudgmentPa
 	return i, err
 }
 
+const getInvestOrderByClientID = `-- name: GetInvestOrderByClientID :one
+SELECT id, book_id, seq, client_order_id, order_id, symbol, side, qty, price, style, submitted_on, submitted_at, state, fill_price
+FROM invest_orders WHERE client_order_id = $1
+`
+
+type GetInvestOrderByClientIDRow struct {
+	ID            int64      `json:"id"`
+	BookID        int64      `json:"book_id"`
+	Seq           int32      `json:"seq"`
+	ClientOrderID *string    `json:"client_order_id"`
+	OrderID       string     `json:"order_id"`
+	Symbol        string     `json:"symbol"`
+	Side          string     `json:"side"`
+	Qty           int32      `json:"qty"`
+	Price         float64    `json:"price"`
+	Style         string     `json:"style"`
+	SubmittedOn   time.Time  `json:"submitted_on"`
+	SubmittedAt   *time.Time `json:"submitted_at"`
+	State         string     `json:"state"`
+	FillPrice     float64    `json:"fill_price"`
+}
+
+func (q *Queries) GetInvestOrderByClientID(ctx context.Context, clientOrderID *string) (GetInvestOrderByClientIDRow, error) {
+	row := q.db.QueryRow(ctx, getInvestOrderByClientID, clientOrderID)
+	var i GetInvestOrderByClientIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.BookID,
+		&i.Seq,
+		&i.ClientOrderID,
+		&i.OrderID,
+		&i.Symbol,
+		&i.Side,
+		&i.Qty,
+		&i.Price,
+		&i.Style,
+		&i.SubmittedOn,
+		&i.SubmittedAt,
+		&i.State,
+		&i.FillPrice,
+	)
+	return i, err
+}
+
 const getInvestRun = `-- name: GetInvestRun :one
 SELECT id, cmd, args, started_at, finished_at, exit_code, output
 FROM invest_runs
@@ -146,6 +207,32 @@ func (q *Queries) GetInvestState(ctx context.Context, key string) (GetInvestStat
 	row := q.db.QueryRow(ctx, getInvestState, key)
 	var i GetInvestStateRow
 	err := row.Scan(&i.Doc, &i.UpdatedAt)
+	return i, err
+}
+
+const getOpenInvestOrderBook = `-- name: GetOpenInvestOrderBook :one
+SELECT id, ym, stage, style_idx, ledger_gap FROM invest_order_books WHERE closed_at IS NULL
+`
+
+type GetOpenInvestOrderBookRow struct {
+	ID        int64  `json:"id"`
+	Ym        string `json:"ym"`
+	Stage     string `json:"stage"`
+	StyleIdx  int32  `json:"style_idx"`
+	LedgerGap *int32 `json:"ledger_gap"`
+}
+
+// 열린 주문 묶음(많아야 하나).
+func (q *Queries) GetOpenInvestOrderBook(ctx context.Context) (GetOpenInvestOrderBookRow, error) {
+	row := q.db.QueryRow(ctx, getOpenInvestOrderBook)
+	var i GetOpenInvestOrderBookRow
+	err := row.Scan(
+		&i.ID,
+		&i.Ym,
+		&i.Stage,
+		&i.StyleIdx,
+		&i.LedgerGap,
+	)
 	return i, err
 }
 
@@ -435,6 +522,92 @@ func (q *Queries) InsertInvestLedger(ctx context.Context, arg InsertInvestLedger
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertInvestOrder = `-- name: InsertInvestOrder :one
+INSERT INTO invest_orders (book_id, seq, client_order_id, order_id, symbol, side, qty, price, style, submitted_on, submitted_at, state, fill_price)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id
+`
+
+type InsertInvestOrderParams struct {
+	BookID        int64      `json:"book_id"`
+	Seq           int32      `json:"seq"`
+	ClientOrderID *string    `json:"client_order_id"`
+	OrderID       string     `json:"order_id"`
+	Symbol        string     `json:"symbol"`
+	Side          string     `json:"side"`
+	Qty           int32      `json:"qty"`
+	Price         float64    `json:"price"`
+	Style         string     `json:"style"`
+	SubmittedOn   time.Time  `json:"submitted_on"`
+	SubmittedAt   *time.Time `json:"submitted_at"`
+	State         string     `json:"state"`
+	FillPrice     float64    `json:"fill_price"`
+}
+
+func (q *Queries) InsertInvestOrder(ctx context.Context, arg InsertInvestOrderParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertInvestOrder,
+		arg.BookID,
+		arg.Seq,
+		arg.ClientOrderID,
+		arg.OrderID,
+		arg.Symbol,
+		arg.Side,
+		arg.Qty,
+		arg.Price,
+		arg.Style,
+		arg.SubmittedOn,
+		arg.SubmittedAt,
+		arg.State,
+		arg.FillPrice,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertInvestOrderBook = `-- name: InsertInvestOrderBook :one
+INSERT INTO invest_order_books (ym, stage, style_idx, ledger_gap) VALUES ($1, $2, $3, $4) RETURNING id
+`
+
+type InsertInvestOrderBookParams struct {
+	Ym        string `json:"ym"`
+	Stage     string `json:"stage"`
+	StyleIdx  int32  `json:"style_idx"`
+	LedgerGap *int32 `json:"ledger_gap"`
+}
+
+func (q *Queries) InsertInvestOrderBook(ctx context.Context, arg InsertInvestOrderBookParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertInvestOrderBook,
+		arg.Ym,
+		arg.Stage,
+		arg.StyleIdx,
+		arg.LedgerGap,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertInvestOrderEvent = `-- name: InsertInvestOrderEvent :exec
+INSERT INTO invest_order_events (order_ref, state, qty, note) VALUES ($1, $2, $3, $4)
+`
+
+type InsertInvestOrderEventParams struct {
+	OrderRef int64  `json:"order_ref"`
+	State    string `json:"state"`
+	Qty      int32  `json:"qty"`
+	Note     string `json:"note"`
+}
+
+func (q *Queries) InsertInvestOrderEvent(ctx context.Context, arg InsertInvestOrderEventParams) error {
+	_, err := q.db.Exec(ctx, insertInvestOrderEvent,
+		arg.OrderRef,
+		arg.State,
+		arg.Qty,
+		arg.Note,
+	)
+	return err
 }
 
 const insertInvestPrice = `-- name: InsertInvestPrice :execrows
@@ -957,6 +1130,107 @@ func (q *Queries) ListInvestLedger(ctx context.Context) ([]ListInvestLedgerRow, 
 	return items, nil
 }
 
+const listInvestOrderEvents = `-- name: ListInvestOrderEvents :many
+SELECT e.id, o.client_order_id, o.order_id, e.state, e.qty, e.note, e.at
+FROM invest_order_events e JOIN invest_orders o ON o.id = e.order_ref ORDER BY e.id
+`
+
+type ListInvestOrderEventsRow struct {
+	ID            int64     `json:"id"`
+	ClientOrderID *string   `json:"client_order_id"`
+	OrderID       string    `json:"order_id"`
+	State         string    `json:"state"`
+	Qty           int32     `json:"qty"`
+	Note          string    `json:"note"`
+	At            time.Time `json:"at"`
+}
+
+func (q *Queries) ListInvestOrderEvents(ctx context.Context) ([]ListInvestOrderEventsRow, error) {
+	rows, err := q.db.Query(ctx, listInvestOrderEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInvestOrderEventsRow{}
+	for rows.Next() {
+		var i ListInvestOrderEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClientOrderID,
+			&i.OrderID,
+			&i.State,
+			&i.Qty,
+			&i.Note,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInvestOrdersOfBook = `-- name: ListInvestOrdersOfBook :many
+SELECT id, book_id, seq, client_order_id, order_id, symbol, side, qty, price, style, submitted_on, submitted_at, state, fill_price
+FROM invest_orders WHERE book_id = $1 ORDER BY seq, id
+`
+
+type ListInvestOrdersOfBookRow struct {
+	ID            int64      `json:"id"`
+	BookID        int64      `json:"book_id"`
+	Seq           int32      `json:"seq"`
+	ClientOrderID *string    `json:"client_order_id"`
+	OrderID       string     `json:"order_id"`
+	Symbol        string     `json:"symbol"`
+	Side          string     `json:"side"`
+	Qty           int32      `json:"qty"`
+	Price         float64    `json:"price"`
+	Style         string     `json:"style"`
+	SubmittedOn   time.Time  `json:"submitted_on"`
+	SubmittedAt   *time.Time `json:"submitted_at"`
+	State         string     `json:"state"`
+	FillPrice     float64    `json:"fill_price"`
+}
+
+// 묶음의 주문 전부(빠진 것 포함). 화면·trade는 dropped를 뺀다.
+func (q *Queries) ListInvestOrdersOfBook(ctx context.Context, bookID int64) ([]ListInvestOrdersOfBookRow, error) {
+	rows, err := q.db.Query(ctx, listInvestOrdersOfBook, bookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInvestOrdersOfBookRow{}
+	for rows.Next() {
+		var i ListInvestOrdersOfBookRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BookID,
+			&i.Seq,
+			&i.ClientOrderID,
+			&i.OrderID,
+			&i.Symbol,
+			&i.Side,
+			&i.Qty,
+			&i.Price,
+			&i.Style,
+			&i.SubmittedOn,
+			&i.SubmittedAt,
+			&i.State,
+			&i.FillPrice,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvestPrices = `-- name: ListInvestPrices :many
 
 SELECT day, spx, ndx, qqq, qqqm, qld, tqqq, usdkrw, usdkrw_mkt
@@ -1081,6 +1355,68 @@ func (q *Queries) SupersedeInvestLedgerForAmend(ctx context.Context, ym string) 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateInvestOrder = `-- name: UpdateInvestOrder :exec
+UPDATE invest_orders SET book_id = $2, seq = $3, order_id = $4, symbol = $5, side = $6, qty = $7, price = $8, style = $9,
+    submitted_on = $10, submitted_at = $11, state = $12, fill_price = $13, updated_at = now()
+WHERE id = $1
+`
+
+type UpdateInvestOrderParams struct {
+	ID          int64      `json:"id"`
+	BookID      int64      `json:"book_id"`
+	Seq         int32      `json:"seq"`
+	OrderID     string     `json:"order_id"`
+	Symbol      string     `json:"symbol"`
+	Side        string     `json:"side"`
+	Qty         int32      `json:"qty"`
+	Price       float64    `json:"price"`
+	Style       string     `json:"style"`
+	SubmittedOn time.Time  `json:"submitted_on"`
+	SubmittedAt *time.Time `json:"submitted_at"`
+	State       string     `json:"state"`
+	FillPrice   float64    `json:"fill_price"`
+}
+
+func (q *Queries) UpdateInvestOrder(ctx context.Context, arg UpdateInvestOrderParams) error {
+	_, err := q.db.Exec(ctx, updateInvestOrder,
+		arg.ID,
+		arg.BookID,
+		arg.Seq,
+		arg.OrderID,
+		arg.Symbol,
+		arg.Side,
+		arg.Qty,
+		arg.Price,
+		arg.Style,
+		arg.SubmittedOn,
+		arg.SubmittedAt,
+		arg.State,
+		arg.FillPrice,
+	)
+	return err
+}
+
+const updateInvestOrderBook = `-- name: UpdateInvestOrderBook :exec
+UPDATE invest_order_books SET stage = $2, style_idx = $3, ledger_gap = $4 WHERE id = $1 AND closed_at IS NULL
+`
+
+type UpdateInvestOrderBookParams struct {
+	ID        int64  `json:"id"`
+	Stage     string `json:"stage"`
+	StyleIdx  int32  `json:"style_idx"`
+	LedgerGap *int32 `json:"ledger_gap"`
+}
+
+func (q *Queries) UpdateInvestOrderBook(ctx context.Context, arg UpdateInvestOrderBookParams) error {
+	_, err := q.db.Exec(ctx, updateInvestOrderBook,
+		arg.ID,
+		arg.Stage,
+		arg.StyleIdx,
+		arg.LedgerGap,
+	)
+	return err
 }
 
 const upsertInvestState = `-- name: UpsertInvestState :exec

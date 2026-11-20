@@ -198,3 +198,41 @@ SELECT ym, kind, day, spx, sma185, vol, c1, c2, target, created_at FROM invest_j
 
 -- name: ListInvestJudgments :many
 SELECT ym, kind, day, spx, sma185, vol, c1, c2, target, created_at FROM invest_judgments ORDER BY ym, kind;
+
+-- name: GetOpenInvestOrderBook :one
+-- 열린 주문 묶음(많아야 하나).
+SELECT id, ym, stage, style_idx, ledger_gap FROM invest_order_books WHERE closed_at IS NULL;
+
+-- name: InsertInvestOrderBook :one
+INSERT INTO invest_order_books (ym, stage, style_idx, ledger_gap) VALUES ($1, $2, $3, $4) RETURNING id;
+
+-- name: UpdateInvestOrderBook :exec
+UPDATE invest_order_books SET stage = $2, style_idx = $3, ledger_gap = $4 WHERE id = $1 AND closed_at IS NULL;
+
+-- name: CloseInvestOrderBook :execrows
+UPDATE invest_order_books SET closed_at = now(), closed_by = $2 WHERE id = $1 AND closed_at IS NULL;
+
+-- name: ListInvestOrdersOfBook :many
+-- 묶음의 주문 전부(빠진 것 포함). 화면·trade는 dropped를 뺀다.
+SELECT id, book_id, seq, client_order_id, order_id, symbol, side, qty, price, style, submitted_on, submitted_at, state, fill_price
+FROM invest_orders WHERE book_id = $1 ORDER BY seq, id;
+
+-- name: GetInvestOrderByClientID :one
+SELECT id, book_id, seq, client_order_id, order_id, symbol, side, qty, price, style, submitted_on, submitted_at, state, fill_price
+FROM invest_orders WHERE client_order_id = $1;
+
+-- name: InsertInvestOrder :one
+INSERT INTO invest_orders (book_id, seq, client_order_id, order_id, symbol, side, qty, price, style, submitted_on, submitted_at, state, fill_price)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id;
+
+-- name: UpdateInvestOrder :exec
+UPDATE invest_orders SET book_id = $2, seq = $3, order_id = $4, symbol = $5, side = $6, qty = $7, price = $8, style = $9,
+    submitted_on = $10, submitted_at = $11, state = $12, fill_price = $13, updated_at = now()
+WHERE id = $1;
+
+-- name: InsertInvestOrderEvent :exec
+INSERT INTO invest_order_events (order_ref, state, qty, note) VALUES ($1, $2, $3, $4);
+
+-- name: ListInvestOrderEvents :many
+SELECT e.id, o.client_order_id, o.order_id, e.state, e.qty, e.note, e.at
+FROM invest_order_events e JOIN invest_orders o ON o.id = e.order_ref ORDER BY e.id;

@@ -400,29 +400,291 @@ func (s *Store) Bootstrap(ctx context.Context, p invest.Position) error {
 	})
 }
 
-// LoadOrders는 진행 중인 주문이다. 없으면 nil.
-func (s *Store) LoadOrders(ctx context.Context) (*invest.OrderBook, error) {
-	var b invest.OrderBook
-	ok, err := s.getDoc(ctx, "orders", &b)
-	if err != nil || !ok {
-		return nil, err
+// ── 주문 기록 ────────────────────────────────────────────────────────
+//
+// 주문 기록의 정본은 invest_order_books·invest_orders(00024)다. orders 문서는 되돌리기용 그림자로 같은 값을 계속
+// 쓰고(이력 포함), 읽을 때 표와 대조한다 — 다르면 ShadowError.
+
+// 주문 묶음을 닫는 사유.
+const (
+	BookDone       = "done"        // 체결을 장부에 반영했다
+	BookEmpty      = "empty"       // 주문이 다 빠졌다(거절·증권사에 없음)
+	BookClearStale = "clear-stale" // 사람이 지난 적용월 기록을 치웠다
+)
+
+// orderState는 주문 플래그를 표의 상태 하나로 읽는다.
+func orderState(o invest.BookOrder) (string, error) {
+	switch {
+	case o.Unknown && !o.Filled && !o.Expired:
+		return "unknown", nil
+	case !o.Unknown && !o.Filled && !o.Expired:
+		return "open", nil
+	case !o.Unknown && o.Filled && !o.Expired:
+		return "filled", nil
+	case !o.Unknown && o.Filled && o.Expired:
+		return "expired", nil
 	}
-	if b.Orders == nil {
-		b.Orders = []invest.BookOrder{}
-	}
-	return &b, nil
+	return "", fmt.Errorf("주문 %s 상태가 이상하다 (unknown %v · filled %v · expired %v)", o.ClientOrderID, o.Unknown, o.Filled, o.Expired)
 }
 
-// SaveOrders는 주문 진행 상태를 저장한다.
+func bookOrderOf(r dbq.ListInvestOrdersOfBookRow) invest.BookOrder {
+	o := invest.BookOrder{
+		OrderID: r.OrderID, ClientOrderID: optStr(r.ClientOrderID), Symbol: r.Symbol, Side: r.Side, Qty: int(r.Qty),
+		Price: r.Price, Style: r.Style, SubmittedOn: invest.FormatDay(invest.DayOf(r.SubmittedOn)), FillPrice: r.FillPrice,
+	}
+	if r.SubmittedAt != nil {
+		o.SubmittedAt = r.SubmittedAt.UTC().Format(time.RFC3339)
+	}
+	switch r.State {
+	case "unknown":
+		o.Unknown = true
+	case "filled":
+		o.Filled = true
+	case "expired":
+		o.Filled, o.Expired = true, true
+	}
+	return o
+}
+
+// loadOrderTable은 열린 주문 묶음이다(빠진 주문 제외). 없으면 nil.
+func (s *Store) loadOrderTable(ctx context.Context) (*invest.OrderBook, error) {
+	b, err := s.q.GetOpenInvestOrderBook(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListInvestOrdersOfBook(ctx, b.ID)
+	if err != nil {
+		return nil, err
+	}
+	book := &invest.OrderBook{YM: b.Ym, Stage: b.Stage, StyleIdx: int(b.StyleIdx), Orders: []invest.BookOrder{}}
+	if b.LedgerGap != nil {
+		g := int(*b.LedgerGap)
+		book.LedgerGap = &g
+	}
+	for _, r := range rows {
+		if r.State != "dropped" {
+			book.Orders = append(book.Orders, bookOrderOf(r))
+		}
+	}
+	return book, nil
+}
+
+// LoadOrders는 진행 중인 주문이다. 없으면 nil. 표와 orders 문서(그림자)가 다르면 에러다.
+func (s *Store) LoadOrders(ctx context.Context) (*invest.OrderBook, error) {
+	b, err := s.loadOrderTable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var doc invest.OrderBook
+	ok, err := s.getDoc(ctx, "orders", &doc)
+	if err != nil {
+		return nil, err
+	}
+	var docp *invest.OrderBook
+	if ok {
+		if doc.Orders == nil {
+			doc.Orders = []invest.BookOrder{}
+		}
+		docp = &doc
+	}
+	if !sameJSON(b, docp) {
+		t, _ := json.Marshal(b)
+		d, _ := json.Marshal(docp)
+		return nil, &ShadowError{Diffs: []string{fmt.Sprintf("주문 표 %s · 문서 %s", t, d)}}
+	}
+	return b, nil
+}
+
+func sameJSON(a, b any) bool {
+	x, err1 := json.Marshal(a)
+	y, err2 := json.Marshal(b)
+	return err1 == nil && err2 == nil && string(x) == string(y)
+}
+
+// SaveOrders는 주문 진행 상태를 저장한다. 표를 맞추고(상태가 바뀐 주문은 전이 기록) orders 문서도 같은 값으로 쓴다.
 func (s *Store) SaveOrders(ctx context.Context, b invest.OrderBook) error {
 	if b.Orders == nil {
 		b.Orders = []invest.BookOrder{}
 	}
-	return s.putDoc(ctx, "orders", b)
+	return s.InTx(ctx, func(s *Store) error {
+		if err := s.syncOrders(ctx, b); err != nil {
+			return err
+		}
+		return s.putDoc(ctx, "orders", b)
+	})
 }
 
-// ClearOrders는 사이클이 끝난 주문을 지운다(이력에는 남는다).
-func (s *Store) ClearOrders(ctx context.Context) error { return s.dropDoc(ctx, "orders") }
+func orderKey(o invest.BookOrder, seq int) string {
+	switch {
+	case o.ClientOrderID != "":
+		return "c:" + o.ClientOrderID
+	case o.OrderID != "":
+		return "o:" + o.OrderID
+	}
+	return "s:" + strconv.Itoa(seq)
+}
+
+// syncOrders는 열린 묶음과 그 주문을 b에 맞춘다. 묶음에서 사라진 주문은 dropped로 남긴다(지우지 않는다).
+func (s *Store) syncOrders(ctx context.Context, b invest.OrderBook) error {
+	var gap *int32
+	if b.LedgerGap != nil {
+		g := int32(*b.LedgerGap)
+		gap = &g
+	}
+	var bookID int64
+	open, err := s.q.GetOpenInvestOrderBook(ctx)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		if bookID, err = s.q.InsertInvestOrderBook(ctx, dbq.InsertInvestOrderBookParams{Ym: b.YM, Stage: b.Stage, StyleIdx: int32(b.StyleIdx), LedgerGap: gap}); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	default:
+		if open.Ym != b.YM {
+			return fmt.Errorf("열린 주문 묶음은 %s인데 %s 기록을 저장하려 한다", open.Ym, b.YM)
+		}
+		bookID = open.ID
+		if err := s.q.UpdateInvestOrderBook(ctx, dbq.UpdateInvestOrderBookParams{ID: bookID, Stage: b.Stage, StyleIdx: int32(b.StyleIdx), LedgerGap: gap}); err != nil {
+			return err
+		}
+	}
+	rows, err := s.q.ListInvestOrdersOfBook(ctx, bookID)
+	if err != nil {
+		return err
+	}
+	have := map[string]dbq.ListInvestOrdersOfBookRow{}
+	for _, r := range rows {
+		if r.State != "dropped" {
+			have[orderKey(bookOrderOf(r), int(r.Seq))] = r
+		}
+	}
+	used := map[int64]bool{}
+	for i, o := range b.Orders {
+		st, err := orderState(o)
+		if err != nil {
+			return err
+		}
+		on, err := invest.ParseDay(o.SubmittedOn)
+		if err != nil {
+			return fmt.Errorf("주문 %s 제출일 형식 이상: %q", o.ClientOrderID, o.SubmittedOn)
+		}
+		var at *time.Time
+		if o.SubmittedAt != "" {
+			t, err := time.Parse(time.RFC3339, o.SubmittedAt)
+			if err != nil {
+				return fmt.Errorf("주문 %s 제출 시각 형식 이상: %q", o.ClientOrderID, o.SubmittedAt)
+			}
+			at = &t
+		}
+		up := dbq.UpdateInvestOrderParams{BookID: bookID, Seq: int32(i), OrderID: o.OrderID, Symbol: o.Symbol, Side: o.Side,
+			Qty: int32(o.Qty), Price: o.Price, Style: o.Style, SubmittedOn: on, SubmittedAt: at, State: st, FillPrice: o.FillPrice}
+		prevState, prevQty, note := "", int32(0), "기록"
+		if r, ok := have[orderKey(o, i)]; ok && !used[r.ID] {
+			up.ID, prevState, prevQty = r.ID, r.State, r.Qty
+		} else if o.ClientOrderID != "" {
+			r, err := s.q.GetInvestOrderByClientID(ctx, &o.ClientOrderID)
+			switch {
+			case err == nil:
+				// 같은 키로 다시 냈다(거절·없음으로 빠졌던 주문, 또는 닫힌 묶음의 주문). 증권사도 같은 주문으로 본다.
+				// 상태가 같아 보여도 다시 낸 사실은 남긴다
+				up.ID, prevState, prevQty, note = r.ID, "", r.Qty, "같은 키로 다시 냄"
+			case !errors.Is(err, pgx.ErrNoRows):
+				return err
+			}
+		}
+		if up.ID == 0 {
+			id, err := s.q.InsertInvestOrder(ctx, dbq.InsertInvestOrderParams{BookID: bookID, Seq: up.Seq, ClientOrderID: nilIfEmpty(o.ClientOrderID),
+				OrderID: o.OrderID, Symbol: o.Symbol, Side: o.Side, Qty: up.Qty, Price: o.Price, Style: o.Style, SubmittedOn: on,
+				SubmittedAt: at, State: st, FillPrice: o.FillPrice})
+			if err != nil {
+				return err
+			}
+			used[id] = true
+			if err := s.q.InsertInvestOrderEvent(ctx, dbq.InsertInvestOrderEventParams{OrderRef: id, State: st, Qty: up.Qty, Note: note}); err != nil {
+				return err
+			}
+			continue
+		}
+		used[up.ID] = true
+		if err := s.q.UpdateInvestOrder(ctx, up); err != nil {
+			return err
+		}
+		if prevState != st || prevQty != up.Qty {
+			if note == "기록" {
+				note = prevState + " → " + st
+			}
+			if err := s.q.InsertInvestOrderEvent(ctx, dbq.InsertInvestOrderEventParams{OrderRef: up.ID, State: st, Qty: up.Qty, Note: note}); err != nil {
+				return err
+			}
+		}
+	}
+	for _, r := range rows {
+		if r.State == "dropped" || used[r.ID] {
+			continue
+		}
+		o := bookOrderOf(r)
+		on, _ := invest.ParseDay(o.SubmittedOn)
+		if err := s.q.UpdateInvestOrder(ctx, dbq.UpdateInvestOrderParams{ID: r.ID, BookID: bookID, Seq: r.Seq, OrderID: r.OrderID, Symbol: r.Symbol,
+			Side: r.Side, Qty: r.Qty, Price: r.Price, Style: r.Style, SubmittedOn: on, SubmittedAt: r.SubmittedAt, State: "dropped", FillPrice: r.FillPrice}); err != nil {
+			return err
+		}
+		note := "묶음에서 빠짐 — 명시적 거절"
+		if r.State == "unknown" {
+			note = "묶음에서 빠짐 — 거절됐거나 증권사에 없음(결과 모름이었음)"
+		}
+		if err := s.q.InsertInvestOrderEvent(ctx, dbq.InsertInvestOrderEventParams{OrderRef: r.ID, State: "dropped", Qty: r.Qty, Note: note}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ClearOrders는 열린 주문 묶음을 닫는다(지우지 않는다). why는 BookDone·BookEmpty·BookClearStale.
+// orders 문서는 예전처럼 지운다(이력에는 남는다).
+func (s *Store) ClearOrders(ctx context.Context, why string) error {
+	return s.InTx(ctx, func(s *Store) error {
+		open, err := s.q.GetOpenInvestOrderBook(ctx)
+		switch {
+		case err == nil:
+			// 비어서 닫는 묶음에 남은 주문은 묶음에서 빠진 것이다(거절·증권사에 없음)
+			if why == BookEmpty {
+				if err := s.syncOrders(ctx, invest.OrderBook{YM: open.Ym, Stage: open.Stage, StyleIdx: int(open.StyleIdx), Orders: []invest.BookOrder{}}); err != nil {
+					return err
+				}
+			}
+			if _, err := s.q.CloseInvestOrderBook(ctx, dbq.CloseInvestOrderBookParams{ID: open.ID, ClosedBy: &why}); err != nil {
+				return err
+			}
+		case !errors.Is(err, pgx.ErrNoRows):
+			return err
+		}
+		return s.dropDoc(ctx, "orders")
+	})
+}
+
+// OrderEvent는 주문 상태 전이 1건이다.
+type OrderEvent struct {
+	ClientOrderID, OrderID, State, Note string
+	Qty                                 int
+	At                                  time.Time
+}
+
+// OrderEvents는 주문 상태 전이 기록 전체다(기록 순).
+func (s *Store) OrderEvents(ctx context.Context) ([]OrderEvent, error) {
+	rows, err := s.q.ListInvestOrderEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]OrderEvent, len(rows))
+	for i, r := range rows {
+		out[i] = OrderEvent{ClientOrderID: optStr(r.ClientOrderID), OrderID: r.OrderID, State: r.State, Note: r.Note, Qty: int(r.Qty), At: r.At}
+	}
+	return out, nil
+}
 
 // LoadPending은 냉각 중인 이탈 요청이다. 없으면 nil.
 func (s *Store) LoadPending(ctx context.Context) (*invest.Pending, error) {

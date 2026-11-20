@@ -6,6 +6,7 @@ import (
 
 	"github.com/yuntyu01/MyHome/server/internal/invest"
 	"github.com/yuntyu01/MyHome/server/internal/invest/broker"
+	"github.com/yuntyu01/MyHome/server/internal/invest/store"
 )
 
 // OrdersOpts는 orders 옵션이다.
@@ -113,7 +114,7 @@ func (a *App) Orders(ctx context.Context, o OrdersOpts) int {
 		}
 		a.printf("체결 %d주가 있었지만 증권사 보유와 장부가 같다 - 이미 반영됐다", filled)
 	}
-	if err := a.Store.ClearOrders(ctx); err != nil {
+	if err := a.Store.ClearOrders(ctx, store.BookClearStale); err != nil {
 		return a.fail(ExitFail, "주문 기록 삭제 실패: %v", err)
 	}
 	a.printf("✓ %s 주문 기록을 지웠다 (이력은 invest_state_history에 남는다). 다음 trade가 %s 매수를 처음부터 진행한다", book.YM, pos.ApplyYM)

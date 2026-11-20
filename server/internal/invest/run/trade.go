@@ -693,7 +693,7 @@ func (a *App) resolveUnknown(ctx context.Context, client broker.Broker, book *in
 // 다음 달 trade가 "지난달 기록"으로 막힌다 — 예전처럼 접수된 주문이 없으면 기록도 없게 한다.
 func (a *App) saveBook(ctx context.Context, book invest.OrderBook) error {
 	if len(book.Orders) == 0 {
-		return a.Store.ClearOrders(ctx)
+		return a.Store.ClearOrders(ctx, store.BookEmpty)
 	}
 	return a.Store.SaveOrders(ctx, book)
 }
@@ -965,7 +965,7 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 		if err := s.AppendLedger(ctx, invest.LedgerEntry{On: invest.FormatDay(today), YM: ym, AmountKRW: newMoneyKRW, Source: "trade", Symbol: target, Shares: &shares, Note: note}); err != nil {
 			return err
 		}
-		return s.ClearOrders(ctx)
+		return s.ClearOrders(ctx, store.BookDone)
 	})
 	if err != nil {
 		return a.fail(ExitFail, "🚨 체결 반영 저장 실패: %v — 주문 기록은 남아 있다. 다음 실행이 다시 반영한다", err), settleStop
