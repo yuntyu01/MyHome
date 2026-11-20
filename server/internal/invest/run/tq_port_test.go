@@ -34,10 +34,16 @@ func fp(v float64) *float64       { return &v }
 func near(a, b, tol float64) bool { return math.Abs(a-b) <= tol }
 
 // update는 저장된 포지션을 고쳐 다시 저장한다 (TQ _seed의 **extra 자리).
+//
+// 판정 칸은 고치지 않는다 — 판정 표(invest_judgments)는 추가만 한다. 다른 판정이 필요하면 seedOpt.signal로 시작한다.
 func (h *harness) update(f func(p *invest.Position)) {
 	h.t.Helper()
 	p := h.pos()
+	before := p
 	f(&p)
+	if p.YM != before.YM || p.LastRun != before.LastRun || p.Signal != before.Signal {
+		h.t.Fatal("update로 판정 칸을 바꾸지 않는다 — seedOpt.signal을 쓸 것")
+	}
 	if err := h.st.SavePosition(h.ctx, p); err != nil {
 		h.t.Fatal(err)
 	}
@@ -1010,9 +1016,10 @@ func TestTradeDryRunPlacesNothing(t *testing.T) {
 // 증권사에 없는데 팔라고 하면 멈춘다 — 앱 밖에서 이미 팔린 것이다.
 func TestSwitchStopsWhenTheBrokerHoldsNothing(t *testing.T) {
 	// 신호가 위험회피(QQQ)로 바뀐 달, TQQQ를 들고 있다
-	h := newHarness(t, seedOpt{acct: invest.Account{Symbol: "TQQQ", Shares: 6, CostKRW: 552_172}})
+	off := july
+	off.C2, off.Target = false, "QQQ"
+	h := newHarness(t, seedOpt{acct: invest.Account{Symbol: "TQQQ", Shares: 6, CostKRW: 552_172}, signal: &off})
 	h.update(func(p *invest.Position) {
-		p.Signal.C2, p.Signal.Target = false, "QQQ"
 		p.ContributedKRW, p.MonthsInvested = 600000, 1
 	})
 	h.fb.held["TQQQ"] = 0
@@ -1357,7 +1364,7 @@ func TestPositionRoundTripIsLossless(t *testing.T) {
 	acct := invest.Account{Symbol: "TQQQ", Shares: 1340, CostKRW: 123_456_789.5, CashUSD: 12.4,
 		RealizedGainKRW: map[int]float64{2025: -3_000_000, 2026: 8_421_550.25}, TaxPaidKRW: map[int]float64{}}
 	p := invest.Position{Holdings: acct, LastRun: "2026-08-31", YM: "2026-08", Signal: invest.Judgment{SPX: 7489.72, Target: "TQQQ"}, FXRate: 1441.1, ApplyYM: "2026-09"}
-	if err := st.SavePosition(ctx, p); err != nil {
+	if err := st.Bootstrap(ctx, p); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.LoadPosition(ctx)
@@ -1391,7 +1398,7 @@ func TestStoreRejectsCorruptAndFractionalPositions(t *testing.T) {
 		t.Fatalf("없는 상태: %v", err)
 	}
 	p := julyPos(invest.Account{Symbol: "TQQQ", Shares: 1340})
-	if err := st.SavePosition(ctx, p); err != nil {
+	if err := st.Bootstrap(ctx, p); err != nil {
 		t.Fatal(err)
 	}
 	row, _ := q.GetInvestState(ctx, "position")

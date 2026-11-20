@@ -83,6 +83,33 @@ func (q *Queries) GetInvestDepositDay(ctx context.Context) (*int32, error) {
 	return deposit_day, err
 }
 
+const getInvestJudgment = `-- name: GetInvestJudgment :one
+SELECT ym, kind, day, spx, sma185, vol, c1, c2, target, created_at FROM invest_judgments WHERE ym = $1 AND kind = $2
+`
+
+type GetInvestJudgmentParams struct {
+	Ym   string `json:"ym"`
+	Kind string `json:"kind"`
+}
+
+func (q *Queries) GetInvestJudgment(ctx context.Context, arg GetInvestJudgmentParams) (InvestJudgment, error) {
+	row := q.db.QueryRow(ctx, getInvestJudgment, arg.Ym, arg.Kind)
+	var i InvestJudgment
+	err := row.Scan(
+		&i.Ym,
+		&i.Kind,
+		&i.Day,
+		&i.Spx,
+		&i.Sma185,
+		&i.Vol,
+		&i.C1,
+		&i.C2,
+		&i.Target,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getInvestRun = `-- name: GetInvestRun :one
 SELECT id, cmd, args, started_at, finished_at, exit_code, output
 FROM invest_runs
@@ -335,6 +362,43 @@ func (q *Queries) InsertInvestFlow(ctx context.Context, arg InsertInvestFlowPara
 		arg.Key,
 		arg.At,
 		arg.Data,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const insertInvestJudgment = `-- name: InsertInvestJudgment :execrows
+INSERT INTO invest_judgments (ym, kind, day, spx, sma185, vol, c1, c2, target)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (ym, kind) DO NOTHING
+`
+
+type InsertInvestJudgmentParams struct {
+	Ym     string    `json:"ym"`
+	Kind   string    `json:"kind"`
+	Day    time.Time `json:"day"`
+	Spx    float64   `json:"spx"`
+	Sma185 float64   `json:"sma185"`
+	Vol    float64   `json:"vol"`
+	C1     bool      `json:"c1"`
+	C2     bool      `json:"c2"`
+	Target string    `json:"target"`
+}
+
+// 판정 1회 = 1행. 같은 달을 다시 판정하면 새 행을 만들지 않는다(호출부가 같은 값인지 대조한다).
+func (q *Queries) InsertInvestJudgment(ctx context.Context, arg InsertInvestJudgmentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertInvestJudgment,
+		arg.Ym,
+		arg.Kind,
+		arg.Day,
+		arg.Spx,
+		arg.Sma185,
+		arg.Vol,
+		arg.C1,
+		arg.C2,
+		arg.Target,
 	)
 	if err != nil {
 		return 0, err
@@ -798,6 +862,41 @@ func (q *Queries) ListInvestFlow(ctx context.Context, ym string) ([]InvestFlow, 
 			&i.At,
 			&i.Data,
 			&i.RecordedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInvestJudgments = `-- name: ListInvestJudgments :many
+SELECT ym, kind, day, spx, sma185, vol, c1, c2, target, created_at FROM invest_judgments ORDER BY ym, kind
+`
+
+func (q *Queries) ListInvestJudgments(ctx context.Context) ([]InvestJudgment, error) {
+	rows, err := q.db.Query(ctx, listInvestJudgments)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InvestJudgment{}
+	for rows.Next() {
+		var i InvestJudgment
+		if err := rows.Scan(
+			&i.Ym,
+			&i.Kind,
+			&i.Day,
+			&i.Spx,
+			&i.Sma185,
+			&i.Vol,
+			&i.C1,
+			&i.C2,
+			&i.Target,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

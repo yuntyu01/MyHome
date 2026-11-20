@@ -249,8 +249,22 @@ func (s *Store) cmd() string {
 	return s.Cmd
 }
 
-// LoadPosition은 실제 계좌와 그달 판정이다.
+// LoadPosition은 실제 계좌와 그달 판정이다. 표(판정·체결)와 position 문서를 대조하고 다르면 에러다(ShadowError).
+// 매매 명령은 전부 이것을 쓴다 — 어긋난 채로는 아무 명령도 돌지 않고 실패 알림이 간다.
 func (s *Store) LoadPosition(ctx context.Context) (invest.Position, error) {
+	p, err := s.LoadPositionDoc(ctx)
+	if err != nil {
+		return p, err
+	}
+	if err := s.checkShadow(ctx, p); err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
+// LoadPositionDoc은 position 문서를 대조 없이 읽는다. 화면(웹·앱)이 쓴다 — 대조가 어긋나도 화면은 떠야 한다.
+// 어긋남은 매매 명령이 실패로 알린다.
+func (s *Store) LoadPositionDoc(ctx context.Context) (invest.Position, error) {
 	var p invest.Position
 	ok, err := s.getDoc(ctx, "position", &p)
 	if err != nil {
@@ -267,12 +281,123 @@ func (s *Store) LoadPosition(ctx context.Context) (invest.Position, error) {
 }
 
 // SavePosition은 계좌를 저장하고 이력에 남긴다. 모든 판정은 기록에 남는다.
+//
+// 🔴 쓴 뒤 표(판정·체결)와 대조한다. 다르면 에러이고 한 트랜잭션이라 문서도 표도 쓰이지 않는다. 그래서 계좌를
+// 바꾸는 명령은 체결(AddFills)·판정(AddJudgment)을 먼저 쓰고 마지막에 이것을 부른다.
 func (s *Store) SavePosition(ctx context.Context, p invest.Position) error {
 	p.Normalize()
 	if err := p.Validate(); err != nil {
 		return err
 	}
-	return s.putDoc(ctx, "position", p)
+	return s.InTx(ctx, func(s *Store) error {
+		if err := s.putDoc(ctx, "position", p); err != nil {
+			return err
+		}
+		return s.checkShadow(ctx, p)
+	})
+}
+
+// ShadowError는 표에서 다시 계산한 값이 position 문서와 다를 때다(refactor/invest-db의 그림자 대조).
+// 문서를 지우기 전 석 달 동안 매 명령이 확인한다.
+type ShadowError struct{ Diffs []string }
+
+func (e *ShadowError) Error() string {
+	return "🚨 표와 position 문서가 다르다(그림자 대조) — 아무것도 하지 않는다:\n  " + strings.Join(e.Diffs, "\n  ")
+}
+
+// checkShadow는 표(판정)와 position 문서를 비트 단위로 대조한다.
+func (s *Store) checkShadow(ctx context.Context, p invest.Position) error {
+	var diffs []string
+	if p.Signal.Target != "" {
+		want, err := invest.JudgedOf(p)
+		if err != nil {
+			return err
+		}
+		got, ok, err := s.Judgment(ctx, p.YM, invest.JudgedMonthEnd)
+		switch {
+		case err != nil:
+			return err
+		case !ok:
+			diffs = append(diffs, fmt.Sprintf("판정 표에 %s 행이 없다 · 문서 %s", p.YM, want))
+		case !got.Same(want):
+			diffs = append(diffs, fmt.Sprintf("판정 표 %s · 문서 %s", got, want))
+		}
+	}
+	if len(diffs) > 0 {
+		return &ShadowError{Diffs: diffs}
+	}
+	return nil
+}
+
+// ── 판정 ─────────────────────────────────────────────────────────────
+
+// AddJudgment는 판정 1회를 남긴다. 같은 달·종류가 이미 있으면 같은 값이어야 한다(다르면 에러, 새 행은 없다).
+func (s *Store) AddJudgment(ctx context.Context, j invest.Judged) error {
+	if _, err := s.q.InsertInvestJudgment(ctx, dbq.InsertInvestJudgmentParams{
+		Ym: j.YM, Kind: j.Kind, Day: j.Day, Spx: j.SPX, Sma185: j.SMA185, Vol: j.Vol, C1: j.C1, C2: j.C2, Target: j.Target,
+	}); err != nil {
+		return err
+	}
+	got, ok, err := s.Judgment(ctx, j.YM, j.Kind)
+	if err != nil {
+		return err
+	}
+	if !ok || !got.Same(j) {
+		return fmt.Errorf("%s 판정이 이미 다른 값으로 기록돼 있다 — 표 %s · 지금 %s", j.YM, got, j)
+	}
+	return nil
+}
+
+// Judgment는 그 달·종류의 판정이다. 없으면 ok=false.
+func (s *Store) Judgment(ctx context.Context, ym, kind string) (invest.Judged, bool, error) {
+	r, err := s.q.GetInvestJudgment(ctx, dbq.GetInvestJudgmentParams{Ym: ym, Kind: kind})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return invest.Judged{}, false, nil
+	}
+	if err != nil {
+		return invest.Judged{}, false, err
+	}
+	return judgedOf(r), true, nil
+}
+
+// LoadJudgments는 판정 기록 전체다(달 순).
+func (s *Store) LoadJudgments(ctx context.Context) ([]invest.Judged, error) {
+	rows, err := s.q.ListInvestJudgments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]invest.Judged, len(rows))
+	for i, r := range rows {
+		out[i] = judgedOf(r)
+	}
+	return out, nil
+}
+
+func judgedOf(r dbq.InvestJudgment) invest.Judged {
+	return invest.Judged{YM: r.Ym, Kind: r.Kind, Day: invest.DayOf(r.Day),
+		Judgment: invest.Judgment{SPX: r.Spx, SMA185: r.Sma185, C1: r.C1, Vol: r.Vol, C2: r.C2, Target: r.Target}}
+}
+
+// Bootstrap은 처음 상태를 놓는다: 판정 행, position 문서(그리고 여는 체결). 운영 계좌는 마이그레이션이 이 일을
+// 했다(00023·00025) — 새로 시작하는 계좌와 테스트가 쓴다. position이 이미 있으면 에러다.
+func (s *Store) Bootstrap(ctx context.Context, p invest.Position) error {
+	return s.InTx(ctx, func(s *Store) error {
+		if _, err := s.LoadPositionDoc(ctx); err == nil {
+			return errors.New("position이 이미 있다. Bootstrap은 처음 한 번만")
+		} else if !errors.Is(err, ErrNoPosition) {
+			return err
+		}
+		if p.Signal.Target != "" {
+			j, err := invest.JudgedOf(p)
+			if err != nil {
+				return err
+			}
+			if err := s.AddJudgment(ctx, j); err != nil {
+				return err
+			}
+		}
+		return s.SavePosition(ctx, p)
+	})
 }
 
 // LoadOrders는 진행 중인 주문이다. 없으면 nil.

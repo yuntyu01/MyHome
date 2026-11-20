@@ -86,6 +86,10 @@ func (a *App) Judge(ctx context.Context, o JudgeOpts) int {
 	}
 	var missed *invest.Deviation
 	err = a.Store.InTx(ctx, func(s *store.Store) error {
+		// 판정 1회 = 1행(invest_judgments). position 문서의 판정 칸과 같은 값이라 저장 때 대조된다
+		if err := s.AddJudgment(ctx, invest.Judged{YM: d.YM, Kind: invest.JudgedMonthEnd, Day: d.Day, Judgment: next.Signal}); err != nil {
+			return err
+		}
 		if err := s.SavePosition(ctx, next); err != nil {
 			return err
 		}

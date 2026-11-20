@@ -186,3 +186,15 @@ SELECT day FROM invest_daily ORDER BY day DESC LIMIT 1;
 -- name: ListInvestDaily :many
 -- 최근 거래일부터.
 SELECT * FROM invest_daily ORDER BY day DESC LIMIT sqlc.arg(max_rows)::integer;
+
+-- name: InsertInvestJudgment :execrows
+-- 판정 1회 = 1행. 같은 달을 다시 판정하면 새 행을 만들지 않는다(호출부가 같은 값인지 대조한다).
+INSERT INTO invest_judgments (ym, kind, day, spx, sma185, vol, c1, c2, target)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (ym, kind) DO NOTHING;
+
+-- name: GetInvestJudgment :one
+SELECT ym, kind, day, spx, sma185, vol, c1, c2, target, created_at FROM invest_judgments WHERE ym = $1 AND kind = $2;
+
+-- name: ListInvestJudgments :many
+SELECT ym, kind, day, spx, sma185, vol, c1, c2, target, created_at FROM invest_judgments ORDER BY ym, kind;

@@ -55,7 +55,7 @@ func (c *webClient) seedInvest(o investSeed) time.Time {
 	if o.executedYM != "" {
 		pos.ExecutedYM, pos.ExecutedOn = invest.StrPtr(o.executedYM), invest.StrPtr(o.executedYM+"-02")
 	}
-	if err := st.SavePosition(ctx, pos); err != nil {
+	if err := st.Bootstrap(ctx, pos); err != nil {
 		c.t.Fatal(err)
 	}
 	shares := 10

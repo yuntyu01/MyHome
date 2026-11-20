@@ -25,7 +25,8 @@ import (
 
 var execDay = invest.Date(2026, 8, 3) // 2026-08 첫 거래일
 
-var july = invest.Judgment{SPX: 7489.72021484375, SMA185: 7045.09037816723, C1: true, Vol: 0.236368559570371, C2: true, Target: "TQQQ"}
+// july는 2026-07 실제 판정이다(마스터로 계산한 값 그대로 — 다시 판정해도 판정 표와 비트 단위로 같다).
+var july = invest.Judgment{SPX: 7489.72021484375, SMA185: 7045.090378167229, C1: true, Vol: 0.23636855957037134, C2: true, Target: "TQQQ"}
 
 var (
 	pricesOnce sync.Once
@@ -276,6 +277,7 @@ type seedOpt struct {
 	judgmentCount   int
 	noBroker        bool
 	contributionFor string
+	signal          *invest.Judgment // nil이면 7월 실제 판정(TQQQ)
 }
 
 func newHarness(t *testing.T, o seedOpt) *harness {
@@ -317,7 +319,11 @@ func (h *harness) seed(o seedOpt) {
 	if o.acct.RealizedGainKRW == nil {
 		o.acct.RealizedGainKRW = map[int]float64{}
 	}
-	p := invest.Position{Holdings: o.acct, LastRun: "2026-07-31", YM: o.ym, Signal: july, FXRate: 1420.6,
+	sig := july
+	if o.signal != nil {
+		sig = *o.signal
+	}
+	p := invest.Position{Holdings: o.acct, LastRun: "2026-07-31", YM: o.ym, Signal: sig, FXRate: 1420.6,
 		ApplyYM: o.applyYM, JudgmentCount: o.judgmentCount}
 	if o.executedOn != "" {
 		p.ExecutedOn = invest.StrPtr(o.executedOn)
@@ -325,7 +331,8 @@ func (h *harness) seed(o seedOpt) {
 	if o.executedYM != "" {
 		p.ExecutedYM = invest.StrPtr(o.executedYM)
 	}
-	if err := h.st.SavePosition(h.ctx, p); err != nil {
+	// 판정 행·position 문서(그리고 여는 체결)를 한 번에 — 운영 계좌는 마이그레이션이 같은 일을 했다
+	if err := h.st.Bootstrap(h.ctx, p); err != nil {
 		h.t.Fatal(err)
 	}
 }

@@ -64,6 +64,10 @@ func at(m time.Month, d, hh, mm int) time.Time {
 	return time.Date(2026, m, d, hh, mm, 0, 0, invest.NewYork)
 }
 
+// julyGolden은 골든을 만들 때 쓴 7월 판정 값이다(소수 끝자리를 줄여 적은 옛 상수 — 골든이 이 값을 담고 있다).
+// 이 시나리오는 7월을 다시 판정하지 않으므로 계산값과 끝자리가 달라도 된다.
+var julyGolden = invest.Judgment{SPX: 7489.72021484375, SMA185: 7045.09037816723, C1: true, Vol: 0.236368559570371, C2: true, Target: "TQQQ"}
+
 func newCycleRig(t *testing.T) *cycleRig {
 	t.Helper()
 	pool := testdb.New(t)
@@ -109,13 +113,13 @@ func newCycleRig(t *testing.T) *cycleRig {
 	before := invest.Account{Symbol: "TQQQ", Shares: 37, CostKRW: 3_412_345.125, CashUSD: 431.875, RealizedGainKRW: map[int]float64{}, TaxPaidKRW: map[int]float64{}}
 	pos := invest.Position{
 		Holdings: invest.Account{Symbol: "TQQQ", Shares: 40, CostKRW: 4_001_234.5, CashUSD: 12.34, RealizedGainKRW: map[int]float64{2025: -12_345.5}, TaxPaidKRW: map[int]float64{}},
-		LastRun:  "2026-07-31", YM: "2026-07", Signal: july, FXRate: 1386.25, ApplyYM: "2026-08",
+		LastRun:  "2026-07-31", YM: "2026-07", Signal: julyGolden, FXRate: 1386.25, ApplyYM: "2026-08",
 		ContributedKRW: contributed, MonthsInvested: 7, JudgmentCount: 7,
 		CloseUSD:   map[string]float64{"QQQM": 283.29, "TQQQ": 64.62},
 		ExecutedOn: invest.StrPtr("2026-07-01"), ExecutedYM: invest.StrPtr("2026-07"), LateDays: ip(0),
 		Before: &invest.Snapshot{Holdings: before, ContributedKRW: contributed - 600_000, MonthsInvested: 6},
 	}
-	if err := seed.SavePosition(ctx, pos); err != nil {
+	if err := seed.Bootstrap(ctx, pos); err != nil {
 		t.Fatal(err)
 	}
 	// 옮긴 뒤 사람이 남은 현금을 증권사에 맞춘 모양(reconcile --apply-cash)

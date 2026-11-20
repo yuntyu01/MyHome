@@ -189,7 +189,7 @@ func (wb *Web) apiInvestValue(w http.ResponseWriter, r *http.Request) {
 // loadInvestStatus는 첫 화면 값을 DB에서 읽어 만든다. 옮기기 전이면 Migrated가 false인 빈 값이다.
 func (wb *Web) loadInvestStatus(ctx context.Context) (investStatus, error) {
 	st := store.New(wb.API.Pool, "web")
-	pos, err := st.LoadPosition(ctx)
+	pos, err := st.LoadPositionDoc(ctx)
 	if errors.Is(err, store.ErrNoPosition) {
 		return investStatus{}, nil
 	}
@@ -206,7 +206,7 @@ func (wb *Web) loadInvestStatus(ctx context.Context) (investStatus, error) {
 // loadInvestValue는 평가 화면 값을 DB에서 읽어 만든다.
 func (wb *Web) loadInvestValue(ctx context.Context) (investValue, error) {
 	st := store.New(wb.API.Pool, "web")
-	pos, err := st.LoadPosition(ctx)
+	pos, err := st.LoadPositionDoc(ctx)
 	if errors.Is(err, store.ErrNoPosition) {
 		return investValue{}, nil
 	}

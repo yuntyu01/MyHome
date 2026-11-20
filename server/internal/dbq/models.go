@@ -197,6 +197,19 @@ type InvestFlow struct {
 	RecordedAt time.Time `json:"recorded_at"`
 }
 
+type InvestJudgment struct {
+	Ym        string    `json:"ym"`
+	Kind      string    `json:"kind"`
+	Day       time.Time `json:"day"`
+	Spx       float64   `json:"spx"`
+	Sma185    float64   `json:"sma185"`
+	Vol       float64   `json:"vol"`
+	C1        bool      `json:"c1"`
+	C2        bool      `json:"c2"`
+	Target    string    `json:"target"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type InvestLedger struct {
 	ID           int64      `json:"id"`
 	OnDay        time.Time  `json:"on_day"`
