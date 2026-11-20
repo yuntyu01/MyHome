@@ -25,7 +25,11 @@ DECLARE
 BEGIN
     FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
         EXECUTE format('REVOKE ALL ON TABLE public.%I FROM myhome_web, myhome_trader', t);
-        IF t LIKE 'invest\_%' THEN
+        IF t IN ('invest_judgments', 'invest_order_events') THEN
+            -- 추가만 하는 기록(판정 1회 = 1행, 주문 상태 전이). 매매 역할도 고치거나 지우지 못한다
+            EXECUTE format('GRANT SELECT, INSERT ON TABLE public.%I TO myhome_trader', t);
+            EXECUTE format('GRANT SELECT ON TABLE public.%I TO myhome_web', t);
+        ELSIF t LIKE 'invest\_%' THEN
             EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO myhome_trader', t);
             EXECUTE format('GRANT SELECT ON TABLE public.%I TO myhome_web', t);
         ELSIF t <> 'goose_db_version' THEN

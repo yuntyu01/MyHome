@@ -17,6 +17,9 @@ func TestRefreshRecordsEveryTradingDay(t *testing.T) {
 	p.Holdings = qqqm3()
 	p.Holdings.CashUSD = 10
 	p.ContributedKRW = 1_200_000
+	if err := r.st.Rebase(r.ctx, p.Holdings, d(8, 3), p.ApplyYM); err != nil {
+		t.Fatal(err)
+	}
 	if err := r.st.SavePosition(r.ctx, p); err != nil {
 		t.Fatal(err)
 	}

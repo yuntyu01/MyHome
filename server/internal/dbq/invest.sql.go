@@ -89,6 +89,19 @@ func (q *Queries) FinishInvestRun(ctx context.Context, arg FinishInvestRunParams
 	return err
 }
 
+const firstInvestFillOfMonth = `-- name: FirstInvestFillOfMonth :one
+SELECT coalesce(min(id), 0)::bigint AS id FROM invest_fills
+WHERE ym = $1 AND source IN ('trade', 'execute', 'amend') AND side IN ('buy', 'sell') AND superseded_at IS NULL
+`
+
+// 그 달 체결(자동·수동·정정)의 첫 줄. 정정은 여기서부터 덮는다.
+func (q *Queries) FirstInvestFillOfMonth(ctx context.Context, ym string) (int64, error) {
+	row := q.db.QueryRow(ctx, firstInvestFillOfMonth, ym)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getInvestDepositDay = `-- name: GetInvestDepositDay :one
 SELECT deposit_day FROM invest_prefs WHERE id = 1
 `
@@ -426,6 +439,40 @@ func (q *Queries) InsertInvestDeviation(ctx context.Context, arg InsertInvestDev
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertInvestFill = `-- name: InsertInvestFill :exec
+INSERT INTO invest_fills (day, ym, symbol, side, shares, price_usd, fx, fee_usd, krw, source)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+`
+
+type InsertInvestFillParams struct {
+	Day      time.Time `json:"day"`
+	Ym       string    `json:"ym"`
+	Symbol   string    `json:"symbol"`
+	Side     string    `json:"side"`
+	Shares   int32     `json:"shares"`
+	PriceUsd float64   `json:"price_usd"`
+	Fx       float64   `json:"fx"`
+	FeeUsd   float64   `json:"fee_usd"`
+	Krw      float64   `json:"krw"`
+	Source   string    `json:"source"`
+}
+
+func (q *Queries) InsertInvestFill(ctx context.Context, arg InsertInvestFillParams) error {
+	_, err := q.db.Exec(ctx, insertInvestFill,
+		arg.Day,
+		arg.Ym,
+		arg.Symbol,
+		arg.Side,
+		arg.Shares,
+		arg.PriceUsd,
+		arg.Fx,
+		arg.FeeUsd,
+		arg.Krw,
+		arg.Source,
+	)
+	return err
 }
 
 const insertInvestFlow = `-- name: InsertInvestFlow :execrows
@@ -1014,6 +1061,58 @@ func (q *Queries) ListInvestDeviations(ctx context.Context) ([]ListInvestDeviati
 	return items, nil
 }
 
+const listInvestFills = `-- name: ListInvestFills :many
+SELECT id, day, ym, symbol, side, shares, price_usd, fx, fee_usd, krw, source
+FROM invest_fills WHERE superseded_at IS NULL ORDER BY id
+`
+
+type ListInvestFillsRow struct {
+	ID       int64     `json:"id"`
+	Day      time.Time `json:"day"`
+	Ym       string    `json:"ym"`
+	Symbol   string    `json:"symbol"`
+	Side     string    `json:"side"`
+	Shares   int32     `json:"shares"`
+	PriceUsd float64   `json:"price_usd"`
+	Fx       float64   `json:"fx"`
+	FeeUsd   float64   `json:"fee_usd"`
+	Krw      float64   `json:"krw"`
+	Source   string    `json:"source"`
+}
+
+// 살아 있는 체결(정정으로 덮인 줄 제외), 쌓은 순서.
+func (q *Queries) ListInvestFills(ctx context.Context) ([]ListInvestFillsRow, error) {
+	rows, err := q.db.Query(ctx, listInvestFills)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInvestFillsRow{}
+	for rows.Next() {
+		var i ListInvestFillsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Day,
+			&i.Ym,
+			&i.Symbol,
+			&i.Side,
+			&i.Shares,
+			&i.PriceUsd,
+			&i.Fx,
+			&i.FeeUsd,
+			&i.Krw,
+			&i.Source,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvestFlow = `-- name: ListInvestFlow :many
 SELECT id, ym, step, key, at, data, recorded_at FROM invest_flow WHERE ym = $1 ORDER BY at, id
 `
@@ -1340,6 +1439,19 @@ func (q *Queries) StartInvestRun(ctx context.Context, arg StartInvestRunParams) 
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const supersedeInvestFillsFrom = `-- name: SupersedeInvestFillsFrom :execrows
+UPDATE invest_fills SET superseded_at = now() WHERE id >= $1 AND superseded_at IS NULL
+`
+
+// 정정: 그 달 체결 첫 줄부터 뒤의 줄을 덮는다(그 사이 앱 밖 매수 포함 — 정정은 체결 직전 상태에서 다시 계산한다).
+func (q *Queries) SupersedeInvestFillsFrom(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, supersedeInvestFillsFrom, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const supersedeInvestLedgerForAmend = `-- name: SupersedeInvestLedgerForAmend :execrows

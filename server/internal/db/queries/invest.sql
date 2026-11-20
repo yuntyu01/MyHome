@@ -236,3 +236,21 @@ INSERT INTO invest_order_events (order_ref, state, qty, note) VALUES ($1, $2, $3
 -- name: ListInvestOrderEvents :many
 SELECT e.id, o.client_order_id, o.order_id, e.state, e.qty, e.note, e.at
 FROM invest_order_events e JOIN invest_orders o ON o.id = e.order_ref ORDER BY e.id;
+
+-- name: InsertInvestFill :exec
+INSERT INTO invest_fills (day, ym, symbol, side, shares, price_usd, fx, fee_usd, krw, source)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
+
+-- name: ListInvestFills :many
+-- 살아 있는 체결(정정으로 덮인 줄 제외), 쌓은 순서.
+SELECT id, day, ym, symbol, side, shares, price_usd, fx, fee_usd, krw, source
+FROM invest_fills WHERE superseded_at IS NULL ORDER BY id;
+
+-- name: FirstInvestFillOfMonth :one
+-- 그 달 체결(자동·수동·정정)의 첫 줄. 정정은 여기서부터 덮는다.
+SELECT coalesce(min(id), 0)::bigint AS id FROM invest_fills
+WHERE ym = $1 AND source IN ('trade', 'execute', 'amend') AND side IN ('buy', 'sell') AND superseded_at IS NULL;
+
+-- name: SupersedeInvestFillsFrom :execrows
+-- 정정: 그 달 체결 첫 줄부터 뒤의 줄을 덮는다(그 사이 앱 밖 매수 포함 — 정정은 체결 직전 상태에서 다시 계산한다).
+UPDATE invest_fills SET superseded_at = now() WHERE id >= $1 AND superseded_at IS NULL;

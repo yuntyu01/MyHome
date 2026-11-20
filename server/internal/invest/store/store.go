@@ -323,10 +323,79 @@ func (s *Store) checkShadow(ctx context.Context, p invest.Position) error {
 			diffs = append(diffs, fmt.Sprintf("판정 표 %s · 문서 %s", got, want))
 		}
 	}
+	// 보유(종목·수량·취득원가·연도별 실현손익)는 체결에서 다시 쌓은 값과 같아야 한다
+	fills, err := s.LoadFills(ctx)
+	if err != nil {
+		return err
+	}
+	books, err := invest.Replay(fills)
+	if err != nil {
+		diffs = append(diffs, "체결을 다시 쌓지 못했다: "+err.Error())
+	} else {
+		diffs = append(diffs, books.Diff(p.Holdings)...)
+	}
 	if len(diffs) > 0 {
 		return &ShadowError{Diffs: diffs}
 	}
 	return nil
+}
+
+// ── 체결 장부 ────────────────────────────────────────────────────────
+
+// AddFills는 체결을 남긴다. 계좌를 바꾸는 명령은 같은 트랜잭션에서 이것을 먼저 부르고 SavePosition을 부른다
+// (SavePosition이 다시 쌓아 대조한다).
+func (s *Store) AddFills(ctx context.Context, fills []invest.Fill) error {
+	for _, f := range fills {
+		if _, err := time.Parse("2006-01", f.YM); err != nil {
+			return fmt.Errorf("체결 %s: ym 형식 이상", f)
+		}
+		if err := s.q.InsertInvestFill(ctx, dbq.InsertInvestFillParams{
+			Day: f.Day, Ym: f.YM, Symbol: f.Symbol, Side: f.Side, Shares: int32(f.Shares),
+			PriceUsd: f.PriceUSD, Fx: f.FX, FeeUsd: f.FeeUSD, Krw: f.KRW, Source: f.Source,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LoadFills는 살아 있는 체결이다(정정으로 덮인 줄 제외, 쌓은 순서).
+func (s *Store) LoadFills(ctx context.Context) ([]invest.Fill, error) {
+	rows, err := s.q.ListInvestFills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]invest.Fill, len(rows))
+	for i, r := range rows {
+		out[i] = invest.Fill{ID: r.ID, Day: invest.DayOf(r.Day), YM: r.Ym, Symbol: r.Symbol, Side: r.Side, Shares: int(r.Shares),
+			PriceUSD: r.PriceUsd, FX: r.Fx, FeeUSD: r.FeeUsd, KRW: r.Krw, Source: r.Source}
+	}
+	return out, nil
+}
+
+// AmendFills는 정정을 체결 장부에 남긴다. 그 달 체결 첫 줄부터 뒤를 덮고(superseded_at) 정정한 체결을 쌓는다 —
+// 정정은 체결 직전 상태(before)에서 다시 계산하므로 그 사이 줄이 모두 바뀐다.
+//
+// 그 달 체결이 장부에 없으면(체결 장부가 생기기 전에 끝난 달) 덮을 줄이 없다. 그때는 정정한 계좌를 여는 잔고로
+// 다시 놓는다(출처 amend) — 정정 결과가 그대로 이어진다.
+func (s *Store) AmendFills(ctx context.Context, ym string, fills []invest.Fill, after invest.Account, day time.Time) error {
+	first, err := s.q.FirstInvestFillOfMonth(ctx, ym)
+	if err != nil {
+		return err
+	}
+	if first == 0 {
+		return s.AddFills(ctx, invest.OpeningFills(after, day, ym, invest.FillFromAmend))
+	}
+	if _, err := s.q.SupersedeInvestFillsFrom(ctx, first); err != nil {
+		return err
+	}
+	return s.AddFills(ctx, fills)
+}
+
+// Rebase는 지금 계좌를 여는 잔고로 다시 놓는다(그 앞 체결은 다시 쌓을 때 빠진다). 운영 명령은 부르지 않는다 —
+// 처음 시작(Bootstrap)과 테스트가 상태를 직접 바꿀 때만 쓴다.
+func (s *Store) Rebase(ctx context.Context, a invest.Account, day time.Time, ym string) error {
+	return s.AddFills(ctx, invest.OpeningFills(a, day, ym, invest.FillFromOpening))
 }
 
 // ── 판정 ─────────────────────────────────────────────────────────────
@@ -378,7 +447,7 @@ func judgedOf(r dbq.InvestJudgment) invest.Judged {
 		Judgment: invest.Judgment{SPX: r.Spx, SMA185: r.Sma185, C1: r.C1, Vol: r.Vol, C2: r.C2, Target: r.Target}}
 }
 
-// Bootstrap은 처음 상태를 놓는다: 판정 행, position 문서(그리고 여는 체결). 운영 계좌는 마이그레이션이 이 일을
+// Bootstrap은 처음 상태를 놓는다: 판정 행, 여는 잔고 체결, position 문서. 운영 계좌는 마이그레이션이 이 일을
 // 했다(00023·00025) — 새로 시작하는 계좌와 테스트가 쓴다. position이 이미 있으면 에러다.
 func (s *Store) Bootstrap(ctx context.Context, p invest.Position) error {
 	return s.InTx(ctx, func(s *Store) error {
@@ -395,6 +464,13 @@ func (s *Store) Bootstrap(ctx context.Context, p invest.Position) error {
 			if err := s.AddJudgment(ctx, j); err != nil {
 				return err
 			}
+		}
+		day, err := p.SignalDate()
+		if err != nil {
+			return err
+		}
+		if err := s.Rebase(ctx, p.Holdings, day, p.ApplyYM); err != nil {
+			return err
 		}
 		return s.SavePosition(ctx, p)
 	})

@@ -913,6 +913,7 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 	before := snapshot(acct, pos)
 
 	// 🔴 장부는 받아 적기만 한다. 다시 계산하지 않는다
+	var traded []invest.Traded // 체결 장부(invest_fills)에 남길 것 — 계좌 산술이 더한 값 그대로
 	soldQty, _ := sold(*book)
 	if acct.Symbol != "" && acct.Symbol != target {
 		if soldQty <= 0 {
@@ -922,9 +923,11 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 		sq, sellPx := avgLegs(legs(*book, broker.Sell))
 		a2 := acct.Clone()
 		a2.Shares = sq
-		if acct, err = invest.SellAll(a2, sellPx, fx, today.Year(), invest.FeeRate); err != nil {
+		var t invest.Traded
+		if acct, t, err = invest.SellAllT(a2, sellPx, fx, today.Year(), invest.FeeRate); err != nil {
 			return a.fail(ExitFail, "%v", err), settleStop
 		}
+		traded = append(traded, t)
 	}
 	// 🔴 원금은 이번에 새로 들어간 돈이다 (§12.1.1.4). 체결액 전부를 적으면 전환 달에 매도대금이
 	// 원금으로 두 번 세어진다. 통합증거금은 필요한 만큼만 환전하므로 새로 환전된 몫이 실제 입금액이다
@@ -934,10 +937,11 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 	if err != nil {
 		return a.fail(ExitFail, "%v", err), settleStop
 	}
-	newAcct, err := invest.BuyExact(stepped, target, bought, buyPx, fx, invest.FeeRate)
+	newAcct, bt, err := invest.BuyExactT(stepped, target, bought, buyPx, fx, invest.FeeRate)
 	if err != nil {
 		return a.fail(ExitFail, "%v", err), settleStop
 	}
+	traded = append(traded, bt)
 	if math.Abs(newMoneyKRW-float64(planKRW)) > float64(planKRW)*0.05 {
 		a.printf("  계획 %s원 · 실제 투입 %s원", commas(float64(planKRW)), won(newMoneyKRW))
 	}
@@ -959,6 +963,9 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 		note = "환율 추정"
 	}
 	err = a.Store.InTx(ctx, func(s *store.Store) error {
+		if err := s.AddFills(ctx, invest.FillsOf(traded, today, ym, invest.FillFromTrade)); err != nil {
+			return err
+		}
 		if err := s.SavePosition(ctx, next); err != nil {
 			return err
 		}

@@ -40,9 +40,17 @@ func (h *harness) update(f func(p *invest.Position)) {
 	h.t.Helper()
 	p := h.pos()
 	before := p
+	before.Holdings = p.Holdings.Clone()
 	f(&p)
 	if p.YM != before.YM || p.LastRun != before.LastRun || p.Signal != before.Signal {
 		h.t.Fatal("update로 판정 칸을 바꾸지 않는다 — seedOpt.signal을 쓸 것")
+	}
+	// 보유를 손으로 바꿨으면 체결 장부도 그 상태를 여는 잔고로 다시 놓는다(안 그러면 그림자 대조가 막는다)
+	if len(invest.Books{Symbol: before.Holdings.Symbol, Shares: before.Holdings.Shares, CostKRW: before.Holdings.CostKRW,
+		RealizedGainKRW: before.Holdings.RealizedGainKRW}.Diff(p.Holdings)) > 0 {
+		if err := h.st.Rebase(h.ctx, p.Holdings, h.day, p.ApplyYM); err != nil {
+			h.t.Fatal(err)
+		}
 	}
 	if err := h.st.SavePosition(h.ctx, p); err != nil {
 		h.t.Fatal(err)

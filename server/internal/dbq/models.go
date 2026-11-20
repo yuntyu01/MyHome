@@ -187,6 +187,22 @@ type InvestDeviation struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type InvestFill struct {
+	ID           int64      `json:"id"`
+	Day          time.Time  `json:"day"`
+	Ym           string     `json:"ym"`
+	Symbol       string     `json:"symbol"`
+	Side         string     `json:"side"`
+	Shares       int32      `json:"shares"`
+	PriceUsd     float64    `json:"price_usd"`
+	Fx           float64    `json:"fx"`
+	FeeUsd       float64    `json:"fee_usd"`
+	Krw          float64    `json:"krw"`
+	Source       string     `json:"source"`
+	SupersededAt *time.Time `json:"superseded_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
 type InvestFlow struct {
 	ID         int64     `json:"id"`
 	Ym         string    `json:"ym"`

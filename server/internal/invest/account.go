@@ -98,22 +98,30 @@ func Contribute(a Account, krw, fx float64) (Account, error) {
 // SellAll은 전량 매도다. 실현손익을 그 연도에 통산하고 현금은 USD로 남긴다.
 // 세금은 여기서 현금을 깎지 않는다.
 func SellAll(a Account, priceUSD, fx float64, year int, feeRate float64) (Account, error) {
+	a, _, err := SellAllT(a, priceUSD, fx, year, feeRate)
+	return a, err
+}
+
+// SellAllT는 SellAll이고, 체결 장부(invest_fills)에 남길 값을 함께 돌려준다. KRW는 손익 계산에 쓴 매도대금 그대로다.
+func SellAllT(a Account, priceUSD, fx float64, year int, feeRate float64) (Account, Traded, error) {
 	a = a.Clone()
+	t := Traded{Side: FillSell, Symbol: a.Symbol, Shares: a.Shares, PriceUSD: priceUSD, FX: fx}
 	if a.Shares == 0 {
 		// 팔 것이 없다. 다만 종목 표시는 지운다 — 0주인데 종목이 남아 있으면 다음 달 다른
 		// 종목을 살 때 전량 교체 규칙 위반으로 막힌다
 		a.Symbol, a.CostKRW = "", 0
-		return a, nil
+		return a, t, nil
 	}
 	if priceUSD <= 0 {
-		return a, fmt.Errorf("체결단가 이상치: %v", priceUSD)
+		return a, t, fmt.Errorf("체결단가 이상치: %v", priceUSD)
 	}
-	proceedsKRW := float64(a.Shares) * priceUSD * fx * (1 - feeRate - SECFeeRate)
+	proceedsKRW := float64(float64(a.Shares) * priceUSD * fx * (1 - feeRate - SECFeeRate))
 	gain := proceedsKRW - a.CostKRW
 	a.RealizedGainKRW[year] += gain
 	a.CashUSD += proceedsKRW / fx
+	t.KRW, t.FeeUSD = proceedsKRW, float64(t.Shares)*priceUSD*(feeRate+SECFeeRate)
 	a.Symbol, a.Shares, a.CostKRW = "", 0, 0
-	return a, nil
+	return a, t, nil
 }
 
 // BuyMax는 가용 USD로 살 수 있는 정수주 최대 수량을 매수한다.
@@ -122,11 +130,18 @@ func SellAll(a Account, priceUSD, fx float64, year int, feeRate float64) (Accoun
 //
 // 소수주를 쓰지 않는다. 잔여 현금은 USD로 남아 다음 달로 이월된다.
 func BuyMax(a Account, symbol string, priceUSD, fx, feeRate float64) (Account, error) {
+	a, _, err := BuyMaxT(a, symbol, priceUSD, fx, feeRate)
+	return a, err
+}
+
+// BuyMaxT는 BuyMax이고, 체결 장부에 남길 값을 함께 돌려준다. KRW는 취득원가에 더한 값 그대로다.
+func BuyMaxT(a Account, symbol string, priceUSD, fx, feeRate float64) (Account, Traded, error) {
+	t := Traded{Side: FillBuy, Symbol: symbol, PriceUSD: priceUSD, FX: fx}
 	if a.Symbol != "" && a.Symbol != symbol {
-		return a, fmt.Errorf("%s 보유 중에 %s 매수 — 전량 교체 규칙 위반", a.Symbol, symbol)
+		return a, t, fmt.Errorf("%s 보유 중에 %s 매수 — 전량 교체 규칙 위반", a.Symbol, symbol)
 	}
 	if priceUSD <= 0 {
-		return a, fmt.Errorf("체결단가 이상치: %v", priceUSD)
+		return a, t, fmt.Errorf("체결단가 이상치: %v", priceUSD)
 	}
 	a = a.Clone()
 	unit := priceUSD * (1 + feeRate)
@@ -137,14 +152,16 @@ func BuyMax(a Account, symbol string, priceUSD, fx, feeRate float64) (Account, e
 		if a.Shares == 0 {
 			a.Symbol = ""
 		}
-		return a, nil
+		return a, t, nil
 	}
 	spent := float64(qty) * unit
+	costKRW := float64(spent * fx)
 	a.Symbol = symbol
 	a.Shares += qty
-	a.CostKRW += spent * fx
+	a.CostKRW += costKRW
 	a.CashUSD -= spent
-	return a, nil
+	t.Shares, t.KRW, t.FeeUSD = qty, costKRW, float64(qty)*priceUSD*feeRate
+	return a, t, nil
 }
 
 // BuyExact는 증권사가 실제로 채워 준 수량 그대로 매수를 반영한다.
@@ -153,49 +170,71 @@ func BuyMax(a Account, symbol string, priceUSD, fx, feeRate float64) (Account, e
 // 일어난다. 체결 뒤에 다시 계산하면 앱이 자기가 계산한 수량을 적는다 — 실제로 6주를 사고
 // 19주로 기록한 적이 있다(§12.1.1.6). 수량은 증권사가 정답이다.
 func BuyExact(a Account, symbol string, qty int, priceUSD, fx, feeRate float64) (Account, error) {
+	a, _, err := BuyExactT(a, symbol, qty, priceUSD, fx, feeRate)
+	return a, err
+}
+
+// BuyExactT는 BuyExact이고, 체결 장부에 남길 값을 함께 돌려준다. KRW는 취득원가에 더한 값 그대로다.
+func BuyExactT(a Account, symbol string, qty int, priceUSD, fx, feeRate float64) (Account, Traded, error) {
+	t := Traded{Side: FillBuy, Symbol: symbol, PriceUSD: priceUSD, FX: fx}
 	if a.Symbol != "" && a.Symbol != symbol {
-		return a, fmt.Errorf("%s 보유 중에 %s 매수 — 전량 교체 규칙 위반", a.Symbol, symbol)
+		return a, t, fmt.Errorf("%s 보유 중에 %s 매수 — 전량 교체 규칙 위반", a.Symbol, symbol)
 	}
 	if qty < 0 {
-		return a, fmt.Errorf("체결 수량이 음수: %d", qty)
+		return a, t, fmt.Errorf("체결 수량이 음수: %d", qty)
 	}
 	a = a.Clone()
 	if qty == 0 {
 		if a.Shares == 0 {
 			a.Symbol = ""
 		}
-		return a, nil
+		return a, t, nil
 	}
 	if priceUSD <= 0 {
-		return a, fmt.Errorf("체결단가 이상치: %v", priceUSD)
+		return a, t, fmt.Errorf("체결단가 이상치: %v", priceUSD)
 	}
 	spent := float64(qty) * priceUSD * (1 + feeRate)
+	costKRW := float64(spent * fx)
 	a.Symbol = symbol
 	a.Shares += qty
-	a.CostKRW += spent * fx
+	a.CostKRW += costKRW
 	a.CashUSD -= spent
-	return a, nil
+	t.Shares, t.KRW, t.FeeUSD = qty, costKRW, float64(qty)*priceUSD*feeRate
+	return a, t, nil
 }
 
 // MonthlyStep은 월 첫 거래일 1회분이다. 교체 먼저, 적립 나중.
 // 반대로 하면 매도 직전 계좌에 그 달 적립금이 섞여 실현손익이 달라진다.
 func MonthlyStep(a Account, target string, contributionKRW, fx float64, pricesUSD map[string]float64, year int, feeRate float64) (Account, error) {
+	a, _, err := MonthlyStepT(a, target, contributionKRW, fx, pricesUSD, year, feeRate)
+	return a, err
+}
+
+// MonthlyStepT는 MonthlyStep이고, 체결 장부에 남길 값(매도·매수 순)을 함께 돌려준다.
+func MonthlyStepT(a Account, target string, contributionKRW, fx float64, pricesUSD map[string]float64, year int, feeRate float64) (Account, []Traded, error) {
+	var ts []Traded
 	tp, ok := pricesUSD[target]
 	if !ok {
-		return a, fmt.Errorf("%s 체결단가 없음", target)
+		return a, ts, fmt.Errorf("%s 체결단가 없음", target)
 	}
 	var err error
 	if a.Symbol != "" && a.Symbol != target {
 		sp, ok := pricesUSD[a.Symbol]
 		if !ok {
-			return a, fmt.Errorf("매도할 %s의 체결단가 없음", a.Symbol)
+			return a, ts, fmt.Errorf("매도할 %s의 체결단가 없음", a.Symbol)
 		}
-		if a, err = SellAll(a, sp, fx, year, feeRate); err != nil {
-			return a, err
+		var t Traded
+		if a, t, err = SellAllT(a, sp, fx, year, feeRate); err != nil {
+			return a, ts, err
 		}
+		ts = append(ts, t)
 	}
 	if a, err = Contribute(a, contributionKRW, fx); err != nil {
-		return a, err
+		return a, ts, err
 	}
-	return BuyMax(a, target, tp, fx, feeRate)
+	a, t, err := BuyMaxT(a, target, tp, fx, feeRate)
+	if err != nil {
+		return a, ts, err
+	}
+	return a, append(ts, t), nil
 }

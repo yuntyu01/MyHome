@@ -112,8 +112,9 @@ func (a *App) Execute(ctx context.Context, o ExecuteOpts) int {
 	}
 	before := snapshot(acct, pos)
 	var newAcct invest.Account
+	var traded []invest.Traded // 체결 장부에 남길 것
 	if o.Shares == nil {
-		newAcct, err = invest.MonthlyStep(acct, target, amount, fx, o.Fills, year, invest.FeeRate)
+		newAcct, traded, err = invest.MonthlyStepT(acct, target, amount, fx, o.Fills, year, invest.FeeRate)
 	} else {
 		// 🔴 --shares를 주면 그 수량을 그대로 적는다. 손으로 산 달은 사람이 정답이다
 		if *o.Shares < 0 {
@@ -121,14 +122,18 @@ func (a *App) Execute(ctx context.Context, o ExecuteOpts) int {
 		}
 		stepped := acct
 		if acct.Symbol != "" && acct.Symbol != target {
-			if stepped, err = invest.SellAll(stepped, o.Fills[acct.Symbol], fx, year, invest.FeeRate); err != nil {
+			var t invest.Traded
+			if stepped, t, err = invest.SellAllT(stepped, o.Fills[acct.Symbol], fx, year, invest.FeeRate); err != nil {
 				return a.fail(ExitFail, "%v", err)
 			}
+			traded = append(traded, t)
 		}
 		if stepped, err = invest.Contribute(stepped, amount, fx); err != nil {
 			return a.fail(ExitFail, "%v", err)
 		}
-		newAcct, err = invest.BuyExact(stepped, target, *o.Shares, o.Fills[target], fx, invest.FeeRate)
+		var t invest.Traded
+		newAcct, t, err = invest.BuyExactT(stepped, target, *o.Shares, o.Fills[target], fx, invest.FeeRate)
+		traded = append(traded, t)
 	}
 	if err != nil {
 		return a.fail(ExitFail, "%v", err)
@@ -156,6 +161,9 @@ func (a *App) Execute(ctx context.Context, o ExecuteOpts) int {
 		note = "환율 추정"
 	}
 	err = a.Store.InTx(ctx, func(s *store.Store) error {
+		if err := s.AddFills(ctx, invest.FillsOf(traded, today, ym, invest.FillFromExecute)); err != nil {
+			return err
+		}
 		if err := s.SavePosition(ctx, next); err != nil {
 			return err
 		}
@@ -269,10 +277,13 @@ func (a *App) amend(ctx context.Context, today time.Time, fills map[string]float
 	// 🔴 수량은 다시 계산하지 않는다 — 단가·환율만 고친다 (실측: 18주 체결을 재계산하니 19주)
 	year := execOn.Year()
 	stepped := prev
+	var traded []invest.Traded // 체결 장부에 남길 것(그 달 체결을 덮고 다시 쌓는다)
 	if prev.Symbol != "" && prev.Symbol != target {
-		if stepped, err = invest.SellAll(stepped, o.Fills[prev.Symbol], o.FX, year, invest.FeeRate); err != nil {
+		var t invest.Traded
+		if stepped, t, err = invest.SellAllT(stepped, o.Fills[prev.Symbol], o.FX, year, invest.FeeRate); err != nil {
 			return a.fail(ExitFail, "%v", err)
 		}
+		traded = append(traded, t)
 	}
 	bought := acct.Shares - stepped.Shares // 이 달에 실제로 산 수량
 	if bought < 0 {
@@ -284,10 +295,11 @@ func (a *App) amend(ctx context.Context, today time.Time, fills map[string]float
 	if stepped, err = invest.Contribute(stepped, newMoneyKRW, o.FX); err != nil {
 		return a.fail(ExitFail, "%v", err)
 	}
-	newAcct, err := invest.BuyExact(stepped, target, bought, o.Fills[target], o.FX, invest.FeeRate)
+	newAcct, bt, err := invest.BuyExactT(stepped, target, bought, o.Fills[target], o.FX, invest.FeeRate)
 	if err != nil {
 		return a.fail(ExitFail, "%v", err)
 	}
+	traded = append(traded, bt)
 	a.printf("%s 체결 정정", ym)
 	a.printf("  이전   %s %d주 · 잔여 %s", acct.Symbol, acct.Shares, usd(acct.CashUSD))
 	a.printf("  정정   %s %d주 · 잔여 %s", newAcct.Symbol, newAcct.Shares, usd(newAcct.CashUSD))
@@ -307,6 +319,10 @@ func (a *App) amend(ctx context.Context, today time.Time, fills map[string]float
 	next.FXEstimated = false
 	shares := newAcct.Shares - pos.Before.Holdings.Shares
 	err = a.Store.InTx(ctx, func(s *store.Store) error {
+		// 실현손익 연도는 체결일(execOn)이 정한다 — 장부 줄의 날짜도 체결일이다
+		if err := s.AmendFills(ctx, ym, invest.FillsOf(traded, execOn, ym, invest.FillFromAmend), newAcct, execOn); err != nil {
+			return err
+		}
 		if err := s.SavePosition(ctx, next); err != nil {
 			return err
 		}
@@ -412,6 +428,7 @@ func (a *App) Adjust(ctx context.Context, o AdjustOpts) int {
 		}
 	}
 	// 🔴 조회로 채울 수 있는 것은 채운다. 못 알려주는 것은 매수 시점 환율 하나뿐이다
+	adjFX := 0.0
 	if o.Auto {
 		client, err := a.Broker(ctx)
 		if err != nil {
@@ -457,7 +474,7 @@ func (a *App) Adjust(ctx context.Context, o AdjustOpts) int {
 			return a.fail(ExitFail, "환율을 구할 수 없다. --fx로 넣을 것")
 		}
 		paid := float64(gained) * hold.avg * fx
-		o.Shares, o.Paid = &gained, &paid
+		o.Shares, o.Paid, adjFX = &gained, &paid, fx
 		a.printf("조회 결과 — %s 증권사 %d주 · 장부 %d주 → 추가 %d주", sym, hold.shares, acct.Shares, gained)
 		tail := ""
 		if est {
@@ -495,8 +512,16 @@ func (a *App) Adjust(ctx context.Context, o AdjustOpts) int {
 	next.Holdings.CostKRW = acct.CostKRW + *o.Paid // 실제로 낸 돈이 취득원가다
 	next.ContributedKRW = pos.ContributedKRW + *o.Paid
 	shares := *o.Shares
+	// 체결 장부: 앱 밖 매수는 사람이 알려 준 지불액이 취득원가에 그대로 더해진다(단가·환율은 조회로 알 때만 참고로)
+	fill := invest.Fill{Day: today, YM: invest.YM(today), Symbol: sym, Side: invest.FillBuy, Shares: shares, KRW: *o.Paid, Source: invest.FillFromAdjust}
+	if o.Auto {
+		fill.PriceUSD, fill.FX = *o.Paid/float64(shares)/adjFX, adjFX
+	}
 	err = a.Store.InTx(ctx, func(s *store.Store) error {
 		if err := s.AppendAdjustment(ctx, invest.Adjustment{On: invest.FormatDay(today), Symbol: sym, Shares: shares, PaidKRW: *o.Paid, Reason: o.Reason}); err != nil {
+			return err
+		}
+		if err := s.AddFills(ctx, []invest.Fill{fill}); err != nil {
 			return err
 		}
 		if err := s.SavePosition(ctx, next); err != nil {

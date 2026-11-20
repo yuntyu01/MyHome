@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/yuntyu01/MyHome/server/internal/invest"
 	"github.com/yuntyu01/MyHome/server/internal/invest/broker"
 	"github.com/yuntyu01/MyHome/server/internal/invest/store"
@@ -262,6 +264,7 @@ func (f *fakeBroker) styles() []broker.Style {
 type harness struct {
 	t        *testing.T
 	ctx      context.Context
+	pg       *pgxpool.Pool
 	app      *App
 	st       *store.Store
 	fb       *fakeBroker
@@ -291,7 +294,7 @@ func newHarness(t *testing.T, o seedOpt) *harness {
 	if err := st.ImportContribution(ctx, invest.Contribution{EffectiveFrom: "2026-01", Amount: 600000, Reason: "테스트 운용 — 소액으로 절차를 먼저 익힌다", RecordedOn: "2026-01-01"}); err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, ctx: ctx, st: st, fb: newFake(), out: &bytes.Buffer{}, err: &bytes.Buffer{}, day: execDay}
+	h := &harness{t: t, ctx: ctx, pg: pool, st: st, fb: newFake(), out: &bytes.Buffer{}, err: &bytes.Buffer{}, day: execDay}
 	h.app = &App{Store: st, Out: h.out, Err: h.err, UnsafeDate: true, Sleep: func(time.Duration) {},
 		Now: func() time.Time { return time.Date(h.day.Year(), h.day.Month(), h.day.Day(), 15, 17, 0, 0, time.UTC) }}
 	if o.noBroker {
