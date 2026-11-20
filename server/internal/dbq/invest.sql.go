@@ -72,6 +72,17 @@ func (q *Queries) FinishInvestRun(ctx context.Context, arg FinishInvestRunParams
 	return err
 }
 
+const getInvestDepositDay = `-- name: GetInvestDepositDay :one
+SELECT deposit_day FROM invest_prefs WHERE id = 1
+`
+
+func (q *Queries) GetInvestDepositDay(ctx context.Context) (*int32, error) {
+	row := q.db.QueryRow(ctx, getInvestDepositDay)
+	var deposit_day *int32
+	err := row.Scan(&deposit_day)
+	return deposit_day, err
+}
+
 const getInvestRun = `-- name: GetInvestRun :one
 SELECT id, cmd, args, started_at, finished_at, exit_code, output
 FROM invest_runs
@@ -112,17 +123,23 @@ func (q *Queries) GetInvestState(ctx context.Context, key string) (GetInvestStat
 }
 
 const insertBrokerCash = `-- name: InsertBrokerCash :exec
-INSERT INTO invest_broker_cash (cash_usd, cmd, fetched_at) VALUES ($1, $2, $3)
+INSERT INTO invest_broker_cash (cash_usd, cash_krw, cmd, fetched_at) VALUES ($1, $2, $3, $4)
 `
 
 type InsertBrokerCashParams struct {
 	CashUsd   float64   `json:"cash_usd"`
+	CashKrw   *float64  `json:"cash_krw"`
 	Cmd       string    `json:"cmd"`
 	FetchedAt time.Time `json:"fetched_at"`
 }
 
 func (q *Queries) InsertBrokerCash(ctx context.Context, arg InsertBrokerCashParams) error {
-	_, err := q.db.Exec(ctx, insertBrokerCash, arg.CashUsd, arg.Cmd, arg.FetchedAt)
+	_, err := q.db.Exec(ctx, insertBrokerCash,
+		arg.CashUsd,
+		arg.CashKrw,
+		arg.Cmd,
+		arg.FetchedAt,
+	)
 	return err
 }
 
@@ -214,6 +231,56 @@ func (q *Queries) InsertInvestContribution(ctx context.Context, arg InsertInvest
 	return err
 }
 
+const insertInvestDaily = `-- name: InsertInvestDaily :execrows
+INSERT INTO invest_daily (day, spx, sma185, vol, c1, c2, signal,
+    symbol, shares, close_usd, fx, stock_krw, cash_krw, invested_krw, gain_krw)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+ON CONFLICT (day) DO NOTHING
+`
+
+type InsertInvestDailyParams struct {
+	Day         time.Time `json:"day"`
+	Spx         float64   `json:"spx"`
+	Sma185      float64   `json:"sma185"`
+	Vol         float64   `json:"vol"`
+	C1          bool      `json:"c1"`
+	C2          bool      `json:"c2"`
+	Signal      string    `json:"signal"`
+	Symbol      *string   `json:"symbol"`
+	Shares      *int32    `json:"shares"`
+	CloseUsd    *float64  `json:"close_usd"`
+	Fx          *float64  `json:"fx"`
+	StockKrw    *int64    `json:"stock_krw"`
+	CashKrw     *int64    `json:"cash_krw"`
+	InvestedKrw *int64    `json:"invested_krw"`
+	GainKrw     *int64    `json:"gain_krw"`
+}
+
+// 그날 줄이 이미 있으면 건드리지 않는다(그날 본 대로 남긴다). 0이면 이미 있던 것이다.
+func (q *Queries) InsertInvestDaily(ctx context.Context, arg InsertInvestDailyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertInvestDaily,
+		arg.Day,
+		arg.Spx,
+		arg.Sma185,
+		arg.Vol,
+		arg.C1,
+		arg.C2,
+		arg.Signal,
+		arg.Symbol,
+		arg.Shares,
+		arg.CloseUsd,
+		arg.Fx,
+		arg.StockKrw,
+		arg.CashKrw,
+		arg.InvestedKrw,
+		arg.GainKrw,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertInvestDeviation = `-- name: InsertInvestDeviation :one
 INSERT INTO invest_deviations (kind, ym, occurred_on, signal_target, actual_target, reason, locked_until, resurface_on)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -245,6 +312,34 @@ func (q *Queries) InsertInvestDeviation(ctx context.Context, arg InsertInvestDev
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertInvestFlow = `-- name: InsertInvestFlow :execrows
+INSERT INTO invest_flow (ym, step, key, at, data) VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (step, key) DO NOTHING
+`
+
+type InsertInvestFlowParams struct {
+	Ym   string    `json:"ym"`
+	Step string    `json:"step"`
+	Key  string    `json:"key"`
+	At   time.Time `json:"at"`
+	Data []byte    `json:"data"`
+}
+
+// 같은 사건(step, key)은 한 번만 남는다. 0이면 이미 있던 것이다.
+func (q *Queries) InsertInvestFlow(ctx context.Context, arg InsertInvestFlowParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertInvestFlow,
+		arg.Ym,
+		arg.Step,
+		arg.Key,
+		arg.At,
+		arg.Data,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const insertInvestLedger = `-- name: InsertInvestLedger :one
@@ -381,6 +476,24 @@ func (q *Queries) LastBrokerCash(ctx context.Context) (LastBrokerCashRow, error)
 	return i, err
 }
 
+const lastBrokerCashKRW = `-- name: LastBrokerCashKRW :one
+SELECT cash_krw::double precision AS cash_krw, fetched_at FROM invest_broker_cash
+WHERE cash_krw IS NOT NULL ORDER BY fetched_at DESC, id DESC LIMIT 1
+`
+
+type LastBrokerCashKRWRow struct {
+	CashKrw   float64   `json:"cash_krw"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// 증권사가 마지막으로 알려 준 원화 주문가능 금액. 원화를 같이 읽은 작업만 남긴다.
+func (q *Queries) LastBrokerCashKRW(ctx context.Context) (LastBrokerCashKRWRow, error) {
+	row := q.db.QueryRow(ctx, lastBrokerCashKRW)
+	var i LastBrokerCashKRWRow
+	err := row.Scan(&i.CashKrw, &i.FetchedAt)
+	return i, err
+}
+
 const lastFailedInvestRun = `-- name: LastFailedInvestRun :one
 SELECT id, cmd, args, started_at, finished_at, exit_code, output
 FROM invest_runs
@@ -402,6 +515,17 @@ func (q *Queries) LastFailedInvestRun(ctx context.Context, cmd string) (InvestRu
 		&i.Output,
 	)
 	return i, err
+}
+
+const lastInvestDailyDay = `-- name: LastInvestDailyDay :one
+SELECT day FROM invest_daily ORDER BY day DESC LIMIT 1
+`
+
+func (q *Queries) LastInvestDailyDay(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, lastInvestDailyDay)
+	var day time.Time
+	err := row.Scan(&day)
+	return day, err
 }
 
 const latestInvestRuns = `-- name: LatestInvestRuns :many
@@ -563,6 +687,48 @@ func (q *Queries) ListInvestContributions(ctx context.Context) ([]ListInvestCont
 	return items, nil
 }
 
+const listInvestDaily = `-- name: ListInvestDaily :many
+SELECT day, spx, sma185, vol, c1, c2, signal, symbol, shares, close_usd, fx, stock_krw, cash_krw, invested_krw, gain_krw, recorded_at FROM invest_daily ORDER BY day DESC LIMIT $1::integer
+`
+
+// 최근 거래일부터.
+func (q *Queries) ListInvestDaily(ctx context.Context, maxRows int32) ([]InvestDaily, error) {
+	rows, err := q.db.Query(ctx, listInvestDaily, maxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InvestDaily{}
+	for rows.Next() {
+		var i InvestDaily
+		if err := rows.Scan(
+			&i.Day,
+			&i.Spx,
+			&i.Sma185,
+			&i.Vol,
+			&i.C1,
+			&i.C2,
+			&i.Signal,
+			&i.Symbol,
+			&i.Shares,
+			&i.CloseUsd,
+			&i.Fx,
+			&i.StockKrw,
+			&i.CashKrw,
+			&i.InvestedKrw,
+			&i.GainKrw,
+			&i.RecordedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvestDeviations = `-- name: ListInvestDeviations :many
 SELECT id, kind, ym, occurred_on, signal_target, actual_target, reason, locked_until, resurface_on
 FROM invest_deviations
@@ -600,6 +766,38 @@ func (q *Queries) ListInvestDeviations(ctx context.Context) ([]ListInvestDeviati
 			&i.Reason,
 			&i.LockedUntil,
 			&i.ResurfaceOn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInvestFlow = `-- name: ListInvestFlow :many
+SELECT id, ym, step, key, at, data, recorded_at FROM invest_flow WHERE ym = $1 ORDER BY at, id
+`
+
+func (q *Queries) ListInvestFlow(ctx context.Context, ym string) ([]InvestFlow, error) {
+	rows, err := q.db.Query(ctx, listInvestFlow, ym)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InvestFlow{}
+	for rows.Next() {
+		var i InvestFlow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Ym,
+			&i.Step,
+			&i.Key,
+			&i.At,
+			&i.Data,
+			&i.RecordedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -741,6 +939,16 @@ func (q *Queries) ListInvestStateHistory(ctx context.Context, limit int32) ([]In
 		return nil, err
 	}
 	return items, nil
+}
+
+const setInvestDepositDay = `-- name: SetInvestDepositDay :exec
+INSERT INTO invest_prefs (id, deposit_day, updated_at) VALUES (1, $1, now())
+ON CONFLICT (id) DO UPDATE SET deposit_day = EXCLUDED.deposit_day, updated_at = now()
+`
+
+func (q *Queries) SetInvestDepositDay(ctx context.Context, depositDay *int32) error {
+	_, err := q.db.Exec(ctx, setInvestDepositDay, depositDay)
+	return err
 }
 
 const startInvestRun = `-- name: StartInvestRun :one

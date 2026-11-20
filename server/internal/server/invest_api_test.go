@@ -27,6 +27,46 @@ func (c *webClient) deviceGet(path string) *httptest.ResponseRecorder {
 	return serve(c.h, req)
 }
 
+// devicePut은 기기 토큰으로 JSON을 PUT한다.
+func (c *webClient) devicePut(path, body string) *httptest.ResponseRecorder {
+	c.t.Helper()
+	tok, _, err := auth.IssueDeviceToken(context.Background(), c.q, "phone")
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	req := httptest.NewRequest("PUT", path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	return serve(c.h, req)
+}
+
+// 앱 설정의 입금일: 저장하면 첫 화면이 그 값을 돌려주고, 1~20 밖이면 거부한다. 0은 지우기다.
+func TestAppInvestDepositDay(t *testing.T) {
+	c := newWebClient(t)
+	c.seedInvest(investSeed{})
+	if rec := c.devicePut("/v1/invest/prefs", `{"deposit_day": 5}`); rec.Code != http.StatusOK {
+		t.Fatalf("저장: %d %s", rec.Code, rec.Body.String())
+	}
+	var s struct {
+		DepositDay int `json:"deposit_day"`
+	}
+	if err := json.Unmarshal(c.deviceGet("/v1/invest").Body.Bytes(), &s); err != nil || s.DepositDay != 5 {
+		t.Fatalf("첫 화면 입금일 %d %v", s.DepositDay, err)
+	}
+	for _, bad := range []string{`{"deposit_day": 21}`, `{"deposit_day": -1}`, `{}`, `{"deposit_day": 5, "x": 1}`} {
+		if rec := c.devicePut("/v1/invest/prefs", bad); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s → %d", bad, rec.Code)
+		}
+	}
+	if rec := c.devicePut("/v1/invest/prefs", `{"deposit_day": 0}`); rec.Code != http.StatusOK {
+		t.Fatalf("지우기: %d", rec.Code)
+	}
+	_ = json.Unmarshal(c.deviceGet("/v1/invest").Body.Bytes(), &s)
+	if s.DepositDay != 0 {
+		t.Fatalf("지운 뒤 %d", s.DepositDay)
+	}
+}
+
 func TestAppInvestAPI(t *testing.T) {
 	c := newWebClient(t)
 
@@ -63,11 +103,33 @@ func TestAppInvestAPI(t *testing.T) {
 	if !s.Migrated || s.Symbol != "TQQQ" || s.Shares != 10 || s.Problems != 0 || !strings.HasPrefix(s.Month.Value, "예정 ") || len(s.Schedule) != 2 || len(s.Checks) == 0 {
 		t.Errorf("첫 화면 값이 웹과 다름: %+v", s)
 	}
-	// 웹 첫 화면처럼 시장 숫자(평가액·가격·환율)는 없다
-	for _, banned := range []string{"net_krw", "721000", "50.25", "1,400.00"} {
-		if strings.Contains(rec.Body.String(), banned) {
-			t.Errorf("첫 화면 응답에 %q가 있음", banned)
-		}
+	// 맨 위 요약에 종목·증권 총액·넣은 돈이 있다(사용자 요청, 2026-11-20: TQ는 첫 화면에 시장 숫자를 두지 않았다).
+	// 세후 평가액(net_krw)은 여전히 평가 화면에만 있다
+	var top struct {
+		Summary struct {
+			Symbol      string `json:"symbol"`
+			CanValue    bool   `json:"can_value"`
+			TotalKRW    int64  `json:"total_krw"`
+			InvestedKRW int64  `json:"invested_krw"`
+		} `json:"summary"`
+		Flow struct {
+			Steps []struct{ Key, State string } `json:"steps"`
+		} `json:"flow"`
+		// 매일 기록은 가격 갱신이 남긴다. 아직 없으면 빈 목록(앱이 null을 받지 않게)
+		Daily *struct {
+			Has  bool              `json:"has"`
+			Rows []json.RawMessage `json:"rows"`
+		} `json:"daily"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &top); err != nil {
+		t.Fatal(err)
+	}
+	if top.Summary.Symbol != "TQQQ" || !top.Summary.CanValue || top.Summary.TotalKRW <= 0 || top.Summary.InvestedKRW <= 0 || len(top.Flow.Steps) != 5 ||
+		top.Daily == nil || top.Daily.Has || top.Daily.Rows == nil {
+		t.Errorf("요약·단계: %+v", top)
+	}
+	if strings.Contains(rec.Body.String(), "net_krw") {
+		t.Error("첫 화면 응답에 세후 평가액이 있음")
 	}
 
 	var v struct {

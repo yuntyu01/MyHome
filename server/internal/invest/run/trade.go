@@ -158,10 +158,18 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		return a.fail(ExitFail, "%v", err)
 	}
 	// 🔴 뉴욕 휴장일에는 주문을 내지 않는다. TQ는 이 검사를 execution.yml 게이트에서 했고,
-	//    여기서는 타이머(매월 1~7일)가 휴장일에도 부르므로 명령이 직접 막는다. 실패가 아니라 건너뛰기다
+	//    여기서는 타이머(매월 1~24일)가 휴장일에도 부르므로 명령이 직접 막는다. 실패가 아니라 건너뛰기다
 	//    (첫 거래일이 아닌 날 사는 것은 지연이지 위반이 아니다. 다음 거래일 실행이 이어받는다)
 	if !invest.IsTradingDay(today) {
 		a.printf("%s은 뉴욕 휴장일이다. 주문을 내지 않는다(다음 거래일에 이어서 한다)", invest.FormatDay(today))
+		// 주말에 들어온 입금·환전도 투자 화면에 보이게 읽어 둔다(읽기만)
+		if !o.DryRun {
+			if pos, err := a.Store.LoadPosition(ctx); err == nil {
+				if client, err := a.Broker(ctx); err == nil {
+					a.observe(ctx, client, pos.ApplyYM)
+				}
+			}
+		}
 		return ExitOK
 	}
 	pos, prices, devs, rc := a.loadTradeState(ctx)
@@ -176,6 +184,15 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 		return a.fail(ExitFail, "🚨 적용월이 %s다 — 오늘(%s)은 %s. 월말 판정이 빠졌다(마지막 판정 %s, %s).\n  주문하지 않는다. judge 실행 기록을 확인할 것 (만회는 월말 다음 거래일 장 마감 전까지만 된다)",
 			ym, invest.FormatDay(today), cur, pos.YM, pos.LastRun)
 	}
+	// 이번 달 입금·환전을 먼저 읽어 둔다(투자 화면 단계 + 입금일 게이트). 읽기만 하고, 못 읽어도 매매는 이어간다.
+	// 브로커를 못 만들면 여기서는 넘어가고, 실제로 쓸 때 아래에서 다시 만들며 그때 실패로 알린다
+	var client broker.Broker
+	if !o.DryRun {
+		if c, err := a.Broker(ctx); err == nil {
+			client = c
+		}
+	}
+	seen := a.observe(ctx, client, ym)
 	if pos.ExecutedThisMonth() {
 		a.printf("%s 이미 완료 (%s). 할 일 없음", ym, *pos.ExecutedOn)
 		// 추정 환율로 적은 달이면 결제가 끝났는지 보고 증권사 적용 환율로 확정한다(실패해도 매매는 정상)
@@ -217,6 +234,10 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	if book.YM != ym { // 지난달 잔여는 이어받지 않는다
 		return a.fail(ExitFail, "진행 중인 주문 기록이 %s 것이다. 새 주문을 내지 않는다.\n  `myhome invest orders`로 보고, 증권사에 남은 주문이 없으면 `myhome invest orders --clear-stale`로 정리할 것", book.YM)
 	}
+	// 입금일 게이트 — 이번 달 주문을 하나도 안 냈을 때만. 이미 낸 주문은 입금과 상관없이 끝까지 따라간다
+	if len(book.Orders) == 0 && a.waitForDeposit(ctx, today, ym, seen, o.DryRun) {
+		return ExitOK
+	}
 
 	row, ok := prices.AsOf(today)
 	if !ok {
@@ -229,12 +250,13 @@ func (a *App) Trade(ctx context.Context, o TradeOpts) int {
 	pending := pendingOf(book)
 
 	// 브로커는 실제로 쓸 때만 만든다 — dry-run이 자격증명 없이도 돌아야 무엇을 살지 미리 볼 수 있다
-	var client broker.Broker
-	if len(pending) > 0 || !o.DryRun {
+	if client == nil && (len(pending) > 0 || !o.DryRun) {
 		client, err = a.Broker(ctx)
 		if err != nil {
 			return a.fail(ExitFail, "증권사 설정/연결 실패: %v", err)
 		}
+	}
+	if client != nil {
 		if client.Env() == "real" {
 			a.warnf("⚠ 실전 계좌로 주문한다 (%s)", client.AccountMasked())
 		}
@@ -476,6 +498,7 @@ func (a *App) submit(ctx context.Context, client broker.Broker, book *invest.Ord
 		return a.fail(ExitFail, "🚨 주문 %s 접수 후 저장 실패: %v\n  기록에는 결과 모름(clientOrderId %s)으로 남아 있다. 다음 실행이 증권사에서 찾아 이어받는다", res.OrderID, err, id), submitStop, nil
 	}
 	a.printf("  주문번호 %s (%s) - 체결 확인은 다음 실행에서", res.OrderID, style.Label())
+	a.noteOrder(ctx, book.YM, book.Orders[n])
 	return ExitOK, submitAccepted, nil
 }
 
@@ -640,6 +663,9 @@ func (a *App) resolveUnknown(ctx context.Context, client broker.Broker, book *in
 			a.printf("결과를 몰랐던 주문을 증권사에서 찾았다 - %s → 주문번호 %s. 이 주문을 이어받는다", what, ref.OrderID)
 			o.OrderID, o.Unknown = ref.OrderID, false
 			keep = append(keep, o)
+			if !dryRun {
+				a.noteOrder(ctx, book.YM, o)
+			}
 		case lookupAbsent:
 			a.printf("결과를 몰랐던 주문은 증권사에 없다 - %s. 접수되지 않았으므로 같은 유형부터 다시 낸다", what)
 		default:
@@ -834,6 +860,9 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 				return a.fail(ExitFail, "주문 상태 저장 실패: %v", err), settleStop
 			}
 			a.printf("%s %s 만료 — %d주 중 %d주 체결", ym, style.Label(), asked, got)
+			if got > 0 {
+				a.noteFill(ctx, ym, *o)
+			}
 			if nxt >= len(broker.Styles) {
 				return a.fail(ExitFail, "%s %s 주문이 모든 유형에서 체결되지 않았다.\n  거래정지·시스템 장애 같은 예외 상황이다. 재시도로 풀리지 않는다.\n  증권사 앱에서 직접 처리할 것", o.Symbol, o.Side), settleStop
 			}
@@ -846,6 +875,9 @@ func (a *App) settle(ctx context.Context, client broker.Broker, book *invest.Ord
 		}
 		o.Filled, o.Qty, o.FillPrice = true, got, sum/float64(got)
 		a.printf("  체결 확인 — %s %s %d주 @ $%.4f", o.Symbol, o.Side, got, o.FillPrice)
+		if !dryRun {
+			a.noteFill(ctx, ym, *o)
+		}
 	}
 	if !dryRun {
 		if err := a.Store.SaveOrders(ctx, *book); err != nil {

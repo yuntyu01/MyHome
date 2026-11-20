@@ -141,3 +141,91 @@ func (c *Client) FXAt(ctx context.Context, at time.Time) (broker.FXQuote, error)
 	}
 	return qt, nil
 }
+
+// ── 선택 계약: 입금·환전 (broker.CashFlows) ───────────────────────────
+
+var _ broker.CashFlows = (*Client)(nil)
+
+var cashKinds = map[string]string{
+	"DEPOSIT":      broker.FlowDeposit,
+	"EXCHANGE_IN":  broker.FlowExchangeIn,
+	"EXCHANGE_OUT": broker.FlowExchangeOut,
+}
+
+// CashFlows는 from(KST 날짜) 이후 처리된 입금·환전이다. 읽기 전용.
+//
+// 환전 한 건은 KRW 쪽(EXCHANGE_OUT)과 USD 쪽(EXCHANGE_IN) 두 줄로 나뉘고, 적용 환율은 USD 쪽에만 있다(문서).
+// 취소 내역은 뺀다 — 취소되면 원거래가 목록에서 빠지므로 둘 다 안 세는 것이 맞다.
+func (c *Client) CashFlows(ctx context.Context, from time.Time) ([]broker.CashFlow, error) {
+	const where = "GET /api/v1/transactions"
+	if from.IsZero() {
+		return nil, fmt.Errorf("조회 시작일이 비었다")
+	}
+	q := url.Values{"transactionTypes": {"DEPOSIT,EXCHANGE_IN,EXCHANGE_OUT"}, "from": {ymd(from)}, "limit": {"100"}}
+	var out []broker.CashFlow
+	cursor := ""
+	for range maxPages {
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		raw, err := c.request(ctx, http.MethodGet, "/api/v1/transactions", reqOpts{query: q})
+		if err != nil {
+			return nil, err
+		}
+		var res struct {
+			Transactions []map[string]any `json:"transactions"`
+			HasNext      any              `json:"hasNext"`
+			NextCursor   any              `json:"nextCursor"`
+		}
+		if err := decode(raw, where, &res); err != nil {
+			return nil, err
+		}
+		for _, row := range res.Transactions {
+			kind, ok := cashKinds[text(row["transactionType"])]
+			if !ok || truthy(row["isCancellation"]) {
+				continue
+			}
+			amount, err := num(row["amount"], "입출금 금액")
+			if err != nil {
+				return nil, err
+			}
+			fx, err := numOr0(row["exchangeRate"], "환전 환율")
+			if err != nil {
+				return nil, err
+			}
+			at, err := time.Parse(time.RFC3339, text(row["transactionTime"]))
+			if err != nil {
+				day, derr := time.ParseInLocation("2006-01-02", text(row["settlementDate"]), broker.KST)
+				if derr != nil {
+					return nil, &Error{Message: "거래내역 시각 형식 이상 — 규격 변경 의심"}
+				}
+				at = day
+			}
+			out = append(out, broker.CashFlow{Kind: kind, Currency: strings.TrimSpace(text(row["currency"])), Amount: math.Abs(amount), FX: fx, At: at.In(broker.KST)})
+		}
+		if !truthy(res.HasNext) {
+			return out, nil
+		}
+		if cursor = orText(res.NextCursor); cursor == "" {
+			return out, nil
+		}
+	}
+	return nil, &Error{Message: fmt.Sprintf("거래내역 %d페이지 초과 — 절단된 결과를 돌려주느니 멈춘다", maxPages)}
+}
+
+// CashKRW는 원화 주문가능 금액(현금 기준)이다. 읽기 전용.
+func (c *Client) CashKRW(ctx context.Context) (float64, error) {
+	const where = "GET /api/v1/buying-power"
+	raw, err := c.request(ctx, http.MethodGet, "/api/v1/buying-power",
+		reqOpts{query: url.Values{"currency": {"KRW"}}})
+	if err != nil {
+		return 0, err
+	}
+	var res struct {
+		CashBuyingPower any `json:"cashBuyingPower"`
+	}
+	if err := decode(raw, where, &res); err != nil {
+		return 0, err
+	}
+	return num(res.CashBuyingPower, "원화 매수가능금액")
+}

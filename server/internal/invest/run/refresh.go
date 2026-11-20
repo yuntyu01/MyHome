@@ -25,6 +25,7 @@ type RefreshOpts struct {
 const anchorTol = 0.0005
 
 // Refresh는 야후로 마스터를 오늘까지 연장한다. 원종가(조정 안 한 종가)다 (§10).
+// 타이머는 매일(미국 장 마감 뒤) 돈다. 예전에는 주 1회였다(2026-11-20 매일 기록으로 바꿈).
 //
 // 결측 가드는 그대로다 — 빈 채로 쓰지 않고, 채워질 때까지 기다릴 뿐이다.
 func (a *App) Refresh(ctx context.Context, o RefreshOpts) int {
@@ -33,14 +34,16 @@ func (a *App) Refresh(ctx context.Context, o RefreshOpts) int {
 	for i := 1; i <= tries; i++ {
 		rc = a.refreshOnce(ctx)
 		if rc == ExitOK {
-			// 지난 매수가 추정 환율로 남아 있으면 결제 내역으로 확정한다. 실행일 창(1~7일) 끝에 산 달도 여기서 잡힌다
+			// 지난 매수가 추정 환율로 남아 있으면 결제 내역으로 확정한다. 실행일 창(1~24일) 끝에 산 달도 여기서 잡힌다
 			a.confirmFXQuietly(ctx, invest.TodayET(a.now()))
+			// 매일 기록(그날 신호·원금·금액). 보여 주기만 하고 판정은 달 마지막 거래일 하나다
+			a.recordDaily(ctx)
 		}
 		if rc != ExitRetry || i == tries {
 			return rc
 		}
 		a.warnf("  %d/%d회 실패 — 데이터 반영 지연으로 보고 %s 뒤 다시 받는다 (기다리는 동안 잠금을 놓는다)", i, tries, o.Wait)
-		// 🔴 기다리는 동안 상태 잠금을 놓는다. 쥐고 기다리면 그 사이 도는 judge·주간 갱신이 잠금을 못 잡고
+		// 🔴 기다리는 동안 상태 잠금을 놓는다. 쥐고 기다리면 그 사이 도는 judge·다른 갱신이 잠금을 못 잡고
 		// 75로 끝나 실패 알림이 간다. 다음 시도는 마스터를 처음부터 다시 읽는다
 		if err := a.pause(ctx, o.Wait); err != nil {
 			return a.fail(ExitRetry, "재시도 전에 잠금을 다시 잡지 못했다: %v", err)

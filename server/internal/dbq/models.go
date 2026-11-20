@@ -144,6 +144,7 @@ type InvestBrokerCash struct {
 	CashUsd   float64   `json:"cash_usd"`
 	Cmd       string    `json:"cmd"`
 	FetchedAt time.Time `json:"fetched_at"`
+	CashKrw   *float64  `json:"cash_krw"`
 }
 
 type InvestContribution struct {
@@ -152,6 +153,25 @@ type InvestContribution struct {
 	Reason        string    `json:"reason"`
 	RecordedOn    time.Time `json:"recorded_on"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+type InvestDaily struct {
+	Day         time.Time `json:"day"`
+	Spx         float64   `json:"spx"`
+	Sma185      float64   `json:"sma185"`
+	Vol         float64   `json:"vol"`
+	C1          bool      `json:"c1"`
+	C2          bool      `json:"c2"`
+	Signal      string    `json:"signal"`
+	Symbol      *string   `json:"symbol"`
+	Shares      *int32    `json:"shares"`
+	CloseUsd    *float64  `json:"close_usd"`
+	Fx          *float64  `json:"fx"`
+	StockKrw    *int64    `json:"stock_krw"`
+	CashKrw     *int64    `json:"cash_krw"`
+	InvestedKrw *int64    `json:"invested_krw"`
+	GainKrw     *int64    `json:"gain_krw"`
+	RecordedAt  time.Time `json:"recorded_at"`
 }
 
 type InvestDeviation struct {
@@ -167,6 +187,16 @@ type InvestDeviation struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type InvestFlow struct {
+	ID         int64     `json:"id"`
+	Ym         string    `json:"ym"`
+	Step       string    `json:"step"`
+	Key        string    `json:"key"`
+	At         time.Time `json:"at"`
+	Data       []byte    `json:"data"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
 type InvestLedger struct {
 	ID           int64      `json:"id"`
 	OnDay        time.Time  `json:"on_day"`
@@ -178,6 +208,12 @@ type InvestLedger struct {
 	Note         string     `json:"note"`
 	SupersededAt *time.Time `json:"superseded_at"`
 	CreatedAt    time.Time  `json:"created_at"`
+}
+
+type InvestPref struct {
+	ID         int32     `json:"id"`
+	DepositDay *int32    `json:"deposit_day"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type InvestPrice struct {

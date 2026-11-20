@@ -11,9 +11,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -24,6 +28,10 @@ import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.auth.AppLink
 import com.yuntyu.myhome.capture.CaptureService
 import com.yuntyu.myhome.core.Money
+import com.yuntyu.myhome.core.api.ApiResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 설정: 가계부 · 알림 · 건강 · 계정을 줄로 나눈다. 서버 주소, 기기 연결, 보낸 기록 같은 어려운 항목은
@@ -56,6 +64,29 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
         settings.selectedPackages.isEmpty() -> "읽을 앱을 골라 주세요" to false
         !batteryOk -> "절전 때문에 놓칠 수 있어요" to false
         else -> "잘 되고 있어요" to true
+    }
+
+    // 투자 입금일은 서버에 있다(자동 매수가 읽는다). 못 읽으면 줄만 비워 둔다
+    var depositDay by remember { mutableStateOf<Int?>(null) }
+    var depositDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(resumeTick, hasToken) {
+        val r = withContext(Dispatchers.IO) { app.api.invest() }
+        if (r is ApiResult.Ok && r.value.migrated) depositDay = r.value.depositDay
+    }
+    if (depositDialog) {
+        DepositDayDialog(depositDay ?: 0, onDismiss = { depositDialog = false }) { day ->
+            scope.launch {
+                val r = withContext(Dispatchers.IO) { app.api.putInvestDepositDay(day) }
+                depositDialog = false
+                if (r is ApiResult.Ok) {
+                    depositDay = day
+                    Toast.makeText(ctx, if (day > 0) "매달 ${day}일 입금 뒤에 사요" else "매달 첫 거래일에 사요", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(ctx, r.plain(), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
@@ -97,6 +128,18 @@ fun SettingsScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> 
             value = if (dismissed > 0) "${dismissed}건" else null,
             help = "폰에서 치운 결제 알림의 앱·제목·내용을 최근 30일, 200건까지 이 폰에만 남겨요.",
             onClick = { onNavigate(Screen.DISMISSED) },
+        )
+
+        SectionLabel("투자")
+        FlatRow(
+            "입금일",
+            value = when (val d = depositDay) {
+                null -> null
+                0 -> "정하지 않음"
+                else -> "매달 ${d}일"
+            },
+            help = "월급이 토스증권에 들어오는 날이에요. 이 날 뒤로 입금이 보이면 그날 밤에 사고, 정하지 않으면 매달 첫 거래일에 계좌에 있는 돈으로 사요.",
+            onClick = { if (depositDay != null) depositDialog = true },
         )
 
         SectionLabel("건강")

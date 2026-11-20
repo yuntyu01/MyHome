@@ -4,7 +4,7 @@
 //
 //	자동
 //	  refresh → judge     월 마지막 거래일 — 판정만. 매매 없음 (다음 거래일 장 시작 전에 한 번 더 만회)
-//	  trade               월 1~7일 매일 — 주문·체결 확인을 한 단계씩
+//	  trade               월 1~24일 매일 — 입금 확인(입금일), 주문·체결 확인을 한 단계씩
 //	  status (deadman)    매주 — 조용히 죽은 것 감지
 //
 //	수동 — 복구·교정 전용. 정상 달에는 쓸 일이 없다
@@ -100,7 +100,8 @@ func (a *App) noteCash(ctx context.Context, cashUSD float64) {
 }
 
 // probeCash는 증권사 현금을 읽기만 해서 기록한다(주간 status). 실패해도 deadman 판정과 무관하게 한 줄만 남긴다.
-func (a *App) probeCash(ctx context.Context, ledgerUSD float64) {
+// 적용월의 입금·환전도 같이 읽어 둔다(투자 화면 단계 표시).
+func (a *App) probeCash(ctx context.Context, ledgerUSD float64, ym string) {
 	if a.Broker == nil {
 		return
 	}
@@ -118,6 +119,9 @@ func (a *App) probeCash(ctx context.Context, ledgerUSD float64) {
 	}
 	a.noteCash(ctx, bal.CashUSD)
 	a.printf("현금      장부 %s · 증권사 주문가능 %s", usd(ledgerUSD), usd(bal.CashUSD))
+	if seen := a.observe(ctx, client, ym); seen.OK && seen.DepositKRW > 0 {
+		a.printf("입금      %s 들어온 원화 %s원", ym, won(seen.DepositKRW))
+	}
 }
 
 func (a *App) printf(format string, args ...any) { fmt.Fprintf(a.Out, format+"\n", args...) }

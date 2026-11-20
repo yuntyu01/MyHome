@@ -19,6 +19,80 @@ data class InvestStatus(
     val schedule: List<InvestRow>? = null,
     val checks: List<InvestRow>? = null,
     val problems: Int = 0,
+    /** 맨 위 요약: 종목·증권 총액·넣은 돈(세전, 토스 앱과 같은 기준) */
+    val summary: InvestSummary? = null,
+    /** 이번 달 자동 매수 단계(판정 검산 → 돈 입금 → 환전 → 구매 신청 → 구매 성공) */
+    val flow: InvestFlow? = null,
+    /** 입금일(한국 날짜 1~20). 0이면 정하지 않음 = 첫 거래일에 산다 */
+    @SerialName("deposit_day") val depositDay: Int = 0,
+    /** 매일 기록: 오늘 신호(참고, 판정은 달 마지막 거래일)와 거래일마다의 원금·금액·수익률 */
+    val daily: InvestDaily? = null,
+)
+
+@Serializable
+data class InvestDaily(
+    val has: Boolean = false,
+    /** 마지막 기록일 종가로 본 신호 종목(TQQQ·QQQM) */
+    val signal: String = "",
+    /** 이번 달 판정 종목과 같은가 */
+    val same: Boolean = true,
+    val title: String = "",
+    val lines: List<String> = emptyList(),
+    /** 최근 날부터 */
+    val rows: List<InvestDailyRow> = emptyList(),
+)
+
+@Serializable
+data class InvestDailyRow(
+    val day: String = "",
+    val signal: String = "",
+    /** S&P500이 185일선보다 "+8.5%" */
+    val trend: String = "",
+    /** 나스닥100 21일 변동성 "17.9%" */
+    val vol: String = "",
+    val c1: Boolean = false,
+    val c2: Boolean = false,
+    @SerialName("has_money") val hasMoney: Boolean = false,
+    @SerialName("invested_krw") val investedKrw: Long = 0,
+    @SerialName("total_krw") val totalKrw: Long = 0,
+    @SerialName("gain_krw") val gainKrw: Long = 0,
+    @SerialName("gain_pct") val gainPct: String = "",
+)
+
+@Serializable
+data class InvestSummary(
+    val symbol: String = "",
+    val shares: Int = 0,
+    /** 이번 적용월 신호 종목 */
+    val target: String = "",
+    @SerialName("can_value") val canValue: Boolean = false,
+    @SerialName("total_krw") val totalKrw: Long = 0,
+    @SerialName("stock_krw") val stockKrw: Long = 0,
+    @SerialName("cash_krw") val cashKrw: Long = 0,
+    @SerialName("invested_krw") val investedKrw: Long = 0,
+    @SerialName("gain_krw") val gainKrw: Long = 0,
+    @SerialName("gain_pct") val gainPct: String = "",
+    val basis: String = "",
+)
+
+/** state: done(끝남) · running(진행 중) · waiting(아직) · failed(문제) · skipped(해당 없음) */
+@Serializable
+data class InvestFlow(
+    val ym: String = "",
+    val title: String = "",
+    val state: String = "",
+    val value: String = "",
+    val steps: List<InvestStep> = emptyList(),
+)
+
+@Serializable
+data class InvestStep(
+    val key: String = "",
+    val title: String = "",
+    val state: String = "",
+    val value: String = "",
+    /** 눌렀을 때 펼치는 근거 줄(서버가 만든 문구) */
+    val lines: List<String> = emptyList(),
 )
 
 @Serializable

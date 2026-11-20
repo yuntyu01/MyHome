@@ -44,6 +44,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/yuntyu01/MyHome/server/internal/invest"
 	"github.com/yuntyu01/MyHome/server/internal/invest/broker"
 )
 
@@ -433,6 +434,12 @@ func (c *Client) Order(ctx context.Context, symbol string, side broker.Side, qty
 	}
 	if strings.TrimSpace(clientOrderID) == "" {
 		return broker.OrderResult{}, notSent(errors.New("clientOrderId가 비었다 — 멱등성 키 없이 주문하지 않는다"))
+	}
+	// 🔴 이 전략의 종목(TQQQ·QQQM) 말고는 주문을 내지 않는다(사용자 요청, 2026-11-20). 위에서 run이 이미 종목을
+	// 고르지만 버그나 상태 오염으로 다른 종목이 와도 증권사로 나가기 직전에 막는다. 키를 훔친 사람은 이 코드를
+	// 거치지 않으므로 그 방어는 토스 허용 IP가 한다
+	if !slices.Contains(invest.Tickers, symbol) {
+		return broker.OrderResult{}, notSent(fmt.Errorf("%q는 이 전략의 종목이 아니다 (%s만 주문한다)", symbol, strings.Join(invest.Tickers, "·")))
 	}
 	qtyS, err := formatDecimal(float64(qty), 0, "주문 수량")
 	if err != nil {

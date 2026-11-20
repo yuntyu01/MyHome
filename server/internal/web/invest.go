@@ -67,6 +67,12 @@ type investStatus struct {
 	Schedule       []investRow `json:"schedule"`
 	Checks         []investRow `json:"checks"`
 	Problems       int         `json:"problems"`
+	// 맨 위 요약(종목·증권 총액·넣은 돈)과 이번 달 자동 매수 단계. 입금일은 설정 화면이 같이 쓴다
+	Summary    investSummary `json:"summary"`
+	Flow       investFlow    `json:"flow"`
+	DepositDay int           `json:"deposit_day"`
+	// 매일 기록: 오늘 신호(참고)와 거래일마다의 원금·금액·수익률
+	Daily investDaily `json:"daily"`
 }
 
 // investLedgerRow는 원금 내역 표의 한 줄이다.
@@ -144,6 +150,31 @@ func (wb *Web) apiInvest(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, s)
 }
 
+// apiInvestPrefs는 앱 설정의 입금일 PUT /v1/invest/prefs다. {"deposit_day": 5}, 0이면 지운다(첫 거래일에 산다).
+//
+// 웹이 invest_*에 쓰는 유일한 길이다(웹 역할은 invest_prefs에만 쓰기 권한이 있다). 입금일은 매수를 며칠 미룰 뿐
+// 무엇을·얼마나 살지는 바꾸지 못한다 — 최악은 매수가 입금일 + 3일(최대 23일)까지 늦어지는 것이다.
+func (wb *Web) apiInvestPrefs(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DepositDay *int `json:"deposit_day"`
+	}
+	if err := httpx.DecodeJSON(r, &body); err != nil || body.DepositDay == nil {
+		httpx.Error(w, http.StatusBadRequest, "deposit_day가 필요하다")
+		return
+	}
+	day := *body.DepositDay
+	if day < 0 || day > invest.MaxDepositDay {
+		httpx.Error(w, http.StatusBadRequest, fmt.Sprintf("입금일은 1~%d일 (지우려면 0)", invest.MaxDepositDay))
+		return
+	}
+	if err := store.New(wb.API.Pool, "web").SetDepositDay(r.Context(), day); err != nil {
+		wb.Logger.Error("입금일 저장 실패", "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]int{"deposit_day": day})
+}
+
 // apiInvestValue는 앱 평가 화면용 GET /v1/invest/value다.
 func (wb *Web) apiInvestValue(w http.ResponseWriter, r *http.Request) {
 	v, err := wb.loadInvestValue(r.Context())
@@ -219,6 +250,8 @@ type investInputs struct {
 	Contrib    int64
 	ContribErr error // 적립액 미설정. 화면에 문제로 보여준다
 	Devs       []invest.Deviation
+	Flow       investFlowInputs
+	Daily      []invest.DailyRow // 최근 날부터
 }
 
 func loadInvestInputs(ctx context.Context, st *store.Store, pos invest.Position) (investInputs, error) {
@@ -238,6 +271,18 @@ func loadInvestInputs(ctx context.Context, st *store.Store, pos invest.Position)
 	}
 	// 적립액이 없다는 에러는 화면에 보여줄 문제다. DB 오류와 구분할 방법이 없어 둘 다 문제로 보여준다
 	in.Contrib, in.ContribErr = st.ContributionFor(ctx, pos.ApplyYM)
+	if in.Flow.Events, err = st.LoadFlow(ctx, pos.ApplyYM); err != nil {
+		return in, err
+	}
+	if in.Flow.DepositDay, err = st.DepositDay(ctx); err != nil {
+		return in, err
+	}
+	if in.Flow.KRW, in.Flow.KRWAt, in.Flow.HasKRW, err = st.LastBrokerCashKRW(ctx); err != nil {
+		return in, err
+	}
+	if in.Daily, err = st.LoadDaily(ctx, investDailyMax); err != nil {
+		return in, err
+	}
 	return in, nil
 }
 
@@ -249,8 +294,9 @@ func buildInvestStatus(now time.Time, pos invest.Position, in investInputs) inve
 	s.PriceStale, s.LastPriceDay = priceStaleness(in.Prices, today)
 	s.LastPriceLabel = dayNameAt(s.LastPriceDay, now)
 
-	// 이번 달(적용월) 매수
-	execDay, applyOK := applyExecDay(pos.ApplyYM)
+	// 이번 달(적용월) 매수. 입금일을 정했으면 매수는 입금 뒤이고, 입금일 + 며칠까지는 기다리는 중이다
+	execDay, applyOK := invest.BuyDayOf(pos.ApplyYM, in.Flow.DepositDay)
+	deadline, _ := invest.BuyDeadlineOf(pos.ApplyYM, in.Flow.DepositDay)
 	month := investRow{Title: monthNameAt(pos.ApplyYM, now) + " 매수"}
 	meta := "적용월 " + monthNameAt(pos.ApplyYM, now)
 	if t, err := invest.Ticker(pos.Signal.Target); err == nil {
@@ -270,7 +316,7 @@ func buildInvestStatus(now time.Time, pos invest.Position, in investInputs) inve
 		}
 	case !applyOK:
 		month.Value, month.Bad = "✗ 적용월 형식 이상", true
-	case !today.After(execDay):
+	case !today.After(deadline):
 		// 실행일 당일은 아직 기회가 남았다 — 여기서 알리면 오경보다 (status와 같다)
 		month.Value = "예정 " + shortDate(invest.FormatDay(execDay))
 	default:
@@ -292,9 +338,13 @@ func buildInvestStatus(now time.Time, pos invest.Position, in investInputs) inve
 		if pos.ExecutedThisMonth() {
 			// 이번 적용월은 끝났다. 다음 판정 뒤 달의 첫 거래일이다
 			after := invest.Date(judge.Year(), judge.Month(), 1).AddDate(0, 1, 0)
-			next, nextYM = invest.FirstTradingDay(after.Year(), after.Month()), invest.YM(after)
+			next, nextYM = invest.BuyDay(after.Year(), after.Month(), in.Flow.DepositDay), invest.YM(after)
 		}
-		s.Schedule = append(s.Schedule, investRow{Title: "다음 실행일", Meta: monthNameAt(nextYM, now) + " 첫 거래일",
+		what := " 첫 거래일"
+		if in.Flow.DepositDay > 0 {
+			what = fmt.Sprintf(" 입금일(%d일) 뒤 첫 거래일", in.Flow.DepositDay)
+		}
+		s.Schedule = append(s.Schedule, investRow{Title: "다음 실행일", Meta: monthNameAt(nextYM, now) + what,
 			Value: shortDate(invest.FormatDay(next)) + " · " + dday(today, next), Bad: missed})
 	}
 
@@ -339,6 +389,23 @@ func buildInvestStatus(now time.Time, pos invest.Position, in investInputs) inve
 		led.Value, led.Bad = "✗ "+group(gap)+"원 어긋남", true
 	}
 	s.Checks = append(s.Checks, led)
+
+	s.DepositDay = in.Flow.DepositDay
+	s.Summary = buildInvestSummary(now, pos, in.Prices, in.Flow)
+	plan := in.Contrib
+	if in.ContribErr != nil {
+		plan = 0
+	}
+	runOf := func(cmd string) *dbq.InvestRun {
+		for i := range in.Runs {
+			if in.Runs[i].Cmd == cmd {
+				return &in.Runs[i]
+			}
+		}
+		return nil
+	}
+	s.Flow = buildInvestFlow(now, pos, in.Ledger, plan, runOf("judge"), runOf("trade"), in.Flow)
+	s.Daily = buildInvestDaily(now, pos, in.Daily)
 
 	if s.Month.Bad {
 		s.Problems++
@@ -409,15 +476,6 @@ func priceStaleness(prices invest.Prices, today time.Time) (bool, string) {
 		return true, ""
 	}
 	return daysBetween(last.Day, today) > investPriceStaleDays, invest.FormatDay(last.Day)
-}
-
-// applyExecDay는 적용월의 첫 거래일(실행일)이다.
-func applyExecDay(ym string) (time.Time, bool) {
-	t, err := time.Parse("2006-01", ym)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return invest.FirstTradingDay(t.Year(), t.Month()), true
 }
 
 // lastClose는 그 종목의 마지막 유효 종가와 날짜다. 마지막 행에 값이 빠졌으면 그 앞을 본다.

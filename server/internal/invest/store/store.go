@@ -662,6 +662,76 @@ func (s *Store) SaveBrokerCash(ctx context.Context, cashUSD float64, at time.Tim
 	return s.q.InsertBrokerCash(ctx, dbq.InsertBrokerCashParams{CashUsd: cashUSD, Cmd: s.cmd(), FetchedAt: at})
 }
 
+// SaveBrokerCashBoth는 달러와 원화 주문가능 금액을 함께 남긴다(입금 확인 작업).
+func (s *Store) SaveBrokerCashBoth(ctx context.Context, cashUSD, cashKRW float64, at time.Time) error {
+	return s.q.InsertBrokerCash(ctx, dbq.InsertBrokerCashParams{CashUsd: cashUSD, CashKrw: &cashKRW, Cmd: s.cmd(), FetchedAt: at})
+}
+
+// LastBrokerCashKRW는 증권사가 마지막으로 알려 준 원화 주문가능 금액이다. 아직 없으면 ok=false.
+func (s *Store) LastBrokerCashKRW(ctx context.Context) (cashKRW float64, at time.Time, ok bool, err error) {
+	r, err := s.q.LastBrokerCashKRW(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, time.Time{}, false, nil
+	}
+	if err != nil {
+		return 0, time.Time{}, false, err
+	}
+	return r.CashKrw, r.FetchedAt, true, nil
+}
+
+// AddFlow는 자동 매수 단계 사건을 남긴다. 이미 있던 사건이면 false다.
+func (s *Store) AddFlow(ctx context.Context, e invest.FlowEvent) (bool, error) {
+	data, err := json.Marshal(e)
+	if err != nil {
+		return false, err
+	}
+	n, err := s.q.InsertInvestFlow(ctx, dbq.InsertInvestFlowParams{Ym: e.YM, Step: e.Step, Key: e.Key, At: e.At, Data: data})
+	return n > 0, err
+}
+
+// LoadFlow는 그 적용월의 단계 사건이다(시각 순).
+func (s *Store) LoadFlow(ctx context.Context, ym string) ([]invest.FlowEvent, error) {
+	rows, err := s.q.ListInvestFlow(ctx, ym)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]invest.FlowEvent, 0, len(rows))
+	for _, r := range rows {
+		var e invest.FlowEvent
+		if err := json.Unmarshal(r.Data, &e); err != nil {
+			return nil, fmt.Errorf("invest_flow %d: %w", r.ID, err)
+		}
+		e.YM, e.Step, e.Key, e.At = r.Ym, r.Step, r.Key, r.At
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+// DepositDay는 입금일(한국 날짜)이다. 정하지 않았으면 0.
+func (s *Store) DepositDay(ctx context.Context) (int, error) {
+	d, err := s.q.GetInvestDepositDay(ctx)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && d == nil) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return int(*d), nil
+}
+
+// SetDepositDay는 입금일을 바꾼다. 0이면 지운다(첫 거래일에 산다).
+func (s *Store) SetDepositDay(ctx context.Context, day int) error {
+	if day < 0 || day > invest.MaxDepositDay {
+		return fmt.Errorf("입금일은 1~%d일 (지우려면 0): %d", invest.MaxDepositDay, day)
+	}
+	var v *int32
+	if day > 0 {
+		d := int32(day)
+		v = &d
+	}
+	return s.q.SetInvestDepositDay(ctx, v)
+}
+
 // LastBrokerCash는 증권사가 마지막으로 알려 준 주문가능 현금이다. 아직 없으면 ok=false.
 func (s *Store) LastBrokerCash(ctx context.Context) (cashUSD float64, at time.Time, ok bool, err error) {
 	r, err := s.q.LastBrokerCash(ctx)
@@ -672,4 +742,53 @@ func (s *Store) LastBrokerCash(ctx context.Context) (cashUSD float64, at time.Ti
 		return 0, time.Time{}, false, err
 	}
 	return r.CashUsd, r.FetchedAt, true, nil
+}
+
+// AddDaily는 매일 기록 한 줄을 남긴다. 그날 줄이 이미 있으면 false(고치지 않는다).
+func (s *Store) AddDaily(ctx context.Context, r invest.DailyRow) (bool, error) {
+	p := dbq.InsertInvestDailyParams{Day: r.Day, Spx: r.SPX, Sma185: r.SMA185, Vol: r.Vol, C1: r.C1, C2: r.C2, Signal: r.Signal}
+	if r.HasAccount {
+		shares := int32(r.Shares)
+		p.Symbol, p.Shares, p.CloseUsd, p.Fx = &r.Symbol, &shares, &r.CloseUSD, &r.FX
+		p.StockKrw, p.CashKrw, p.InvestedKrw, p.GainKrw = &r.StockKRW, &r.CashKRW, &r.InvestedKRW, &r.GainKRW
+	}
+	n, err := s.q.InsertInvestDaily(ctx, p)
+	return n > 0, err
+}
+
+// LastDailyDay는 매일 기록의 마지막 날이다. 아직 없으면 ok=false.
+func (s *Store) LastDailyDay(ctx context.Context) (day time.Time, ok bool, err error) {
+	d, err := s.q.LastInvestDailyDay(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return invest.DayOf(d), true, nil
+}
+
+// LoadDaily는 최근 매일 기록 max줄이다(최근 날부터).
+func (s *Store) LoadDaily(ctx context.Context, max int) ([]invest.DailyRow, error) {
+	rows, err := s.q.ListInvestDaily(ctx, int32(max))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]invest.DailyRow, 0, len(rows))
+	for _, r := range rows {
+		d := invest.DailyRow{Day: invest.DayOf(r.Day), SPX: r.Spx, SMA185: r.Sma185, Vol: r.Vol, C1: r.C1, C2: r.C2,
+			Signal: r.Signal, RecordedAt: r.RecordedAt}
+		if r.Symbol != nil && r.Shares != nil && r.StockKrw != nil && r.CashKrw != nil && r.InvestedKrw != nil && r.GainKrw != nil {
+			d.HasAccount, d.Symbol, d.Shares = true, *r.Symbol, int(*r.Shares)
+			d.StockKRW, d.CashKRW, d.InvestedKRW, d.GainKRW = *r.StockKrw, *r.CashKrw, *r.InvestedKrw, *r.GainKrw
+			if r.CloseUsd != nil {
+				d.CloseUSD = *r.CloseUsd
+			}
+			if r.Fx != nil {
+				d.FX = *r.Fx
+			}
+		}
+		out = append(out, d)
+	}
+	return out, nil
 }

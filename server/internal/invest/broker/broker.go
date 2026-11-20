@@ -168,6 +168,31 @@ type Settlements interface {
 	FXAt(ctx context.Context, at time.Time) (FXQuote, error)
 }
 
+// CashFlow는 현금 입출금·환전 1건이다(증권사 거래내역). 금액은 절대값이고 그 통화 단위다.
+type CashFlow struct {
+	Kind     string    // deposit(입금) | exchange_in(환전으로 받은 통화) | exchange_out(환전으로 낸 통화)
+	Currency string    // KRW | USD
+	Amount   float64   // 거래금액(절대값)
+	FX       float64   // USD 쪽 환전의 적용 환율(원/달러). 없으면 0
+	At       time.Time // 처리 시각(KST)
+}
+
+// 현금 거래 종류.
+const (
+	FlowDeposit     = "deposit"
+	FlowExchangeIn  = "exchange_in"
+	FlowExchangeOut = "exchange_out"
+)
+
+// CashFlows는 선택 계약이다. 입금·환전 내역과 원화 주문가능 금액을 준다(입금 확인·투자 화면 표시용). 읽기 전용.
+// 없는 증권사는 구현하지 않고, 호출부는 입금을 확인하지 못한 것으로 본다(입금일 + 며칠 뒤 있는 돈으로 산다).
+type CashFlows interface {
+	// CashFlows는 from(KST 날짜) 이후의 입금·환전이다. 취소된 거래는 뺀다.
+	CashFlows(ctx context.Context, from time.Time) ([]CashFlow, error)
+	// CashKRW는 원화 주문가능 금액(현금 기준)이다.
+	CashKRW(ctx context.Context) (float64, error)
+}
+
 // KST는 국내 증권사 달력의 시간대다.
 var KST = time.FixedZone("KST", 9*60*60)
 

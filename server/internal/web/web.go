@@ -103,9 +103,10 @@ func (wb *Web) Register(mux *http.ServeMux) {
 	h("GET /invest", wb.invest)
 	h("GET /invest/value", wb.investValue)
 	h("GET /invest/backtest", wb.investBacktest)
-	// 앱 투자 탭: 기기 토큰(또는 웹 세션)으로 같은 값을 JSON으로 읽는다. 이것도 GET만 있다
+	// 앱 투자 탭: 기기 토큰(또는 웹 세션)으로 같은 값을 JSON으로 읽는다. 쓰기는 입금일 설정 하나뿐이다(주문 없음)
 	api := func(pattern string, fn http.HandlerFunc) { mux.Handle(pattern, wb.Auth.RequireAPI(fn)) }
 	api("GET /v1/invest", wb.apiInvest)
+	api("PUT /v1/invest/prefs", wb.apiInvestPrefs)
 	api("GET /v1/invest/value", wb.apiInvestValue)
 	api("GET /v1/invest/backtest", wb.apiInvestBacktest)
 	// 매매 실패 알림: 앱 주기 작업이 마지막으로 본 id 다음을 읽어 폰 알림을 띄운다

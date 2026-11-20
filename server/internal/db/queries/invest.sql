@@ -147,8 +147,42 @@ SELECT
               ORDER BY started_at DESC LIMIT 1), 0)::integer AS trade_exit;
 
 -- name: InsertBrokerCash :exec
-INSERT INTO invest_broker_cash (cash_usd, cmd, fetched_at) VALUES ($1, $2, $3);
+INSERT INTO invest_broker_cash (cash_usd, cash_krw, cmd, fetched_at) VALUES ($1, $2, $3, $4);
 
 -- name: LastBrokerCash :one
 -- 증권사가 마지막으로 알려 준 주문가능 현금(웹·앱 투자 화면).
 SELECT cash_usd, cmd, fetched_at FROM invest_broker_cash ORDER BY fetched_at DESC, id DESC LIMIT 1;
+
+-- name: LastBrokerCashKRW :one
+-- 증권사가 마지막으로 알려 준 원화 주문가능 금액. 원화를 같이 읽은 작업만 남긴다.
+SELECT cash_krw::double precision AS cash_krw, fetched_at FROM invest_broker_cash
+WHERE cash_krw IS NOT NULL ORDER BY fetched_at DESC, id DESC LIMIT 1;
+
+-- name: InsertInvestFlow :execrows
+-- 같은 사건(step, key)은 한 번만 남는다. 0이면 이미 있던 것이다.
+INSERT INTO invest_flow (ym, step, key, at, data) VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (step, key) DO NOTHING;
+
+-- name: ListInvestFlow :many
+SELECT id, ym, step, key, at, data, recorded_at FROM invest_flow WHERE ym = $1 ORDER BY at, id;
+
+-- name: GetInvestDepositDay :one
+SELECT deposit_day FROM invest_prefs WHERE id = 1;
+
+-- name: SetInvestDepositDay :exec
+INSERT INTO invest_prefs (id, deposit_day, updated_at) VALUES (1, $1, now())
+ON CONFLICT (id) DO UPDATE SET deposit_day = EXCLUDED.deposit_day, updated_at = now();
+
+-- name: InsertInvestDaily :execrows
+-- 그날 줄이 이미 있으면 건드리지 않는다(그날 본 대로 남긴다). 0이면 이미 있던 것이다.
+INSERT INTO invest_daily (day, spx, sma185, vol, c1, c2, signal,
+    symbol, shares, close_usd, fx, stock_krw, cash_krw, invested_krw, gain_krw)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+ON CONFLICT (day) DO NOTHING;
+
+-- name: LastInvestDailyDay :one
+SELECT day FROM invest_daily ORDER BY day DESC LIMIT 1;
+
+-- name: ListInvestDaily :many
+-- 최근 거래일부터.
+SELECT * FROM invest_daily ORDER BY day DESC LIMIT sqlc.arg(max_rows)::integer;

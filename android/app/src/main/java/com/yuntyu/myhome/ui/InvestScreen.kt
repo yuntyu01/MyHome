@@ -1,19 +1,33 @@
 package com.yuntyu.myhome.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,16 +39,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuntyu.myhome.MyHomeApp
 import com.yuntyu.myhome.core.Money
 import com.yuntyu.myhome.core.api.ApiResult
+import com.yuntyu.myhome.core.api.InvestDaily
+import com.yuntyu.myhome.core.api.InvestDailyRow
+import com.yuntyu.myhome.core.api.InvestFlow
 import com.yuntyu.myhome.core.api.InvestRow
 import com.yuntyu.myhome.core.api.InvestStatus
 import com.yuntyu.myhome.core.api.InvestValue
@@ -44,10 +71,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /*
- * 투자 탭: 자동매매(서버 myhome invest) 상태를 읽기만 한다. 웹 /invest와 같은 값이다.
- * 가계부와 섞지 않으려고 탭을 따로 뒀다. 주문·수정 버튼은 두지 않는다(주문은 서버의 예약 작업만 낸다).
- * 평가액·가격 같은 시장 숫자는 첫 화면에 두지 않고 한 번 더 들어간 평가 화면에만 둔다(TQ 규칙, 웹과 같음).
- * 아래로 당기면 새로 받는다. 보유·이번 달·원금 대조·환율 줄은 누르면 평가 화면으로 간다.
+ * 투자 탭: 자동매매(서버 myhome invest) 상태를 읽기만 한다. 주문·수정 버튼은 두지 않는다(주문은 서버의 예약 작업만 낸다).
+ * 맨 위: 지금 종목·증권 총액·주식에 넣은 돈(사용자 요청, 2026-11-20 — TQ는 첫 화면에 시장 숫자를 두지 않았다).
+ * 그 아래: 이번 달 자동 매수 단계를 GitHub Actions처럼 체크한다. 단계를 누르면 근거(SPX·185일선·변동성,
+ * 입금 시각, 환전 환율·기준율 차이, 주문·체결)가 펼쳐진다. 세후 평가는 한 번 더 들어간 평가 화면에 있다.
+ * 아래로 당기면 새로 받는다.
  */
 
 /** 누르면 평가 화면으로 가는 줄(원금·환율·매수 숫자가 거기 있다) */
@@ -85,14 +113,10 @@ fun InvestScreen(modifier: Modifier, resumeTick: Int, onNavigate: (Screen) -> Un
             else -> {
                 if (error != null) Text("새로 불러오지 못했어요: $error", style = MaterialTheme.typography.bodySmall, color = m.over)
                 if (s.priceStale) StaleBanner(s.lastPriceLabel)
-                Hero(
-                    label = "보유",
-                    value = if (s.shares > 0) "${s.symbol} ${s.shares}주" else "보유 없음",
-                    sub = if (s.problems > 0) "확인할 문제 ${s.problems}건" else "문제 없음 · 눌러서 평가 보기",
-                    subColor = if (s.problems > 0) m.over else m.muted,
-                    onClick = toValue,
-                )
-                s.month?.let { RowGroup("이번 달", listOf(it)) { toValue() } }
+                SummaryHero(s, onClick = toValue)
+                s.daily?.takeIf { it.has }?.let { DailySignal(it) }
+                s.flow?.takeIf { it.steps.isNotEmpty() }?.let { FlowCard(it) }
+                s.daily?.let { DailyTable(it) }
                 RowGroup("일정", s.schedule.orEmpty())
                 RowGroup("점검", s.checks.orEmpty()) { r -> if (r.title in VALUE_ROWS) toValue() }
                 SectionCard("평가") {
@@ -221,6 +245,335 @@ fun InvestValueScreen(modifier: Modifier) {
         }
     }
     }
+}
+
+/** 맨 위 요약: 종목 알약 + 수량, 증권 총액(큰 숫자), 주식·현금 나눔, 넣은 돈·손익 두 칸. 누르면 평가 화면 */
+@Composable
+private fun SummaryHero(s: InvestStatus, onClick: () -> Unit) {
+    val m = LocalModo.current
+    val sum = s.summary
+    val symbol = sum?.symbol?.ifBlank { null } ?: s.symbol.ifBlank { "—" }
+    val shares = sum?.shares ?: s.shares
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).tap(onClickLabel = "평가 보기", onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                symbol,
+                Modifier.clip(RoundedCornerShape(50)).background(m.pill).padding(horizontal = 10.dp, vertical = 3.dp),
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+            )
+            Text(if (shares > 0) "${shares}주 · ${symbolRole(symbol)}" else "보유 없음", color = m.muted, fontSize = 14.sp)
+        }
+        Text("증권 총액", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall, color = m.muted)
+        Text(
+            if (sum?.canValue == true) Money.won(sum.totalKrw) else "—",
+            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        if (sum?.canValue == true) {
+            Text("주식 ${Money.won(sum.stockKrw)} · 현금 ${Money.won(sum.cashKrw)}", style = MaterialTheme.typography.bodySmall, color = m.muted)
+        }
+        if (s.problems > 0) {
+            Text("확인할 문제 ${s.problems}건", style = MaterialTheme.typography.bodySmall, color = m.over)
+        }
+    }
+    if (sum != null) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tile("주식에 넣은 돈", Money.won(sum.investedKrw), "누적 원금", Modifier.weight(1f), onClick = onClick)
+            Tile(
+                "손익 (세전)",
+                if (sum.canValue) (if (sum.gainKrw > 0) "+" else "") + Money.won(sum.gainKrw) else "—",
+                sum.gainPct.ifBlank { null },
+                Modifier.weight(1f),
+                if (sum.canValue && sum.gainKrw < 0) m.over else null,
+                onClick = onClick,
+            )
+        }
+        if (sum.basis.isNotBlank()) Note(sum.basis)
+    }
+}
+
+private fun symbolRole(symbol: String): String = when (symbol) {
+    "TQQQ" -> "나스닥100 3배"
+    "QQQM" -> "나스닥100"
+    else -> ""
+}.ifBlank { "보유" }
+
+/**
+ * 이번 달 자동 매수 단계(GitHub Actions처럼). 머리 줄에 전체 상태, 단계마다 상태 동그라미·이름·시각.
+ * 줄을 누르면 근거가 펼쳐진다. 문제가 있는 단계는 처음부터 펼쳐 둔다. 박스 안 박스는 만들지 않고 1dp 선으로 나눈다.
+ */
+@Composable
+private fun FlowCard(flow: InvestFlow) {
+    val m = LocalModo.current
+    var open by remember(flow.ym) { mutableStateOf(flow.steps.filter { it.state == "failed" }.map { it.key }.toSet()) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            StepIcon(flow.state, 22.dp)
+            Text(flow.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(flow.value, color = stateColor(flow.state), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        for (step in flow.steps) {
+            Hairline()
+            val expanded = step.key in open
+            Row(
+                Modifier.fillMaxWidth()
+                    .tap(onClickLabel = if (expanded) "접기" else "자세히") { open = if (expanded) open - step.key else open + step.key }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                StepIcon(step.state, 18.dp)
+                Text(
+                    step.title, Modifier.weight(1f),
+                    color = if (step.state == "waiting" || step.state == "skipped") m.muted else MaterialTheme.colorScheme.onSurface,
+                )
+                if (step.value.isNotBlank()) Text(step.value, color = if (step.state == "failed") m.over else m.muted, fontSize = 13.sp)
+                // ⌃와 ⌄는 글자 폭이 달라 칸을 고정한다(안 그러면 누를 때 시각이 옆으로 움직인다)
+                Text(if (expanded) "⌃" else "⌄", Modifier.width(14.dp), color = m.faint, fontSize = 13.sp, textAlign = TextAlign.Center)
+            }
+            AnimatedVisibility(expanded) {
+                Column(
+                    Modifier.fillMaxWidth().padding(start = 44.dp, end = 16.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (step.lines.isEmpty()) Text("아직 기록이 없어요", style = MaterialTheme.typography.bodySmall, color = m.faint)
+                    for (line in step.lines) {
+                        Text(line, style = MaterialTheme.typography.bodySmall, color = m.muted)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 오늘 신호(사용자 요청, 2026-11-20): 마지막 거래일 종가로 보면 TQQQ인지 QQQM인지와 근거. 판정은 달 마지막 거래일
+ * 하나라 참고일 뿐이고, 이번 달 종목과 다르면 마지막 줄(이대로면 다음 달에 바뀜)만 라벤더로 짚는다.
+ */
+@Composable
+private fun DailySignal(d: InvestDaily) {
+    val m = LocalModo.current
+    SectionCard("오늘 신호") {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                d.signal,
+                Modifier.clip(RoundedCornerShape(50)).background(m.pill).padding(horizontal = 10.dp, vertical = 3.dp),
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+            )
+            Text("${d.title} · ${symbolRole(d.signal)}", color = m.muted, fontSize = 14.sp)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            d.lines.forEachIndexed { i, line ->
+                Text(line, style = MaterialTheme.typography.bodySmall, color = if (i == d.lines.lastIndex && !d.same) m.warn else m.muted)
+            }
+        }
+    }
+}
+
+/** 처음에 보이는 매일 기록 줄 수. 나머지는 "더 보기" */
+private const val DAILY_SHOWN = 7
+
+/**
+ * 매일 기록 표: 날짜 · 신호 · 원금 · 금액 · 수익률(최근 날부터). 줄을 누르면 그날 S&P500·변동성과 손익.
+ * 밀린 날(갱신이 한꺼번에 받은 날)은 계좌를 몰라 돈 칸이 "—"다. 박스 안 박스 없이 1dp 선으로 나눈다.
+ */
+@Composable
+private fun DailyTable(d: InvestDaily) {
+    val m = LocalModo.current
+    var all by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(setOf<String>()) }
+    Column(Modifier.fillMaxWidth()) {
+        Text("매일 기록", Modifier.padding(start = 6.dp, bottom = 8.dp), style = MaterialTheme.typography.labelLarge, color = m.muted)
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(m.card)) {
+            if (d.rows.isEmpty()) {
+                Text(
+                    "아직 기록이 없어요. 거래일마다 미국 장이 끝난 뒤(한국 아침 7시 40분쯤) 남겨요.",
+                    Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                    color = m.muted,
+                )
+                return@Column
+            }
+            DailyCells("날짜", "신호", "원금", "금액", "수익률", header = true)
+            val rows = if (all) d.rows else d.rows.take(DAILY_SHOWN)
+            for (r in rows) {
+                Hairline()
+                val expanded = r.day in open
+                DailyCells(
+                    r.day, r.signal,
+                    if (r.hasMoney) Money.grouped(r.investedKrw) else "—",
+                    if (r.hasMoney) Money.grouped(r.totalKrw) else "—",
+                    if (r.hasMoney) r.gainPct.ifBlank { "—" } else "—",
+                    gainColor = if (r.hasMoney && r.gainKrw < 0) m.over else null,
+                    modifier = Modifier.tap(onClickLabel = if (expanded) "접기" else "자세히") { open = if (expanded) open - r.day else open + r.day },
+                )
+                AnimatedVisibility(expanded) { DailyDetail(r) }
+            }
+            if (d.rows.size > DAILY_SHOWN) {
+                Hairline()
+                Text(
+                    if (all) "접기" else "더 보기 (${d.rows.size}일)",
+                    Modifier.fillMaxWidth().tap(role = Role.Button) { all = !all }.padding(vertical = 12.dp),
+                    color = m.muted,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        Note("세전 · 금액은 주식 + 현금, 수익률은 아직 안 바꾼 원화를 빼고 계산")
+    }
+}
+
+@Composable
+private fun DailyCells(
+    day: String, signal: String, invested: String, total: String, gain: String,
+    header: Boolean = false, gainColor: Color? = null, modifier: Modifier = Modifier,
+) {
+    val m = LocalModo.current
+    val size = if (header) 12.sp else 13.sp
+    val color = if (header) m.muted else MaterialTheme.colorScheme.onSurface
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (header) 10.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(day, Modifier.width(46.dp), fontSize = size, color = m.muted)
+        Text(signal, Modifier.width(50.dp), fontSize = size, color = color, fontWeight = if (header) null else FontWeight.SemiBold)
+        Text(invested, Modifier.weight(1f), fontSize = size, color = color, textAlign = TextAlign.End, maxLines = 1)
+        Text(total, Modifier.weight(1f), fontSize = size, color = color, textAlign = TextAlign.End, maxLines = 1)
+        Text(gain, Modifier.width(60.dp), fontSize = size, color = gainColor ?: color, textAlign = TextAlign.End, maxLines = 1)
+    }
+}
+
+@Composable
+private fun DailyDetail(r: InvestDailyRow) {
+    val m = LocalModo.current
+    Column(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            "S&P500 185일선보다 ${r.trend} ${if (r.c1) "✓" else "✗"} · 나스닥100 변동성 ${r.vol} ${if (r.c2) "✓" else "✗"}",
+            style = MaterialTheme.typography.bodySmall,
+            color = m.muted,
+        )
+        Text(
+            if (r.hasMoney) "손익 ${if (r.gainKrw > 0) "+" else ""}${Money.won(r.gainKrw)}" else "이날은 계좌를 남기지 못했어요(밀려서 한꺼번에 받은 날)",
+            style = MaterialTheme.typography.bodySmall,
+            color = m.muted,
+        )
+    }
+}
+
+@Composable
+private fun stateColor(state: String): Color {
+    val m = LocalModo.current
+    return when (state) {
+        "done" -> m.ok
+        "running" -> m.warn
+        "failed" -> m.over
+        else -> m.muted
+    }
+}
+
+/** 상태 동그라미: 끝남 = 초록 바탕 체크, 진행 중 = 라벤더 고리가 돈다, 문제 = 살구 바탕 ×, 아직 = 빈 고리, 해당 없음 = 빈 고리 + 가로줄 */
+@Composable
+private fun StepIcon(state: String, size: Dp) {
+    val m = LocalModo.current
+    val color = stateColor(state)
+    val faint = m.faint
+    val ink = m.bg
+    val spin = if (state == "running") {
+        val t = rememberInfiniteTransition(label = "step")
+        t.animateFloat(0f, 360f, infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "spin").value
+    } else 0f
+    Canvas(Modifier.size(size)) {
+        val w = this.size.minDimension
+        val stroke = w * 0.11f
+        when (state) {
+            "done" -> {
+                drawCircle(color)
+                val p = Path().apply {
+                    moveTo(w * 0.28f, w * 0.52f); lineTo(w * 0.44f, w * 0.67f); lineTo(w * 0.73f, w * 0.36f)
+                }
+                drawPath(p, ink, style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+            "failed" -> {
+                drawCircle(color)
+                drawLine(ink, Offset(w * 0.34f, w * 0.34f), Offset(w * 0.66f, w * 0.66f), stroke, StrokeCap.Round)
+                drawLine(ink, Offset(w * 0.66f, w * 0.34f), Offset(w * 0.34f, w * 0.66f), stroke, StrokeCap.Round)
+            }
+            "running" -> {
+                val inset = stroke / 2
+                drawCircle(color.copy(alpha = 0.25f), radius = w / 2 - inset, style = Stroke(stroke))
+                drawArc(
+                    color, startAngle = spin - 90f, sweepAngle = 100f, useCenter = false,
+                    topLeft = Offset(inset, inset), size = Size(w - stroke, w - stroke), style = Stroke(stroke, cap = StrokeCap.Round),
+                )
+                drawCircle(color, radius = w * 0.16f)
+            }
+            "skipped" -> {
+                drawCircle(faint, radius = w / 2 - stroke / 2, style = Stroke(stroke * 0.8f))
+                drawLine(faint, Offset(w * 0.32f, w / 2), Offset(w * 0.68f, w / 2), stroke * 0.8f, StrokeCap.Round)
+            }
+            else -> drawCircle(faint, radius = w / 2 - stroke / 2, style = Stroke(stroke * 0.8f))
+        }
+    }
+}
+
+/** 입금일 고르기(1~20일, 달력처럼 7칸씩). 정하지 않으면 예전처럼 첫 거래일에 산다. 설정 화면이 쓴다 */
+@Composable
+internal fun DepositDayDialog(current: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+    val m = LocalModo.current
+    var day by remember { mutableIntStateOf(current.coerceIn(0, 20)) }
+    ModoAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("투자 입금일") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "월급이 토스증권에 들어오는 날이에요. 이 날 뒤로 입금이 보이면 그날 밤에 사고, 3일이 지나도 안 보이면 있는 돈으로 사요.",
+                    fontSize = 14.sp, color = m.muted, modifier = Modifier.padding(bottom = 8.dp),
+                )
+                for (week in (1..20).chunked(7)) {
+                    Row(Modifier.fillMaxWidth()) {
+                        for (d in week) {
+                            val on = d == day
+                            Box(
+                                Modifier.weight(1f).height(40.dp).padding(2.dp).clip(CircleShape)
+                                    .background(if (on) MaterialTheme.colorScheme.onBackground else Color.Transparent)
+                                    .tap(onClickLabel = "${d}일", role = Role.RadioButton) { day = d }
+                                    .semantics { selected = on },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "$d", fontSize = 15.sp,
+                                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (on) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground,
+                                )
+                            }
+                        }
+                        repeat(7 - week.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(day) }, enabled = day > 0) { Text(if (day > 0) "매달 ${day}일로" else "날짜를 골라 주세요") } },
+        dismissButton = {
+            Row {
+                if (current > 0) TextButton(onClick = { onSave(0) }) { Text("정하지 않기") }
+                TextButton(onClick = onDismiss) { Text("닫기") }
+            }
+        },
+    )
 }
 
 @Composable

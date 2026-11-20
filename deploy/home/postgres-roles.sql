@@ -41,3 +41,7 @@ BEGIN
         END IF;
     END LOOP;
 END $$;
+
+-- 예외 하나: 입금일(invest_prefs)은 앱 설정에서 바꾸므로 웹 역할도 쓴다. 매수를 며칠 미룰 뿐(최대 23일까지)
+-- 무엇을·얼마나 살지는 바꾸지 못한다. 위에서 SELECT는 이미 받았다.
+GRANT INSERT, UPDATE ON TABLE public.invest_prefs TO myhome_web;

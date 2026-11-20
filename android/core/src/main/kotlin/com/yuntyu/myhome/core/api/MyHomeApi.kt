@@ -69,6 +69,10 @@ class MyHomeApi(
     /** 투자 평가 화면(평가액·원금·원금 내역, 읽기 전용) */
     fun investValue(): ApiResult<InvestValue> = call("GET", "/v1/invest/value", null, InvestValue.serializer())
 
+    /** 입금일(1~20, 0이면 지움). 자동 매수는 이 날 들어온 돈이 보이면 산다 */
+    fun putInvestDepositDay(day: Int): ApiResult<JsonElement> =
+        call("PUT", "/v1/invest/prefs", """{"deposit_day":$day}""", JsonElement.serializer())
+
     /** 투자 → 백테스트 결과(고정 표, 읽기 전용) */
     fun investBacktest(): ApiResult<Backtest> = call("GET", "/v1/invest/backtest", null, Backtest.serializer())
 

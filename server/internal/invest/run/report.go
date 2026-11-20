@@ -66,7 +66,7 @@ func (a *App) Status(ctx context.Context, o StatusOpts) int {
 	}
 	a.printf("규칙      SPX %d일선 · 변동성 %.0f%% · 월말", invest.SMAPeriod, invest.VolThreshold*100)
 	// 증권사 현금은 표시용으로 읽어 남긴다(웹·앱 투자 화면). 실패해도 아래 deadman 판정은 그대로다
-	a.probeCash(ctx, acct.CashUSD)
+	a.probeCash(ctx, acct.CashUSD, pos.ApplyYM)
 
 	// deadman ① 판정이 안 돌았나
 	if stale > 35 {
@@ -88,13 +88,24 @@ func (a *App) Status(ctx context.Context, o StatusOpts) int {
 	if err != nil {
 		return a.fail(ExitFail, "apply_ym 형식 이상")
 	}
-	execDay := invest.FirstTradingDay(t.Year(), t.Month())
+	// 입금일을 정했으면 매수는 입금 뒤다. 입금이 안 보여도 입금일 + 며칠이 지나면 있는 돈으로 사므로
+	// 그 날(deadline)까지는 기다리는 중이고, 지나도 못 샀으면 빠진 것이다
+	dd, err := a.Store.DepositDay(ctx)
+	if err != nil {
+		a.printf("입금일    읽지 못함 — 첫 거래일 기준으로 본다 (%v)", err)
+		dd = 0
+	}
+	execDay := invest.BuyDeadline(t.Year(), t.Month(), dd)
 	switch {
 	case pos.ExecutedThisMonth():
 		a.printf("매수      %s 완료 (%s) ✓", pos.ApplyYM, *pos.ExecutedOn)
 	case !today.After(execDay):
 		// 실행일 당일은 아직 기회가 남았다 — 여기서 알리면 오경보다
-		a.printf("매수      %s 예정 (%s)", pos.ApplyYM, invest.FormatDay(execDay))
+		if dd > 0 {
+			a.printf("매수      %s 예정 (입금일 %d일 · 늦어도 %s)", pos.ApplyYM, dd, invest.FormatDay(execDay))
+		} else {
+			a.printf("매수      %s 예정 (%s)", pos.ApplyYM, invest.FormatDay(execDay))
+		}
 	default:
 		return a.fail(ExitFail, "%s 매수 미체결 — 실행일(%s) %d일 경과.\n  `myhome invest order` 로 주문서를 확인할 것.\n  안 사는 것도 이탈이다. 다만 사유도 잠금도 남지 않아 더 위험하다.",
 			pos.ApplyYM, invest.FormatDay(execDay), daysBetween(execDay, today))

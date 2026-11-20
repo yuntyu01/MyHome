@@ -1,8 +1,12 @@
+# 가격 갱신 — 미국 장 마감 뒤 매일(월~금 장 → 한국 화~토 아침). 새 거래일 종가로 매일 기록(그날 신호·원금·금액)을
+# 남긴다. 판정은 여전히 달 마지막 거래일 하나다(judge 타이머). 예전에는 금요일 1번이었다(2026-11-20 바꿈).
+# 22:43 UTC = 뉴욕 17:43(EST)·18:43(EDT). 월말에는 22:37 judge와 겹칠 수 있는데, 같은 잠금을 기다렸다가
+# 새 거래일 없음으로 끝난다.
 [Unit]
-Description=myhome 자동매매 — 주간 가격 갱신 타이머
+Description=myhome 자동매매 — 매일 가격 갱신 타이머
 
 [Timer]
-OnCalendar=Fri *-*-* 22:43:00 UTC
+OnCalendar=Tue..Sat *-*-* 22:43:00 UTC
 Persistent=true
 AccuracySec=1s
 
