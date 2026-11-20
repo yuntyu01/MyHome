@@ -31,7 +31,9 @@ func withCash(h *harness) *cashBroker {
 	return cb
 }
 
-func atKST(m time.Month, d, hh, mm int) time.Time { return time.Date(2026, m, d, hh, mm, 0, 0, broker.KST) }
+func atKST(m time.Month, d, hh, mm int) time.Time {
+	return time.Date(2026, m, d, hh, mm, 0, 0, broker.KST)
+}
 
 func (h *harness) flow(step string) []invest.FlowEvent {
 	h.t.Helper()
