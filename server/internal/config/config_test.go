@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -151,7 +152,11 @@ func TestAccessConfigValues(t *testing.T) {
 		t.Errorf("개발 모드 DEV_LOGIN_EMAIL: %q %v", c.DevLoginEmail, err)
 	}
 
-	// 예전 카카오 변수는 읽지 않고 이름만 경고용으로 모은다(값은 담지 않는다)
+	// 예전 카카오 변수는 읽지 않고 이름만 경고용으로 모은다(값은 담지 않는다).
+	// 개발 PC의 .env(make test가 export한다)에 남은 옛 변수가 섞이지 않게 먼저 비운다
+	for _, k := range obsoleteKeys {
+		unsetEnv(t, k)
+	}
 	t.Setenv("ALLOWED_KAKAO_IDS", "12345")
 	t.Setenv("KAKAO_REST_API_KEY", "secret-kakao-key")
 	c, _ = Load()
@@ -161,4 +166,13 @@ func TestAccessConfigValues(t *testing.T) {
 	if strings.Contains(strings.Join(c.Obsolete, ","), "secret") {
 		t.Error("값이 들어가면 안 됨")
 	}
+}
+
+// unsetEnv는 테스트 동안 환경변수를 없앤다(t.Setenv는 빈 값으로 "있음"이 된다). 끝나면 되돌린다.
+func unsetEnv(t *testing.T, k string) {
+	t.Helper()
+	if v, ok := os.LookupEnv(k); ok {
+		t.Cleanup(func() { os.Setenv(k, v) })
+	}
+	os.Unsetenv(k)
 }
