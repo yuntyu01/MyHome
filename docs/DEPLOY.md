@@ -163,6 +163,13 @@ myhome invest orders --clear-stale   # 지난 적용월 기록 지우기
 
 `--clear-stale`은 증권사에 묻고, 살아 있을 수 있는 주문이 하나라도 있거나 장부에 반영되지 않은 체결이 있으면(증권사 보유와 장부가 다르면) 지우지 않는다. 이번 적용월 기록은 지우지 않는다.
 
+환전 비용(체결·환전의 적용 환율 vs 기준율)은 VM에서 서비스와 같은 환경·토큰 캐시로 본다(읽기 전용):
+
+```bash
+sudo systemd-run --pipe --wait -p User=myhome-trader -p EnvironmentFile=/etc/myhome/trader.env \
+  -p Environment=TOSS_TOKEN_FILE=/var/lib/myhome-trader/toss-token.json /opt/myhome/myhome invest fx-spread
+```
+
 밖에서 보는 자동매매 신선도는 `GET /healthz/invest`다(로그인 없음, 금액 없음). 매매 전이면 200, 마지막 성공 status가 8일보다 오래됐거나 마지막 judge·trade가 실패했으면 503. `deploy/home/heartbeat.gs`가 `/healthz`와 함께 30분마다 부른다. Access 우회는 `ACCESS_SETUP.md`.
 
 ## 10. 자동 배포 (운영 VM · Play)

@@ -45,6 +45,7 @@ const investUsage = `사용법: myhome invest <명령> [옵션]
   verify                             판정 검산
   why                                확신이 흔들릴 때
   reconcile [--apply-cash]           증권사 계좌 대조 (읽기 전용)
+  fx-spread [--from YYYY-MM-DD]      체결·환전의 적용 환율 vs 기준율(환전 비용, 읽기 전용)
   alert --unit U                     실패 알림을 앱에 남김 (systemd OnFailure가 부른다)
 
 종료 코드: 0 정상, 1 실패(기다려도 안 풀림), 75 기다리면 풀리는 실패
@@ -53,7 +54,7 @@ const investUsage = `사용법: myhome invest <명령> [옵션]
 
 // readOnlyCmds는 상태를 쓰지 않는 명령이다. 잠금을 잡지 않는다 — 매매 중에도 볼 수 있게.
 // alert도 잠금을 잡지 않는다 — 실패 알림이 다른 작업을 기다리느라 늦으면 안 된다.
-var readOnlyCmds = map[string]bool{"order": true, "ledger": true, "verify": true, "why": true, "status": true, "alert": true}
+var readOnlyCmds = map[string]bool{"order": true, "ledger": true, "verify": true, "why": true, "status": true, "alert": true, "fx-spread": true}
 
 type multiFlag []string
 
@@ -188,7 +189,7 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 	retries := fs.Int("retries", 0, "결측·빈 응답일 때 다시 받을 횟수")
 	wait := fs.Duration("wait", 15*time.Minute, "재시도 간격")
 	amount := fs.Int64("amount", 0, "월 적립액(원)")
-	from := fs.String("from", "", "적용 시작월 YYYY-MM")
+	from := fs.String("from", "", "contribute: 적용 시작월 YYYY-MM · fx-spread: 조회 시작일 YYYY-MM-DD")
 	year := fs.Int("year", 0, "특정 연도만")
 	paidYear := fs.Int("paid-year", 0, "그 연도분을 납부했다고 기록")
 	applyCash := fs.Bool("apply-cash", false, "현금 차이만 앱에 반영")
@@ -252,6 +253,8 @@ func dispatchInvest(ctx context.Context, app *run.App, name string, args []strin
 		return app.Reconcile(ctx, run.ReconcileOpts{ApplyCash: *applyCash})
 	case "alert":
 		return app.Alert(ctx, run.AlertOpts{Unit: *unit})
+	case "fx-spread":
+		return app.FXSpread(ctx, run.FXSpreadOpts{From: *from})
 	}
 	fmt.Fprintf(app.Err, "✗ 알 수 없는 명령: %s\n%s\n", name, investUsage)
 	return run.ExitFail
