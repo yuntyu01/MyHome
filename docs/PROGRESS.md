@@ -197,6 +197,55 @@
 - 앱: main push(android/**) → `:core:test` → Play alpha
 - 끝: `HOME_DEPLOY_KEY` Secret·`HOME_KNOWN_HOSTS` 변수를 사용자가 등록(2026-11-10). CI #9(workflow_dispatch)가 VM 배포·바깥 healthz 200까지 성공. 이제 main push만으로 서버가 VM에 배포된다. 만든 곳의 개인키 사본은 지움
 
+### 자동매매 상태를 정규 테이블로 (refactor/invest-db 브랜치, 2026-11-20, 사용자 지시서)
+
+main 병합·배포는 사용자가 한다. 이 브랜치의 첫 커밋은 이날 앞서 만든 투자 홈·입금일·매일 기록(아직 main에 없던 작업)이다.
+
+**기준 결과(바꾸기 전)**
+- `make vet`, `make build` 통과. `make test`는 `internal/config` 하나가 실패했는데 코드가 아니라 개발 PC `.env`의 옛 카카오 변수가 `make`로 export된 탓이었다. 테스트가 그 변수를 비우고 대조하게 고친 뒤 25개 패키지 전부 통과(자동매매 테스트 272개)
+- 바꾸기 전 코드로 넉 달 주기 골든(`run/testdata/cycle_golden.json`, 32단계)을 만들었다. 리팩터 뒤에도 출력·종료 코드·DB 상태가 이 파일과 같아야 한다
+
+**invest_state 필드: 누가 쓰고 누가 읽나**
+
+position 문서
+| 필드 | 쓰는 명령 | 읽는 곳 | 옮길 곳 |
+|---|---|---|---|
+| holdings.symbol · shares · cost_krw | trade(체결 반영), execute, amend(환율 확정 포함), adjust. judge는 그대로 이어 씀 | 모든 명령, 웹·앱, 매일 기록 | invest_fills에서 계산 |
+| holdings.realized_gain_krw | trade·execute·amend의 매도 | tax, 세후 평가(웹 평가 화면) | invest_fills에서 계산 |
+| holdings.tax_paid_krw | tax --paid | tax, 세후 평가 | 문서 그대로 |
+| holdings.cash_usd | trade·execute·amend(적립·매수·매도), reconcile --apply-cash | trade 사이징, status, reconcile, 웹 | 문서 그대로(사람이 증권사 현금에 맞추는 길이 있어 체결로 계산하지 않음) |
+| last_run · ym · signal | judge | order·trade·execute(preflight), status, why, adjust, deviate, reconcile, 웹 | invest_judgments와 대조 |
+| fx_rate · fx_estimated | trade·execute·amend, judge는 이어 씀 | status, 환율 확정, 웹 | 문서 그대로 |
+| apply_ym | judge | 모든 매매 명령, orders, status, deviate, contribute, 웹 | 문서 그대로 |
+| contributed_krw | trade·execute·amend·adjust | ledger 대조, 웹, 매일 기록 | 문서 그대로(invest_ledger 합과 대조) |
+| months_invested | trade·execute·amend | before 스냅샷 | 문서 그대로 |
+| judgment_count | judge | status(준수 횟수) | 문서 그대로 |
+| close_usd | trade·execute가 쓰고 judge가 이어 씀 | 없음(TQ 파일 모양 때문에만 남음) | 지움 |
+| executed_on · executed_ym | trade·execute(judge는 같은 적용월일 때만 이어 씀) | trade·execute·amend·환율 확정·status·judge(미실행 기록)·웹 | 문서 그대로 |
+| late_days | execute(trade는 0) | 웹 | 문서 그대로 |
+| before | trade·execute | amend·환율 확정 | 문서 그대로 |
+| amended_on · amend_count | amend | amend(회차) | 문서 그대로 |
+
+orders 문서
+| 필드 | 쓰는 명령 | 읽는 곳 | 옮길 곳 |
+|---|---|---|---|
+| ym · stage · style_idx | trade | trade, orders | invest_order_books |
+| ledger_gap | trade(매도 때 증권사 − 장부) | 없음(감사용) | invest_order_books |
+| orders[](odno, client_order_id, symbol, side, qty, price, style, submitted_on/at, unknown, filled, expired, fill_price) | trade(submit·resolveUnknown·settle), orders --clear-stale(지움) | trade, orders | invest_orders + invest_order_events |
+
+pending 문서
+| 필드 | 쓰는 명령 | 읽는 곳 | 옮길 곳 |
+|---|---|---|---|
+| kind | deviate | 없음(늘 "deviation") | 지움 |
+| ym · symbol · reason · requested_at | deviate 1차(2차·cancel이 지움) | deviate 2차, cancel | 문서 그대로(DECISIONS 「자동매매 상태 정규화」) |
+
+**계획(단계마다 테스트 → 커밋)**
+1. invest_judgments: judge가 판정 1회 = 1행을 남기고, 이력에서 지난 판정을 채운다. position의 판정 칸과 대조
+2. invest_orders: 주문 기록을 표로(진행 중 주문·확인·clear-stale 그대로). orders 문서는 되돌리기용 그림자로 계속 쓰고 읽을 때 대조
+3. invest_fills: 체결 1건 = 1행. 보유·취득가·연도별 실현이익을 체결에서 계산하고 position 문서와 비트 단위 대조(명령 시작·저장 직전). 어긋나면 실패(앱 알림)
+4. TQ 잔재 정리: import-tq·tq_export.py 삭제, tq_port_test 이름 바꾸기, close_usd·pending.kind 삭제, docs/tq → docs/backtest-source, 문서의 실제 금액·주수 지우기
+5. 검증: 마이그레이션 up→down→up, 골든 대조, backfill 대조, 전체 테스트
+
 ### 투자 홈 요약 · 이번 달 매수 단계 · 입금일 (2026-11-20, 사용자 요청)
 
 - 서버: `invest_flow`·`invest_prefs`·원화 잔고(마이그레이션 00021), trade가 입금·환전(토스 거래내역)·주문·체결을 기록, 입금일 게이트(입금이 보이거나 입금일 + 3일), 타이머 1~24일, `PUT /v1/invest/prefs`, `GET /v1/invest`에 요약·단계, 토스 주문은 TQQQ·QQQM만
