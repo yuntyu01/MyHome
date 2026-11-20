@@ -239,6 +239,17 @@ pending 문서
 | kind | deviate | 없음(늘 "deviation") | 지움 |
 | ym · symbol · reason · requested_at | deviate 1차(2차·cancel이 지움) | deviate 2차, cancel | 문서 그대로(DECISIONS 「자동매매 상태 정규화」) |
 
+**끝난 상태(2026-11-20)**
+- 판정(00023)·주문(00024)·체결(00025) 표, position·orders 문서는 그림자로 매 명령이 비트 대조. pending은 문서 그대로(DECISIONS). TQ 잔재 정리 끝
+- 검증: `make vet`·`make test`(로컬 postgres, 26개 패키지)·`make build` 통과, Android core 테스트 통과, 마이그레이션 up→down→up과 backfill 대조, 336행 대조, 원금 장부 대조, 시나리오 회귀, 골든(리팩터 단계에서는 바이트 그대로, 기능 추가 뒤 의도한 차이만)
+- 사용자 할 일
+  1. PR 검토 뒤 main 병합 = 배포. 매매 타이머가 1~10일, 판정이 25~31일·1일이라 **11~24일 사이**에 병합한다(지시서의 8~24일은 1~7일 타이머 기준)
+  2. 배포 뒤 VM에서 마이그레이션(00021~00027)이 됐는지, `systemctl list-timers 'myhome-invest-*'`에 trade가 1~10일·refresh가 매일로 보이는지, status가 그림자 대조를 통과하는지(`DEPLOY.md` 9절의 systemd-run 방식으로 `invest status`)
+  3. 같은 방식으로 `invest fx-spread`를 돌려 위 「환전」 빈칸을 채운다
+  4. 앱 업데이트 뒤 설정 → 투자 → 입금일(1~7일)을 다시 고른다
+  5. 석 달 동안 그림자 대조가 한 번도 실패하지 않으면 position·orders 문서를 지우는 마이그레이션을 정한다(지금은 만들지 않았다)
+  6. TQ GitHub 저장소는 지우지 말고 Archive
+
 **계획(단계마다 테스트 → 커밋)**
 1. invest_judgments: judge가 판정 1회 = 1행을 남기고, 이력에서 지난 판정을 채운다. position의 판정 칸과 대조
 2. invest_orders: 주문 기록을 표로(진행 중 주문·확인·clear-stale 그대로). orders 문서는 되돌리기용 그림자로 계속 쓰고 읽을 때 대조
